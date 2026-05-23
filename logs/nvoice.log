@@ -816,3 +816,34 @@
 {"ts": "2026-05-23T18:11:09.394842Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 1}, "session": "1eea6ff1"}
 {"ts": "2026-05-23T18:11:13.814172Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "9f242253"}
 {"ts": "2026-05-23T18:11:13.814582Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "9f242253"}
+{"ts": "2026-05-23T18:11:42.324067Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:50.665720Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:50.702576Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:53.622165Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2196874655264"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:59.553144Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2196874655264", "state": "connecting"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:59.553735Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5936}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:59.686784Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2196874655264", "state": "connected"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:11:59.705047Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2196874655264", "label": "stt"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:04.131885Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 24, "output_chars": 25, "elapsed_ms": 290.2, "has_history": false}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:08.969818Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 44, "output_chars": 70, "elapsed_ms": 415.4, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:12.111832Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 26, "output_chars": 98, "elapsed_ms": 367.3, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:15.336520Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 28, "output_chars": 119, "elapsed_ms": 394.1, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:19.197443Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 29, "output_chars": 150, "elapsed_ms": 414.5, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:20.984178Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 12, "output_chars": 157, "elapsed_ms": 277.5, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:28.373779Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 63, "output_chars": 197, "elapsed_ms": 616.7, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:29.367200Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 6, "output_chars": 204, "elapsed_ms": 341.2, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:31.278902Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 16, "output_chars": 221, "elapsed_ms": 355.9, "has_history": true}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:35.715030Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2196874655264", "error": ""}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:12:35.715398Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2196874655264", "state": "closed"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:09.447232Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 1}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:09.469574Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:09.480681Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:09.491060Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:13.639449Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2195855116240"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:18.659847Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2195855116240", "state": "connecting"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:18.661129Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5022}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:18.760001Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2195855116240", "state": "connected"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:18.768884Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2195855116240", "label": "stt"}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:34.895262Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 151, "output_chars": 160, "elapsed_ms": 577.5, "has_history": false}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:37.503756Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2195855116240", "error": ""}, "session": "6d233d0e"}
+{"ts": "2026-05-23T18:14:37.504075Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2195855116240", "state": "closed"}, "session": "6d233d0e"}
