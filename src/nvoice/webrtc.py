@@ -277,7 +277,11 @@ class AudioConsumerTrack(MediaStreamTrack):
         self._vad_active = False  # True when VAD detected speech, STT running
         self._vad_check_interval = 160  # Check VAD every ~160 samples (10ms at 16kHz)
         self._sample_count = 0
-        self._recorder = RawAudioRecorder.start(self.pc_id)
+        
+        # Audio recording disabled for now, uncomment to debug audio issues
+        # self._recorder = RawAudioRecorder.start(self.pc_id)
+        self._recorder = None
+        
         self._vad_silence_start = None  # Track when VAD silence started
         self._vad_silence_timeout = 5.0  # 5 seconds of silence before finalizing
         # Rolling buffer: keep 0.5 seconds of audio before VAD detects speech
