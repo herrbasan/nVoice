@@ -1,0 +1,818 @@
+{"ts": "2026-05-10T17:39:39.909708Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:39:44.755750Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 37}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:39:44.763164Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:39:44.763835Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:39:44.786347Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:39:44.797003Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:40:45.886846Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 304, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:40:45.907248Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:40:46.888031Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:40:46.899180Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 304, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:40:46.920122Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:40:49.428224Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 14989}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:41:03.257925Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 848}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:56:49.510985Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "da5b2cdb"}
+{"ts": "2026-05-10T17:57:01.172982Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "3dd7c2b8"}
+{"ts": "2026-05-10T17:57:21.319415Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "3dd7c2b8"}
+{"ts": "2026-05-10T17:57:21.332017Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "3dd7c2b8"}
+{"ts": "2026-05-10T17:57:21.332420Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "3dd7c2b8"}
+{"ts": "2026-05-10T17:57:21.335740Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "3dd7c2b8"}
+{"ts": "2026-05-10T17:58:07.399602Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "3dd7c2b8"}
+{"ts": "2026-05-10T17:58:09.893121Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "08c73bc1"}
+{"ts": "2026-05-10T18:09:50.728519Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "08c73bc1"}
+{"ts": "2026-05-10T18:09:53.842861Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "9ff3cbda"}
+{"ts": "2026-05-10T18:09:55.301275Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 32}, "session": "9ff3cbda"}
+{"ts": "2026-05-10T18:09:55.312324Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 304, "ms": 1}, "session": "9ff3cbda"}
+{"ts": "2026-05-10T18:09:55.313026Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "9ff3cbda"}
+{"ts": "2026-05-10T18:09:55.316312Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "9ff3cbda"}
+{"ts": "2026-05-10T18:15:49.514426Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "9ff3cbda"}
+{"ts": "2026-05-10T18:15:52.286138Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "1f0ddfe9"}
+{"ts": "2026-05-10T18:15:56.431170Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 33}, "session": "1f0ddfe9"}
+{"ts": "2026-05-10T18:15:56.443153Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 304, "ms": 1}, "session": "1f0ddfe9"}
+{"ts": "2026-05-10T18:15:56.443543Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 304, "ms": 1}, "session": "1f0ddfe9"}
+{"ts": "2026-05-10T18:15:56.446709Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "1f0ddfe9"}
+{"ts": "2026-05-10T18:22:42.878427Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "1f0ddfe9"}
+{"ts": "2026-05-10T18:22:45.759695Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "ded33bc5"}
+{"ts": "2026-05-10T18:22:48.532905Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 34}, "session": "ded33bc5"}
+{"ts": "2026-05-10T18:22:48.545841Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 304, "ms": 2}, "session": "ded33bc5"}
+{"ts": "2026-05-10T18:22:48.546652Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "ded33bc5"}
+{"ts": "2026-05-10T18:22:48.549798Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "ded33bc5"}
+{"ts": "2026-05-10T18:23:35.344138Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "ded33bc5"}
+{"ts": "2026-05-10T18:36:14.475336Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:22.755109Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:22.766975Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:22.767371Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:22.770385Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:34.777964Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:53.774846Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:36:53.788257Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:37:16.029142Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 36884}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:37:20.825806Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 5181}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:37:46.437238Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1314}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:38:08.079981Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1298}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:44:50.590055Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "044d6a68"}
+{"ts": "2026-05-10T18:44:52.294736Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "4b2a3f27"}
+{"ts": "2026-05-10T18:45:20.496580Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 7824}, "session": "4b2a3f27"}
+{"ts": "2026-05-10T18:45:38.902496Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 2632}, "session": "4b2a3f27"}
+{"ts": "2026-05-10T18:54:37.021939Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "4b2a3f27"}
+{"ts": "2026-05-10T18:54:38.801915Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "2c61327e"}
+{"ts": "2026-05-10T18:54:41.824800Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "2c61327e"}
+{"ts": "2026-05-10T18:54:41.838355Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "2c61327e"}
+{"ts": "2026-05-10T18:54:41.838984Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "2c61327e"}
+{"ts": "2026-05-10T18:54:41.843547Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "2c61327e"}
+{"ts": "2026-05-10T19:22:04.914994Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "2c61327e"}
+{"ts": "2026-05-10T19:22:07.690762Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "080cfbd4"}
+{"ts": "2026-05-10T19:27:58.591524Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "080cfbd4"}
+{"ts": "2026-05-10T19:28:01.077983Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "faster_whisper", "host": "127.0.0.1", "port": 2245}, "session": "4dd07447"}
+{"ts": "2026-05-10T19:28:05.581903Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "4dd07447"}
+{"ts": "2026-05-10T19:28:05.592318Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 304, "ms": 1}, "session": "4dd07447"}
+{"ts": "2026-05-10T19:28:05.592997Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "4dd07447"}
+{"ts": "2026-05-10T19:28:05.596406Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "4dd07447"}
+{"ts": "2026-05-10T19:29:16.201468Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "4dd07447"}
+{"ts": "2026-05-12T14:34:21.642472Z", "level": "INFO", "type": "http", "msg": "GET /health", "meta": {"status": 200, "ms": 0}, "session": "43c23c03"}
+{"ts": "2026-05-12T14:34:21.645643Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "43c23c03"}
+{"ts": "2026-05-12T14:34:21.647437Z", "level": "INFO", "type": "http", "msg": "GET /models", "meta": {"status": 200, "ms": 0}, "session": "43c23c03"}
+{"ts": "2026-05-12T14:34:28.568204Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 3}, "session": "3d1ed5fd"}
+{"ts": "2026-05-12T14:35:16.980527Z", "level": "INFO", "type": "http", "msg": "GET /batch-test", "meta": {"status": 200, "ms": 41786}, "session": "71343577"}
+{"ts": "2026-05-12T14:35:27.231172Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1206}, "session": "b204e6b0"}
+{"ts": "2026-05-12T14:35:37.336394Z", "level": "INFO", "type": "http", "msg": "POST /v1/audio/transcriptions", "meta": {"status": 200, "ms": 1203}, "session": "7ea77860"}
+{"ts": "2026-05-12T14:56:24.948538Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "127.0.0.1", "port": 2245}, "session": "64c94100"}
+{"ts": "2026-05-12T14:56:29.685022Z", "level": "INFO", "type": "http", "msg": "GET /health", "meta": {"status": 200, "ms": 0}, "session": "64c94100"}
+{"ts": "2026-05-12T14:56:29.686853Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "64c94100"}
+{"ts": "2026-05-12T14:56:30.988943Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1291}, "session": "64c94100"}
+{"ts": "2026-05-12T14:56:50.467720Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "127.0.0.1", "port": 2245}, "session": "c5718704"}
+{"ts": "2026-05-12T14:56:50.468114Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "c5718704"}
+{"ts": "2026-05-12T14:57:01.265930Z", "level": "INFO", "type": "http", "msg": "GET /health", "meta": {"status": 200, "ms": 0}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:01.267596Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:01.380073Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 102}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:17.987725Z", "level": "INFO", "type": "http", "msg": "GET /health", "meta": {"status": 200, "ms": 0}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:17.989699Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:18.098285Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 98}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:18.174672Z", "level": "INFO", "type": "http", "msg": "POST /v1/audio/transcriptions", "meta": {"status": 200, "ms": 66}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:27.149429Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 263}, "session": "64c94100"}
+{"ts": "2026-05-12T14:57:32.010752Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 3}, "session": "64c94100"}
+{"ts": "2026-05-12T14:58:26.504632Z", "level": "INFO", "type": "http", "msg": "GET /batch-test", "meta": {"status": 200, "ms": 35876}, "session": "64c94100"}
+{"ts": "2026-05-12T15:07:58.904772Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "127.0.0.1", "port": 2245}, "session": "5957a7d3"}
+{"ts": "2026-05-12T15:07:58.905157Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "5957a7d3"}
+{"ts": "2026-05-12T15:08:09.734902Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "127.0.0.1", "port": 2245}, "session": "c8dcd59e"}
+{"ts": "2026-05-12T15:08:09.735222Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "c8dcd59e"}
+{"ts": "2026-05-12T15:08:23.976400Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "127.0.0.1", "port": 2245}, "session": "b303c003"}
+{"ts": "2026-05-12T15:09:55.422984Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:03.181159Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:03.198014Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:03.198457Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:03.211495Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:03.230720Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:24.689891Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 2}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:24.713135Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:24.718142Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:24.725972Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:10:24.734085Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:02.084360Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:05.029610Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:05.046215Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:05.048266Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:05.050034Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:05.053689Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:44.016511Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:44.034486Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:44.036334Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:44.037874Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:11:44.043897Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:12:02.811617Z", "level": "INFO", "type": "http", "msg": "OPTIONS /webrtc/offer", "meta": {"status": 405, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:12:12.639634Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 4}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:53.551645Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 2}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:53.567450Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:53.569189Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:53.569659Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:53.573929Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:58.833552Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2646493894352"}, "session": "3f253338"}
+{"ts": "2026-05-12T15:14:58.833858Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2646493894352", "state": "closed"}, "session": "3f253338"}
+{"ts": "2026-05-12T15:15:36.709404Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "2337b3a3"}
+{"ts": "2026-05-12T15:16:53.724799Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2296032735792"}, "session": "2337b3a3"}
+{"ts": "2026-05-12T15:16:53.725368Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2296032735792", "state": "closed"}, "session": "2337b3a3"}
+{"ts": "2026-05-12T15:17:01.136908Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "527406c9"}
+{"ts": "2026-05-12T15:17:01.137340Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "527406c9"}
+{"ts": "2026-05-12T15:17:27.125999Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "174e51c1"}
+{"ts": "2026-05-12T15:18:30.243707Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2596181389872"}, "session": "174e51c1"}
+{"ts": "2026-05-12T15:18:30.244046Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2596181389872", "state": "closed"}, "session": "174e51c1"}
+{"ts": "2026-05-12T15:18:43.004940Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2306522297552"}, "session": "3f9fd231"}
+{"ts": "2026-05-12T15:18:43.006531Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2306522297552", "state": "closed"}, "session": "3f9fd231"}
+{"ts": "2026-05-12T15:19:36.508563Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2524644848848"}, "session": "ed5688ce"}
+{"ts": "2026-05-12T15:19:51.823791Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "34b90583"}
+{"ts": "2026-05-12T15:20:54.936003Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 3}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:14.948187Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:14.962227Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:14.962948Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:14.964757Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:14.984472Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 18}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:18.894498Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2337947070736"}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:25.112160Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2337947070736", "state": "connecting"}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:25.114430Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6231}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:25.198874Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2337947070736", "state": "connected"}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:25.199746Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2337947070736", "label": "stt"}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:39.173743Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2337947070736", "error": ""}, "session": "34b90583"}
+{"ts": "2026-05-12T18:35:39.174263Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2337947070736", "state": "closed"}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:40.504379Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:40.524276Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:40.535879Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:40.537712Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:42.934476Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:47.263689Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 1}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:47.281369Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:59.850556Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:36:59.865170Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "34b90583"}
+{"ts": "2026-05-12T18:39:57.005284Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:10.329260Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:10.350413Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:10.376102Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:10.383868Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:14.097916Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1584079055440"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:20.264708Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1584079055440", "state": "connecting"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:20.265251Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6176}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:20.389003Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1584079055440", "state": "connected"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:20.414706Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1584079055440", "label": "stt"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:44:55.087444Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1584079055440", "state": "closed"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:23.978447Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1584086073744"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:29.001191Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1584086073744", "state": "connecting"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:29.002450Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5033}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:29.127415Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1584086073744", "state": "connected"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:29.134163Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1584086073744", "label": "stt"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:43.617668Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1584086073744", "error": ""}, "session": "d91b1be1"}
+{"ts": "2026-05-12T18:49:43.618035Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1584086073744", "state": "closed"}, "session": "d91b1be1"}
+{"ts": "2026-05-12T19:19:04.078811Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:48.105987Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:48.139307Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:48.148202Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 1}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:52.172402Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2171670590000"}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:58.331774Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2171670590000", "state": "connecting"}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:58.332357Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6178}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:58.444662Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2171670590000", "state": "connected"}, "session": "281787c6"}
+{"ts": "2026-05-12T19:20:58.452495Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2171670590000", "label": "stt"}, "session": "281787c6"}
+{"ts": "2026-05-12T19:21:25.466787Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2171670590000", "state": "closed"}, "session": "281787c6"}
+{"ts": "2026-05-12T19:23:55.145705Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "e7aa51cf"}
+{"ts": "2026-05-12T19:25:41.310738Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:25:41.552240Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 32}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:25:41.623513Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 304, "ms": 0}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:25:41.631207Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:29.809866Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:29.830858Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 304, "ms": 0}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:29.837763Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:33.573968Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1481113704432"}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:39.725991Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1481113704432", "state": "connecting"}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:39.726375Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6169}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:39.982421Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1481113704432", "state": "connected"}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:28:39.994125Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1481113704432", "label": "stt"}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:15.501057Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 331, "output_chars": 358}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:26.284165Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 61, "output_chars": 62}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:33.816761Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 2, "output_chars": 74}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:41.705435Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 2, "output_chars": 98}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:49.272670Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 2, "output_chars": 98}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:53.509620Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1481113704432", "error": ""}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:29:53.510118Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1481113704432", "state": "closed"}, "session": "68a2a931"}
+{"ts": "2026-05-12T19:32:54.326009Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:05.162671Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 37}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:05.189716Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:05.222486Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:21.261005Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:21.278386Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:21.282844Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:21.285534Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:21.289053Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:21.311942Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:31.289219Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1841887022112"}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:37.459357Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1841887022112", "state": "connecting"}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:37.460473Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6175}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:37.576145Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1841887022112", "state": "connected"}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:38:37.577158Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1841887022112", "label": "stt"}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:39:06.090957Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 58, "output_chars": 61}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:39:44.120206Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 3, "input_chars": 298, "output_chars": 322}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:39:54.997825Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1841887022112", "error": ""}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:39:54.998603Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1841887022112", "state": "closed"}, "session": "c92c0b42"}
+{"ts": "2026-05-12T19:42:39.907500Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:23.065787Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:23.081227Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:23.083063Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:23.086649Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:23.088568Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:27.267330Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2493523667536"}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:33.463013Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2493523667536", "state": "connecting"}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:33.463649Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6210}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:33.555322Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2493523667536", "state": "connected"}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:33.556964Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2493523667536", "label": "stt"}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:38.794841Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 23, "output_chars": 23}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:43.591394Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 41, "output_chars": 43}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:49.683044Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 53, "output_chars": 55}, "session": "a388649b"}
+{"ts": "2026-05-12T19:44:59.418351Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 70, "output_chars": 73}, "session": "a388649b"}
+{"ts": "2026-05-12T19:45:01.080624Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 4, "output_chars": 4}, "session": "a388649b"}
+{"ts": "2026-05-12T19:45:16.708681Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 146, "output_chars": 153}, "session": "a388649b"}
+{"ts": "2026-05-12T19:45:21.615911Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2493523667536", "error": ""}, "session": "a388649b"}
+{"ts": "2026-05-12T19:45:21.616582Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2493523667536", "state": "closed"}, "session": "a388649b"}
+{"ts": "2026-05-12T19:48:55.865521Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:36.800133Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 32}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:36.815234Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:36.817071Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:36.819047Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:36.822123Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:41.089762Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2023183542864"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:47.299100Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2023183542864", "state": "connecting"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:47.299488Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6226}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:47.396682Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2023183542864", "state": "connected"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:47.397705Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2023183542864", "label": "stt"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:04:56.543356Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 44, "output_chars": 46}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:05:16.020939Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 180, "output_chars": 155}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:05:37.572832Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 167, "output_chars": 164}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:05:41.523431Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 30, "output_chars": 31}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:05:49.959504Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 75, "output_chars": 74}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:05:54.870233Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2023183542864", "error": ""}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:05:54.870788Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2023183542864", "state": "closed"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:09.823466Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 1}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:09.842961Z", "level": "INFO", "type": "http", "msg": "GET /.well-known/appspecific/com.chrome.devtools.json", "meta": {"status": 404, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:09.844477Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:09.846327Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:09.849940Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:14.045157Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2023437755856"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:19.074522Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2023437755856", "state": "connecting"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:19.075299Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5041}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:19.163805Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2023437755856", "state": "connected"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:19.165408Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2023437755856", "label": "stt"}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:44.239708Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 149, "output_chars": 145}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:08:45.815362Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 6, "output_chars": 6}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:09:06.946772Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 208, "output_chars": 235}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:09:10.945133Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 40, "output_chars": 25}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:09:17.866945Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 56, "output_chars": 61}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:09:30.735877Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 105, "output_chars": 114}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:09:35.653889Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2023437755856", "error": ""}, "session": "52baae0a"}
+{"ts": "2026-05-12T20:09:35.654437Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2023437755856", "state": "closed"}, "session": "52baae0a"}
+{"ts": "2026-05-23T11:33:18.638768Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:34:54.000183Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 34}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:34:54.067195Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:34:54.079325Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:34:54.093998Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:34:54.134545Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:04.715369Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2895505682320"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:10.765280Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895505682320", "state": "connecting"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:10.766014Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6058}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:10.992569Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895505682320", "state": "connected"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:11.020549Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2895505682320", "label": "stt"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:16.311751Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:24.949412Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:31.345444Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:45.034657Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2895505682320", "error": ""}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:35:45.035074Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895505682320", "state": "closed"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:47.339308Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 1}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:47.415233Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 1}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:49.911038Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2895506907984"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:54.930244Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895506907984", "state": "connecting"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:54.930575Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5021}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:55.078326Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895506907984", "state": "connected"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:43:55.102065Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2895506907984", "label": "stt"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:44:01.338691Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:44:06.031011Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2895506907984", "error": ""}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:44:06.031387Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895506907984", "state": "closed"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:06.258033Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:06.271708Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:06.275036Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:06.278194Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:06.301522Z", "level": "INFO", "type": "http", "msg": "GET /favicon.ico", "meta": {"status": 404, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:08.763060Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:10.110687Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:10.122145Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:10.125766Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:10.128173Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:30.618403Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2895506915024"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:35.637489Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895506915024", "state": "connecting"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:35.639024Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5021}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:35.732770Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895506915024", "state": "connected"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:35.734333Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2895506915024", "label": "stt"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:42.003915Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:45:59.604382Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:46:04.263305Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2895506915024", "error": ""}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:46:04.264336Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2895506915024", "state": "closed"}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:47:57.587736Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "f935f41b"}
+{"ts": "2026-05-23T11:47:59.953683Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:05.269564Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 36}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:05.287508Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:05.289431Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:05.308129Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:14.115934Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1999316250848"}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:20.188992Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1999316250848", "state": "connecting"}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:20.189385Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6078}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:20.287666Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1999316250848", "state": "connected"}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:20.288555Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1999316250848", "label": "stt"}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:33.918355Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:43.826860Z", "level": "ERROR", "type": "llm", "msg": "llm_enhancer_missing_aiohttp", "meta": {}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:48.244448Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1999316250848", "error": ""}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:48:48.244898Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1999316250848", "state": "closed"}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:49:26.809056Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "b7c8478d"}
+{"ts": "2026-05-23T11:49:29.386674Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "8428b335"}
+{"ts": "2026-05-23T11:49:40.114004Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2053450533920"}, "session": "8428b335"}
+{"ts": "2026-05-23T11:49:46.206394Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2053450533920", "state": "connecting"}, "session": "8428b335"}
+{"ts": "2026-05-23T11:49:46.207098Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6097}, "session": "8428b335"}
+{"ts": "2026-05-23T11:49:46.301388Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2053450533920", "state": "connected"}, "session": "8428b335"}
+{"ts": "2026-05-23T11:49:46.302334Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2053450533920", "label": "stt"}, "session": "8428b335"}
+{"ts": "2026-05-23T11:49:52.048979Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 26, "output_chars": 21}, "session": "8428b335"}
+{"ts": "2026-05-23T11:50:01.310993Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 74, "output_chars": 72}, "session": "8428b335"}
+{"ts": "2026-05-23T11:50:16.736272Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 81, "output_chars": 77}, "session": "8428b335"}
+{"ts": "2026-05-23T11:50:29.713315Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 78, "output_chars": 84}, "session": "8428b335"}
+{"ts": "2026-05-23T11:50:32.126653Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 22, "output_chars": 23}, "session": "8428b335"}
+{"ts": "2026-05-23T11:50:39.284309Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2053450533920", "state": "closed"}, "session": "8428b335"}
+{"ts": "2026-05-23T11:52:13.887839Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "8428b335"}
+{"ts": "2026-05-23T11:52:16.005500Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:19.496884Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:19.510865Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:19.514003Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:19.517584Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:25.579310Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2342682273712"}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:31.662406Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2342682273712", "state": "connecting"}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:31.662815Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6088}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:31.762653Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2342682273712", "state": "connected"}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:31.763694Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2342682273712", "label": "stt"}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:52:55.455468Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 183, "output_chars": 197}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:53:12.560467Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 144, "output_chars": 154}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:53:27.461963Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 77, "output_chars": 79}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:53:34.037464Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 75, "output_chars": 76}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:53:46.320667Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 123, "output_chars": 116}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:53:55.128019Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2342682273712", "error": ""}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:53:55.128506Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2342682273712", "state": "closed"}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:56:31.888407Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "44c2588a"}
+{"ts": "2026-05-23T11:56:33.720066Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:35.578102Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:35.595504Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:35.597724Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:35.601037Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:39.606950Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2050668406704"}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:45.701086Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2050668406704", "state": "connecting"}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:45.702157Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6101}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:45.797008Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2050668406704", "state": "connected"}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:56:45.798391Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2050668406704", "label": "stt"}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:14.987860Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 64, "output_chars": 65}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:33.344858Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 185, "output_chars": 191}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:34.046012Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 3, "output_chars": 3}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:39.712301Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 41, "output_chars": 41}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:51.387760Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 85, "output_chars": 87}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:55.654462Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 44, "output_chars": 45}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:57:57.406690Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 3, "output_chars": 3}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:58:14.387011Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 81, "output_chars": 83}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:58:27.593643Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 108, "output_chars": 82}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:58:34.134482Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 60, "output_chars": 56}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:58:38.385480Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2050668406704", "error": ""}, "session": "0fdf1081"}
+{"ts": "2026-05-23T11:58:38.385949Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2050668406704", "state": "closed"}, "session": "0fdf1081"}
+{"ts": "2026-05-23T12:09:19.996278Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 0}, "session": "0fdf1081"}
+{"ts": "2026-05-23T12:09:20.010567Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "0fdf1081"}
+{"ts": "2026-05-23T12:09:20.014833Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "0fdf1081"}
+{"ts": "2026-05-23T12:09:20.019044Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "0fdf1081"}
+{"ts": "2026-05-23T12:09:22.394736Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "0fdf1081"}
+{"ts": "2026-05-23T12:09:24.696361Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:28.737745Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:28.752545Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:28.755583Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:28.759488Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:33.181710Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2357129850768"}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:39.130968Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2357129850768", "state": "connecting"}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:39.131394Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5953}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:39.228893Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2357129850768", "state": "connected"}, "session": "80790157"}
+{"ts": "2026-05-23T12:09:39.229649Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2357129850768", "label": "stt"}, "session": "80790157"}
+{"ts": "2026-05-23T12:11:29.006345Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:31.260404Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:31.277216Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:31.280011Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:31.284078Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:34.475405Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1995988873104"}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:40.396019Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1995988873104", "state": "connecting"}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:40.396782Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5927}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:40.492179Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1995988873104", "state": "connected"}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:11:40.493037Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1995988873104", "label": "stt"}, "session": "12caab4c"}
+{"ts": "2026-05-23T12:13:37.985589Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:41.716683Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 34}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:41.732257Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:41.735146Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:41.739683Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:47.512508Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2247103491984"}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:53.430503Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2247103491984", "state": "connecting"}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:53.431393Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5922}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:53.527963Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2247103491984", "state": "connected"}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:53.528880Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2247103491984", "label": "stt"}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:13:59.127019Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2247103491984", "error": "'SherpaOnnxAdapter' object has no attribute 'is_ready'"}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:14:24.437741Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2247103491984", "state": "closed"}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:20:03.759030Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "94b1f92a"}
+{"ts": "2026-05-23T12:20:05.987153Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:10.628723Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 39}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:10.641652Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:10.645287Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 0}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:10.648315Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:15.216365Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1776070176656"}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:21.146478Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1776070176656", "state": "connecting"}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:21.146900Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5935}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:21.244598Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1776070176656", "state": "connected"}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:21.245687Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1776070176656", "label": "stt"}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:34.469566Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1776070176656", "error": ""}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:20:34.469985Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1776070176656", "state": "closed"}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:24:25.910491Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "2333d6f0"}
+{"ts": "2026-05-23T12:24:28.612838Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:39.423089Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 35}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:39.436226Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:39.438685Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:39.442488Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:43.311092Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2474160172944"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:49.234230Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2474160172944", "state": "connecting"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:49.234574Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5928}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:49.330626Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2474160172944", "state": "connected"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:24:49.331355Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2474160172944", "label": "stt"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:05.790989Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 28, "output_chars": 36, "elapsed_ms": 364.8}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:09.259733Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 23, "output_chars": 25, "elapsed_ms": 202.0}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:22.820791Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 168, "output_chars": 171, "elapsed_ms": 623.7}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:29.150511Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 30, "output_chars": 30, "elapsed_ms": 273.4}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:41.669210Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 117, "output_chars": 129, "elapsed_ms": 501.9}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:45.283342Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2474160172944", "error": ""}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:45.283746Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2474160172944", "state": "closed"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:25:58.612034Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2474166652432"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:03.632903Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2474166652432", "state": "connecting"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:03.633534Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5022}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:03.730643Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2474166652432", "state": "connected"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:03.732183Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2474166652432", "label": "stt"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:30.329549Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 28, "output_chars": 27, "elapsed_ms": 397.8}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:42.117628Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 120, "output_chars": 123, "elapsed_ms": 555.4}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:51.944379Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 14, "output_chars": 12, "elapsed_ms": 262.4}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:26:56.277819Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 33, "output_chars": 35, "elapsed_ms": 265.7}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:27:10.007256Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 91, "output_chars": 83, "elapsed_ms": 474.8}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:27:20.765233Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 32, "output_chars": 33, "elapsed_ms": 313.2}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:27:27.526085Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2474166652432", "error": ""}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:27:27.526797Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2474166652432", "state": "closed"}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:31:13.827949Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "691d47b7"}
+{"ts": "2026-05-23T12:31:15.826900Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:19.874813Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 33}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:19.894570Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:19.897424Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:19.901131Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:25.147358Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1871816372112"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:31.065053Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1871816372112", "state": "connecting"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:31.065967Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5922}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:31.159469Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1871816372112", "state": "connected"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:31.160302Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1871816372112", "label": "stt"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:38.202319Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 11, "output_chars": 12, "elapsed_ms": 385.5}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:41.774607Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 16, "output_chars": 17, "elapsed_ms": 182.4}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:45.239472Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 29, "output_chars": 30, "elapsed_ms": 247.3}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:54.045631Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 19, "output_chars": 19, "elapsed_ms": 243.6}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:31:56.582406Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 5, "output_chars": 6, "elapsed_ms": 139.9}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:04.795098Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 10, "output_chars": 11, "elapsed_ms": 393.4}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:07.623236Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 17, "output_chars": 18, "elapsed_ms": 341.4}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:10.490070Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 25, "output_chars": 27, "elapsed_ms": 208.3}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:18.017308Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 6, "output_chars": 7, "elapsed_ms": 354.5}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:30.746949Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 88, "output_chars": 93, "elapsed_ms": 534.6}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:46.489051Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 52, "output_chars": 48, "elapsed_ms": 357.2}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:55.347717Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1871816372112", "error": ""}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:32:55.348118Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1871816372112", "state": "closed"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:24.422479Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 1}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:24.454419Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:27.372462Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1871816930192"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:32.389992Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1871816930192", "state": "connecting"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:32.390331Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5019}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:32.534338Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1871816930192", "state": "connected"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:32.558668Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1871816930192", "label": "stt"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:47.131435Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 143, "output_chars": 148, "elapsed_ms": 550.6}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:48.478243Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 7, "output_chars": 7, "elapsed_ms": 63.5}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:33:56.673669Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 73, "output_chars": 81, "elapsed_ms": 362.1}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:34:07.504723Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 71, "output_chars": 69, "elapsed_ms": 344.9}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:34:09.111967Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 11, "output_chars": 12, "elapsed_ms": 65.5}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:34:25.374453Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1871816930192", "error": ""}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:34:25.374856Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1871816930192", "state": "closed"}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:43:22.158019Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "77f7692e"}
+{"ts": "2026-05-23T12:43:24.713599Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:28.373865Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 30}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:28.422085Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:33.808362Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2907792913616"}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:39.711204Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2907792913616", "state": "connecting"}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:39.711630Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5910}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:39.925407Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2907792913616", "state": "connected"}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:39.950583Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2907792913616", "label": "stt"}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:43:56.401609Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 122, "output_chars": 126, "elapsed_ms": 466.9, "has_history": false}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:01.612869Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 57, "output_chars": 185, "elapsed_ms": 473.7, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:10.009553Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 83, "output_chars": 271, "elapsed_ms": 691.7, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:14.011766Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 20, "output_chars": 292, "elapsed_ms": 840.7, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:16.148590Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 16, "output_chars": 312, "elapsed_ms": 534.5, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:19.584308Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 20, "output_chars": 332, "elapsed_ms": 751.0, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:47.027346Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 207, "output_chars": 543, "elapsed_ms": 1101.3, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:49.687407Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 22, "output_chars": 567, "elapsed_ms": 939.8, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:44:51.724945Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 8, "output_chars": 577, "elapsed_ms": 959.9, "has_history": true}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:45:03.047911Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2907792913616", "error": ""}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:45:03.048295Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2907792913616", "state": "closed"}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:49:46.477491Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "d39277e6"}
+{"ts": "2026-05-23T12:49:48.146145Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "91949c63"}
+{"ts": "2026-05-23T12:49:52.281892Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2579124801888"}, "session": "91949c63"}
+{"ts": "2026-05-23T12:49:58.199293Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2579124801888", "state": "connecting"}, "session": "91949c63"}
+{"ts": "2026-05-23T12:49:58.199928Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5924}, "session": "91949c63"}
+{"ts": "2026-05-23T12:49:58.298944Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2579124801888", "state": "connected"}, "session": "91949c63"}
+{"ts": "2026-05-23T12:49:58.300260Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2579124801888", "label": "stt"}, "session": "91949c63"}
+{"ts": "2026-05-23T12:50:18.465814Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 135, "output_chars": 137, "elapsed_ms": 565.7, "has_history": false}, "session": "91949c63"}
+{"ts": "2026-05-23T12:50:21.170378Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 18, "output_chars": 156, "elapsed_ms": 449.4, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:50:24.594481Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 14, "output_chars": 171, "elapsed_ms": 453.2, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:50:26.405152Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 4, "output_chars": 177, "elapsed_ms": 304.1, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:50:43.662689Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 57, "output_chars": 245, "elapsed_ms": 661.7, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:50:55.075796Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 12, "output_chars": 256, "elapsed_ms": 673.3, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:02.154906Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 76, "output_chars": 336, "elapsed_ms": 803.9, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:07.433756Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 60, "output_chars": 396, "elapsed_ms": 922.8, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:16.612204Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 119, "output_chars": 520, "elapsed_ms": 1101.5, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:21.613609Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 29, "output_chars": 552, "elapsed_ms": 1072.1, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:37.556554Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 146, "output_chars": 703, "elapsed_ms": 1375.9, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:40.093550Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 28, "output_chars": 733, "elapsed_ms": 1232.5, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:44.744531Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 40, "output_chars": 745, "elapsed_ms": 1343.8, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:50.612787Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 58, "output_chars": 804, "elapsed_ms": 1451.3, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:52.935146Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 25, "output_chars": 831, "elapsed_ms": 1344.4, "has_history": true}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:59.031792Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2579124801888", "error": ""}, "session": "91949c63"}
+{"ts": "2026-05-23T12:51:59.032428Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2579124801888", "state": "closed"}, "session": "91949c63"}
+{"ts": "2026-05-23T13:02:28.042901Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "91949c63"}
+{"ts": "2026-05-23T13:02:47.262992Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "8f950017"}
+{"ts": "2026-05-23T13:02:53.714998Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 31}, "session": "8f950017"}
+{"ts": "2026-05-23T13:02:53.730995Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "8f950017"}
+{"ts": "2026-05-23T13:02:53.732566Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "8f950017"}
+{"ts": "2026-05-23T13:02:53.738302Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:01.399927Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2092463009008"}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:07.386113Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2092463009008", "state": "connecting"}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:07.386720Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5992}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:07.483073Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2092463009008", "state": "connected"}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:07.484619Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2092463009008", "label": "stt"}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:17.105106Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 50, "output_chars": 51, "elapsed_ms": 368.9, "has_history": false}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:20.986793Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 15, "output_chars": 68, "elapsed_ms": 346.4, "has_history": true}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:26.349351Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 36, "output_chars": 105, "elapsed_ms": 439.1, "has_history": true}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:35.280311Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 94, "output_chars": 201, "elapsed_ms": 610.3, "has_history": true}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:41.052507Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 42, "output_chars": 245, "elapsed_ms": 513.0, "has_history": true}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:47.395524Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 49, "output_chars": 296, "elapsed_ms": 645.8, "has_history": true}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:54.038344Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 52, "output_chars": 350, "elapsed_ms": 828.3, "has_history": true}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:58.989997Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2092463009008", "error": ""}, "session": "8f950017"}
+{"ts": "2026-05-23T13:03:58.990838Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2092463009008", "state": "closed"}, "session": "8f950017"}
+{"ts": "2026-05-23T15:30:49.794182Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "8f950017"}
+{"ts": "2026-05-23T15:30:53.829687Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:03.412916Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 36}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:03.431657Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:03.434119Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:03.437887Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:09.368767Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1634324297248"}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:15.348606Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1634324297248", "state": "connecting"}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:15.348958Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5984}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:15.444398Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1634324297248", "state": "connected"}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:15.445127Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1634324297248", "label": "stt"}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:24.831991Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 40, "output_chars": 40, "elapsed_ms": 303.7, "has_history": false}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:30.023195Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 24, "output_chars": 66, "elapsed_ms": 465.1, "has_history": true}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:31.370946Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 14, "output_chars": 81, "elapsed_ms": 167.3, "has_history": true}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:44.900658Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 117, "output_chars": 200, "elapsed_ms": 557.0, "has_history": true}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:52.924972Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 58, "output_chars": 265, "elapsed_ms": 761.1, "has_history": true}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:55.079281Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 10, "output_chars": 279, "elapsed_ms": 495.9, "has_history": true}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:31:59.683458Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 22, "output_chars": 304, "elapsed_ms": 740.2, "has_history": true}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:32:15.044663Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1634324297248", "error": ""}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:32:15.045338Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1634324297248", "state": "closed"}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:39:58.877214Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "bf08e9b9"}
+{"ts": "2026-05-23T15:40:00.992245Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:20.160909Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 33}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:20.178793Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:20.181059Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:20.185132Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:23.693572Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1857277193456"}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:29.608568Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1857277193456", "state": "connecting"}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:29.609093Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5920}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:29.708099Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1857277193456", "state": "connected"}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:29.709229Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1857277193456", "label": "stt"}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:33.469858Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 33, "output_chars": 33, "elapsed_ms": 349.4, "has_history": false}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:36.214448Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 17, "output_chars": 55, "elapsed_ms": 336.9, "has_history": true}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:40.278222Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 54, "output_chars": 116, "elapsed_ms": 450.6, "has_history": true}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:42.790890Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 19, "output_chars": 140, "elapsed_ms": 443.9, "has_history": true}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:40:58.415762Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 126, "output_chars": 274, "elapsed_ms": 788.3, "has_history": true}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:41:03.005996Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 28, "output_chars": 304, "elapsed_ms": 718.6, "has_history": true}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:41:06.541969Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1857277193456", "error": ""}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:41:06.542349Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1857277193456", "state": "closed"}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:42:10.114980Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1336}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:55:48.091478Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "245eb98c"}
+{"ts": "2026-05-23T15:55:50.105724Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:02.010718Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1869336465760"}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:07.955540Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1869336465760", "state": "connecting"}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:07.955961Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5949}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:08.051920Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1869336465760", "state": "connected"}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:08.052646Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1869336465760", "label": "stt"}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:54.184149Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1869336465760", "error": ""}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:56:54.184655Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1869336465760", "state": "closed"}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T15:57:32.080471Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1698}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T16:02:35.422296Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "b2cc3fe7"}
+{"ts": "2026-05-23T16:02:37.299499Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "40dee877"}
+{"ts": "2026-05-23T16:02:48.967864Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2998554136928"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:02:54.889056Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2998554136928", "state": "connecting"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:02:54.889471Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5926}, "session": "40dee877"}
+{"ts": "2026-05-23T16:02:54.987371Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2998554136928", "state": "connected"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:02:54.988870Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2998554136928", "label": "stt"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:03:40.726303Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2998554136928", "state": "closed"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:03:41.832962Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 323, "output_chars": 323, "elapsed_ms": 813.1, "has_history": false}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:25.005240Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 32}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:25.019408Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:25.023150Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:25.028915Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:31.668481Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2998559578448"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:36.681982Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2998559578448", "state": "connecting"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:36.682553Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5015}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:36.778781Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2998559578448", "state": "connected"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:04:36.779794Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2998559578448", "label": "stt"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:05:21.764293Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 168, "output_chars": 173, "elapsed_ms": 512.3, "has_history": false}, "session": "40dee877"}
+{"ts": "2026-05-23T16:05:59.636567Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 198, "output_chars": 367, "elapsed_ms": 765.2, "has_history": true}, "session": "40dee877"}
+{"ts": "2026-05-23T16:06:10.612298Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2998559578448", "error": ""}, "session": "40dee877"}
+{"ts": "2026-05-23T16:06:10.612803Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2998559578448", "state": "closed"}, "session": "40dee877"}
+{"ts": "2026-05-23T16:12:56.630900Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "40dee877"}
+{"ts": "2026-05-23T16:12:59.340744Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:08.168259Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1734187684192"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:14.103435Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1734187684192", "state": "connecting"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:14.104067Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5940}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:14.198635Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1734187684192", "state": "connected"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:14.199471Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1734187684192", "label": "stt"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.421353Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.426952Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.432957Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.438947Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.456349Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.474365Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.479938Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.498002Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.511280Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.515623Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.520315Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.531425Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.532982Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.537774Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.560650Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.589956Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.609113Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.629215Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.671506Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.676246Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.677522Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.709300Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.719830Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.748893Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.756314Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.789727Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.806716Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.840223Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.841517Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.869535Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.886935Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.916233Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.918298Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.935872Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.956054Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.978562Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:21.996215Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.015890Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.036394Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.069535Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.102619Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.104089Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.128618Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.155508Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.177872Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.179583Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.209045Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.244327Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.245538Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.255874Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.276191Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.297515Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.316287Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.340363Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.356309Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.385580Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.403089Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.420773Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.439305Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.456448Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.485385Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.512537Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:22.517073Z", "level": "ERROR", "type": "llm", "msg": "llm_enhance_error", "meta": {"pc_id": "pc_1734187684192", "error": "cancelled"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:26.335313Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 35, "output_chars": 36, "elapsed_ms": 3818.5, "has_history": false}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:30.589602Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1734187684192", "error": ""}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:30.589971Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1734187684192", "state": "closed"}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:13:39.301274Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "348da4b4"}
+{"ts": "2026-05-23T16:15:45.837597Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "217599f3"}
+{"ts": "2026-05-23T16:15:52.038514Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 39}, "session": "217599f3"}
+{"ts": "2026-05-23T16:15:52.051052Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "217599f3"}
+{"ts": "2026-05-23T16:15:52.053595Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "217599f3"}
+{"ts": "2026-05-23T16:15:52.056937Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "217599f3"}
+{"ts": "2026-05-23T16:15:56.055190Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2436801178864"}, "session": "217599f3"}
+{"ts": "2026-05-23T16:16:01.981529Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2436801178864", "state": "connecting"}, "session": "217599f3"}
+{"ts": "2026-05-23T16:16:01.981909Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5935}, "session": "217599f3"}
+{"ts": "2026-05-23T16:16:02.078498Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2436801178864", "state": "connected"}, "session": "217599f3"}
+{"ts": "2026-05-23T16:16:02.079277Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2436801178864", "label": "stt"}, "session": "217599f3"}
+{"ts": "2026-05-23T16:16:46.706924Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2436801178864", "error": ""}, "session": "217599f3"}
+{"ts": "2026-05-23T16:16:46.707460Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2436801178864", "state": "closed"}, "session": "217599f3"}
+{"ts": "2026-05-23T16:21:33.928875Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "8cfc0a0b"}
+{"ts": "2026-05-23T16:28:31.619689Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:35.093282Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 36}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:35.106841Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 1}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:35.108952Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:35.114768Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:40.728262Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_1853691129408"}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:46.688899Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1853691129408", "state": "connecting"}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:46.689286Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5967}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:46.786410Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1853691129408", "state": "connected"}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:28:46.787436Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_1853691129408", "label": "stt"}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:29:15.043088Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_1853691129408", "error": ""}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:29:15.043551Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_1853691129408", "state": "closed"}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:29:48.072324Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 3464}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:30:18.616697Z", "level": "INFO", "type": "http", "msg": "POST /stt", "meta": {"status": 200, "ms": 1145}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:37:19.258826Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "d39966b5"}
+{"ts": "2026-05-23T16:37:20.965634Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:26.967805Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2927113851232"}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:32.892605Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2927113851232", "state": "connecting"}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:32.893394Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 5930}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:32.992473Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2927113851232", "state": "connected"}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:32.993915Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2927113851232", "label": "stt"}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:34.020476Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2927113851232", "error": "'AudioConsumerTrack' object has no attribute '_vad_buffer'"}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:37:48.713324Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2927113851232", "state": "closed"}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:45:39.257890Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "91cb0ad2"}
+{"ts": "2026-05-23T16:45:41.395036Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:45.430339Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 36}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:45.446573Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 2}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:45.447760Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 2}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:45.451547Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:51.263356Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2635420806384"}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:57.268994Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2635420806384", "state": "connecting"}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:57.269339Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6010}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:57.366944Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2635420806384", "state": "connected"}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:45:57.367692Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2635420806384", "label": "stt"}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:46:24.459368Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2635420806384", "error": ""}, "session": "d3a127c2"}
+{"ts": "2026-05-23T16:46:24.459750Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2635420806384", "state": "closed"}, "session": "d3a127c2"}
+{"ts": "2026-05-23T17:02:26.359398Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "175bd4ff"}
+{"ts": "2026-05-23T17:02:26.359886Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "175bd4ff"}
+{"ts": "2026-05-23T17:03:40.296291Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "d3a127c2"}
+{"ts": "2026-05-23T17:03:42.595583Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:49.327813Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 41}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:49.345407Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 3}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:49.347629Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:49.351666Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:52.713063Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2551722733120"}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:58.725253Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2551722733120", "state": "connecting"}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:58.726028Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6018}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:58.821509Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2551722733120", "state": "connected"}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:03:58.822464Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2551722733120", "label": "stt"}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:04:20.902359Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2551722733120", "error": ""}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:04:20.902932Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2551722733120", "state": "closed"}, "session": "aeec1167"}
+{"ts": "2026-05-23T17:06:12.096106Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "a7f80da5"}
+{"ts": "2026-05-23T17:06:43.605014Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:30.026754Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "c66e2509"}
+{"ts": "2026-05-23T18:05:30.027196Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "c66e2509"}
+{"ts": "2026-05-23T18:05:32.291929Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 39}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:32.311350Z", "level": "INFO", "type": "http", "msg": "GET /web/css/main.css", "meta": {"status": 200, "ms": 3}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:32.313644Z", "level": "INFO", "type": "http", "msg": "GET /web/js/app.js", "meta": {"status": 200, "ms": 1}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:32.317993Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 0}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:36.844924Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_audio_track_received", "meta": {"pc_id": "pc_2568329899248"}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:42.860683Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2568329899248", "state": "connecting"}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:42.861007Z", "level": "INFO", "type": "http", "msg": "POST /webrtc/offer", "meta": {"status": 200, "ms": 6021}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:42.957494Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2568329899248", "state": "connected"}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:42.958501Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_datachannel_opened", "meta": {"pc_id": "pc_2568329899248", "label": "stt"}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:05:54.328105Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 97, "output_chars": 102, "elapsed_ms": 555.7, "has_history": false}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:06:03.825548Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 78, "output_chars": 172, "elapsed_ms": 553.0, "has_history": true}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:06:24.314673Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 197, "output_chars": 374, "elapsed_ms": 876.6, "has_history": true}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:06:30.752995Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 17, "output_chars": 394, "elapsed_ms": 913.8, "has_history": true}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:07:02.130062Z", "level": "INFO", "type": "llm", "msg": "llm_enhancer_success", "meta": {"segments": 1, "input_chars": 117, "output_chars": 512, "elapsed_ms": 1115.3, "has_history": true}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:07:11.351837Z", "level": "ERROR", "type": "webrtc", "msg": "webrtc_audio_consumer_error", "meta": {"pc_id": "pc_2568329899248", "error": ""}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:07:11.352288Z", "level": "INFO", "type": "webrtc", "msg": "webrtc_connection_state", "meta": {"pc_id": "pc_2568329899248", "state": "closed"}, "session": "83b5a486"}
+{"ts": "2026-05-23T18:08:14.842178Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "1eea6ff1"}
+{"ts": "2026-05-23T18:11:09.241577Z", "level": "INFO", "type": "http", "msg": "GET /", "meta": {"status": 200, "ms": 32}, "session": "1eea6ff1"}
+{"ts": "2026-05-23T18:11:09.394842Z", "level": "INFO", "type": "http", "msg": "GET /engine", "meta": {"status": 200, "ms": 1}, "session": "1eea6ff1"}
+{"ts": "2026-05-23T18:11:13.814172Z", "level": "INFO", "type": "server", "msg": "server_start", "meta": {"engine": "sherpa_onnx", "host": "0.0.0.0", "port": 2245}, "session": "9f242253"}
+{"ts": "2026-05-23T18:11:13.814582Z", "level": "INFO", "type": "server", "msg": "server_shutdown", "meta": {}, "session": "9f242253"}
