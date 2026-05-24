@@ -41,6 +41,9 @@ NVOICE_DEFAULT_BEAM_SIZE = int(os.environ.get("NVOICE_DEFAULT_BEAM_SIZE", "5"))
 NVOICE_MAX_AUDIO_SECONDS = int(os.environ.get("NVOICE_MAX_AUDIO_SECONDS", "30"))
 NVOICE_SAMPLE_RATE = int(os.environ.get("NVOICE_SAMPLE_RATE", "16000"))
 
+# -- Qwen3-ASR Settings --
+NVOICE_QWEN_DEVICE = os.environ.get("NVOICE_QWEN_DEVICE", "cuda")  # "cuda" or "cpu"
+
 # -- LLM Gateway Settings --
 NVOICE_LLM_GATEWAY_URL = os.environ.get("NVOICE_LLM_GATEWAY_URL", "http://192.168.0.100:3400")
 NVOICE_LLM_MODEL = os.environ.get("NVOICE_LLM_MODEL", "badkid-llama-chat")

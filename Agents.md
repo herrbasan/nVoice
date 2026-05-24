@@ -14,28 +14,35 @@
 
 ```
 Browser: getUserMedia → RTCPeerConnection → Opus audio → data channel ← text
-Server:  aiortc peer → av resampler (48k→16k) → sherpa-onnx OnlineStream
-         → endpoint detection → LLM Gateway (grammar/intent fix) → data channel
+Server:  aiortc peer → av resampler (48k→16k) → [VAD] → STT engine → data channel
 ```
+
+**Qwen3-ASR Mode (current):**
+- Qwen3-ASR with transformers backend via batch transcribe_array()
+- VAD (silero-vad) detects speech endpoints, triggers segment finalization
+- Audio accumulated in stream buffer → on silence timeout → transcribe_array() called
+- LLM enhancement disabled (Option D evaluation)
+- Latency: ~1s pause before first result, then full segment in one shot
+- No per-chunk partial results — streaming_transcribe() requires vLLM backend
 
 **Flow:**
 1. Browser sends audio via WebRTC, receives text via data channel
-2. `AudioConsumerTrack` resamples and feeds `OnlineRecognizer` incrementally
-3. On endpoint (silence/pause), segment is finalized
-4. Segment immediately sent to LLM Gateway for enhancement
-5. Both raw and enhanced text sent to browser via data channel
-6. Browser displays dual panels: Enhanced (LLM) + Raw (STT)
+2. VAD detects speech start → stream reset + prebuffer fed
+3. VAD tracks silence → on 1s silence timeout, batch transcribe_array() called
+4. Result sent to browser as `final` message
+5. If LLM enabled: segment sent to LLM Gateway for enhancement → `enhanced` message
 
 **Key files:**
 - `src/nvoice/webrtc.py`: WebRTC handler, `AudioConsumerTrack`, `SegmentBuffer`
 - `src/nvoice/llm_client.py`: `LLMEnhancer` — async client to LLM Gateway
+- `src/nvoice/engines/qwen3_asr.py`: Qwen3-ASR adapter (batch, transformers backend)
 - `src/nvoice/engines/sherpa_onnx.py`: Streaming + batch STT adapter
 - `web/js/app.js`: Browser client, dual-panel display
 
 **Performance:**
-- STT latency: ~200ms (sherpa-onnx streaming, CPU)
-- LLM enhancement: ~1-2s per segment (badkid-llama-chat, Qwen 3 27B)
-- Total end-to-end: ~2-3s from speech to enhanced text
+- STT latency: ~1s (Qwen3-ASR batch, GPU)
+- LLM enhancement: ~1-2s per segment (badkid-llama-chat, Qwen 3 27B) — disabled in current mode
+- Total end-to-end: ~1-2s from speech end to text result
 
 **LLM Enhancement Modes** (future: configurable per-request):
 | Mode | Behavior |
@@ -58,12 +65,13 @@ Server:  aiortc peer → av resampler (48k→16k) → sherpa-onnx OnlineStream
 | `src/nvoice/__init__.py` | Working | |
 | `src/nvoice/config.py` | Working | Added LLM Gateway settings |
 | `src/nvoice/logger.py` | Working | |
-| `src/nvoice/stt.py` | Working | Engine adapter pattern, lazy loading |
+| `src/nvoice/stt.py` | Working | Engine adapter pattern, lazy loading, warmup() hook |
 | `src/nvoice/server.py` | Working | REST + WebRTC endpoints |
 | `src/nvoice/webrtc.py` | Working | WebRTC handler, per-segment LLM enhancement |
 | `src/nvoice/llm_client.py` | Working | Async LLM Gateway client |
-| `src/nvoice/engines/sherpa_onnx.py` | Working | Streaming + batch adapter |
+| `src/nvoice/engines/sherpa_onnx.py` | Working | Streaming + batch STT adapter |
 | `src/nvoice/engines/faster_whisper.py` | Working | Batch-only adapter |
+| `src/nvoice/engines/qwen3_asr.py` | Working | Batch-only adapter, GPU warmup on load |
 | `run.py` | Working | HTTPS auto-detect (cert.pem/key.pem) |
 | `install.py` | Working | Downloads sherpa-onnx model |
 | `benchmark.py` | Working | |
@@ -104,18 +112,35 @@ Server:  aiortc peer → av resampler (48k→16k) → sherpa-onnx OnlineStream
 - Race condition: `on_track` before `on_datachannel` — `AudioConsumerTrack` waits on `dc_ready` event
 - `connectionstatechange` fired "closed" during setup — handled correctly
 
+### Qwen3 Streaming Limitation (2026-05-24)
+
+Qwen3-ASR's `streaming_transcribe()` is **vLLM-only**. The transformers backend lacks:
+1. Incremental token output during generation
+2. Stateful KV cache across chunks
+3. Partial result streaming
+
+To get true real-time partial results from Qwen3, a vLLM server must be running separately. Without it, the pipeline uses VAD-triggered batch `transcribe_array()` calls — results only appear after ~1s silence. This is acceptable for evaluation (Option D).
+
 ---
 
-## GPU Acceleration Notes (2026-05-12)
+## GPU Acceleration Notes (2026-05-24)
 
-**Current state:** CPU-only. sherpa-onnx PyPI wheel compiled without `-DSHERPA_ONNX_ENABLE_GPU=ON`.
+**Current state:** RTX 5090 (32GB VRAM) with PyTorch Nightly (cu132). Qwen3-ASR runs on GPU via transformers `device_map='cuda:0'`.
 
 **Hardware:**
-- This machine: NVIDIA RTX 5090 (32GB VRAM) — PyTorch warns about sm_120 unsupported
+- This machine: NVIDIA RTX 5090 (32GB VRAM) — PyTorch Nightly cu132 wheels required for sm_120 support
 - Fatten: Intel Arc A770 — DirectML available in ONNX Runtime but sherpa-onnx doesn't recognize `provider='dml'`
 
-**Model size:** ~181 MB (encoder 179MB INT8, decoder 2MB, joiner 0.2MB INT8)
-**VRAM estimate if GPU worked:** ~300-500 MB
+**Qwen3-ASR GPU mode:**
+- Model: Qwen/Qwen3-ASR-1.7B
+- Backend: transformers with `device_map='cuda:0'`
+- Warmup: dummy forward pass on engine load to prime GPU kernels
+- RTF: ~0.1 (10x real-time)
+
+**sherpa-onnx GPU mode:**
+- Model size: ~181 MB (encoder 179MB INT8, decoder 2MB, joiner 0.2MB INT8)
+- VRAM estimate: ~300-500 MB
+- Status: CPU-only. sherpa-onnx PyPI wheel compiled without `-DSHERPA_ONNX_ENABLE_GPU=ON`
 
 **Options:**
 | Option | Effort | Status |
@@ -124,7 +149,28 @@ Server:  aiortc peer → av resampler (48k→16k) → sherpa-onnx OnlineStream
 | CUDA on RTX 5090 | Medium | Need custom build of sherpa-onnx with `-DSHERPA_ONNX_ENABLE_GPU=ON` |
 | Custom sherpa-onnx build | High | Build from source with CMake + VS. ~30 min. |
 
-**Decision:** CPU is sufficient for now. STT RTF is 0.03 (33x real-time). Bottleneck is LLM round-trip (~1-2s), not STT.
+**Decision:** Qwen3-ASR on GPU is sufficient. STT is no longer the bottleneck — LLM round-trip (~1-2s) is, but LLM is disabled in current mode.
+
+---
+
+## Candidate Engines for Future Evaluation
+
+### Lite Whisper (Apache-2.0)
+- Compressed Whisper variants (Large V3 Turbo Fast, Large V3 Acc, Large V3)
+- LiteASR technology: reduced size, maintained accuracy
+- API: likely batch-only like Qwen3 transformers backend — needs verification
+- Multilingual support via Whisper base
+
+### Faster Whisper (MIT)
+- CTranslate2-based Whisper (already has adapter in `engines/faster_whisper.py`)
+- ~4x speedup over vanilla Whisper on CPU
+- GPU support via CUDA
+- Status: uncertain — may have had environment issues, needs fresh test
+
+### Moonshine (MIT)
+- English-only, resource-constrained platforms
+- ONNX-based, fast inference
+- Not multilingual — likely not suitable
 
 ---
 
@@ -153,9 +199,9 @@ Reviewer flagged potential thread-safety issue with `OnlineStream` accessed from
 
 ## Environment Reference
 
-- **Python:** 3.13.6 in `venv\faster_whisper\env\`
-- **Key deps:** aiortc 1.14.0, sherpa-onnx 1.13.1, av 16.1.0, fastapi, uvicorn, numpy, aiohttp
-- **Model:** sherpa-onnx-streaming-zipformer-en-2023-06-21 INT8 (~180MB encoder)
-- **STT performance:** RTF ~0.03 (4 threads), ~0.05 (1 thread)
-- **LLM Gateway:** 192.168.0.100:3400, model `badkid-llama-chat`
+- **Python:** 3.13.6 in `venv\qwen3_asr\env\`
+- **Key deps:** aiortc 1.14.0, av 16.1.0, fastapi, uvicorn, numpy, soundfile, torch (cu132 nightly)
+- **Model:** Qwen/Qwen3-ASR-1.7B via transformers, GPU (RTX 5090)
+- **STT performance:** RTF ~0.1 (10x real-time) on GPU
+- **LLM Gateway:** 192.168.0.100:3400, model `badkid-llama-chat` (currently disabled for eval)
 - **iOS Safari:** Requires HTTPS. Self-signed cert in `cert.pem`/`key.pem`.

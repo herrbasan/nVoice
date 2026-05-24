@@ -15,3 +15,7 @@ key.pem
 desktop.ini
 Thumbs.db
 .DS_Store
+
+# Test files
+test.ogg
+*.log

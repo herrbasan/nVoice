@@ -32,6 +32,26 @@ class STTAdapterProtocol(Protocol):
             (text: str, info: dict)
         """
         ...
+        
+    def create_stream(self) -> Any:
+        """Create a streaming session object (if supported)."""
+        ...
+
+    def accept_waveform(self, stream: Any, samples: list, sample_rate: int = 16000):
+        """Feed audio samples into the streaming session (if supported)."""
+        ...
+
+    def decode(self, stream: Any) -> str:
+        """Decode if ready and return current result text (if supported)."""
+        ...
+
+    def is_endpoint(self, stream: Any) -> bool:
+        """Check if endpoint (silence) was detected (if supported)."""
+        ...
+
+    def reset(self, stream: Any):
+        """Reset stream after endpoint (if supported)."""
+        ...
 
 
 _engine_cache: Dict[str, STTAdapterProtocol] = {}
@@ -67,6 +87,9 @@ def get_engine(engine_name: str = None) -> STTAdapterProtocol:
 
     print(f"Loading engine {engine_name} into memory...")
     adapter_instance = adapter_class()
+
+    if hasattr(adapter_instance, "warmup"):
+        adapter_instance.warmup()
 
     _engine_cache[engine_name] = adapter_instance
     _engine_last_used[engine_name] = time.time()

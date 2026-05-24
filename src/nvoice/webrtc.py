@@ -278,12 +278,12 @@ class AudioConsumerTrack(MediaStreamTrack):
         self._vad_check_interval = 160  # Check VAD every ~160 samples (10ms at 16kHz)
         self._sample_count = 0
         
-        # Audio recording disabled for now, uncomment to debug audio issues
+        # Audio recording for debugging
         # self._recorder = RawAudioRecorder.start(self.pc_id)
         self._recorder = None
         
         self._vad_silence_start = None  # Track when VAD silence started
-        self._vad_silence_timeout = 5.0  # 5 seconds of silence before finalizing
+        self._vad_silence_timeout = 1.0  # 1 second of silence before finalizing (fast NUI)
         # Rolling buffer: keep 0.5 seconds of audio before VAD detects speech
         self._prebuffer_seconds = 0.5
         self._prebuffer_samples = []
@@ -332,7 +332,6 @@ class AudioConsumerTrack(MediaStreamTrack):
                             self._prebuffer_samples.pop(0)
 
                         is_speech = await self.vad_manager.is_speech(samples, 16000)
-                        print(f"[VAD CHECK] #{self._sample_count} is_speech={is_speech} vad_active={self._vad_active} vad_buf={len(self.vad_manager._vad_buffer)}")
 
                         if is_speech and not self._vad_active:
                             # Speech just started - VAD detected sound, activate STT
@@ -363,10 +362,11 @@ class AudioConsumerTrack(MediaStreamTrack):
                         elif not is_speech and self._vad_active:
                             # VAD silence while STT running - track timeout
                             if self._vad_silence_start is None:
+                                print("[VAD] Silence detected, starting timeout countdown...")
                                 self._vad_silence_start = time.monotonic()
                             elif time.monotonic() - self._vad_silence_start > self._vad_silence_timeout:
-                                # 10+ seconds of VAD silence - force finalize
-                                print(f"[VAD] 10s silence timeout, finalizing")
+                                # VAD silence - force finalize
+                                print(f"[VAD] {self._vad_silence_timeout}s silence timeout reached, finalizing segment...")
                                 self._vad_active = False
                                 self._vad_silence_start = None
 
@@ -374,6 +374,17 @@ class AudioConsumerTrack(MediaStreamTrack):
                                     return self.engine.decode(self.stream)
 
                                 final_text = await loop.run_in_executor(None, _final_decode)
+                                
+                                # Fallback: batch recognition for non-streaming engines 
+                                if not final_text and getattr(self.stream, "get", lambda x: None)("samples"):
+                                    import numpy as np
+                                    samples_arr = np.array(self.stream["samples"], dtype=np.float32)
+                                    if len(samples_arr) > 16000 * 0.5: # At least half a second
+                                        def _batch_decode():
+                                            res, _ = self.engine.transcribe_array(samples_arr, 16000)
+                                            return res
+                                        final_text = await loop.run_in_executor(None, _batch_decode)
+
                                 if final_text and final_text.strip():
                                     await self._finalize_segment(final_text)
 
@@ -431,10 +442,16 @@ class AudioConsumerTrack(MediaStreamTrack):
                         self.last_text = ""
 
         except (asyncio.CancelledError, av.error.EOFError):
-            raise
+            pass # Client disconnected normally
         except Exception as e:
-            error("webrtc_audio_consumer_error", {"pc_id": self.pc_id, "error": str(e)}, "webrtc")
-            raise
+            import traceback
+            from aiortc.mediastreams import MediaStreamError
+            if isinstance(e, MediaStreamError):
+                print(f"[WebRTC] Client track closed normally.")
+                pass
+            else:
+                error("webrtc_audio_consumer_error", {"pc_id": self.pc_id, "error": str(e), "traceback": traceback.format_exc()}, "webrtc")
+                print(f"[ERROR] Audio consumer crashed: {traceback.format_exc()}")
         finally:
             # Flush resampler and record final audio
             if self._recorder:
@@ -466,8 +483,6 @@ class AudioConsumerTrack(MediaStreamTrack):
             if self._llm_task and not self._llm_task.done():
                 self._llm_task.cancel()
             self._llm_task = asyncio.create_task(self._enhance_locked())
-        else:
-            print(f"[LLM DEBUG] No LLM enhancer, skipping")
 
         self._send_display_state()
 

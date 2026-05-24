@@ -36,12 +36,12 @@ PROJECT_ROOT = Path(__file__).parent.resolve()
 REQUIREMENTS_DIR = PROJECT_ROOT / "requirements"
 VENV_BASE = PROJECT_ROOT / "venv"
 
-ENGINES = ["faster_whisper", "sherpa_onnx"]
+ENGINES = ["faster_whisper", "sherpa_onnx", "qwen3_asr"]
 
 SHERPA_MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-21.tar.bz2"
 SHERPA_MODEL_DIR = "sherpa-onnx-streaming-zipformer-en-2023-06-21"
 
-VAD_MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/vad-models/silero_vad.onnx"
+VAD_MODEL_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
 
 
 def _env_dir(engine):
@@ -155,6 +155,12 @@ def install_engine_deps(python, engine):
         print("[*] Installing PyTorch with CUDA for faster-whisper ...")
         run([str(python), "-m", "pip", "install", "torch", "torchaudio",
              "--index-url", "https://download.pytorch.org/whl/cu126"])
+    elif engine == "qwen3_asr":
+        print("[*] Installing PyTorch with CUDA for Qwen3-ASR ...")
+        run([str(python), "-m", "pip", "install", "torch", "torchaudio",
+             "--index-url", "https://download.pytorch.org/whl/cu126"])
+        print("[*] Installing qwen-asr with vllm support ...")
+        run([str(python), "-m", "pip", "install", "qwen-asr"])
 
     print("[+] Engine requirements installed.")
 
@@ -193,13 +199,23 @@ def download_models(python, engine):
                 tar.extractall(path=str(model_dir))
             archive.unlink()
             print(f"    Extracted to {target}")
+            
+    elif engine == "qwen3_asr":
+        # Usually Qwen models are loaded via transformers which caches them
+        print("    Downloading Qwen3-ASR model weights (requires internet & may take a while)...")
+        run([
+            str(python), "-c",
+            "import os; from qwen_asr import Qwen3ASRModel; "
+            "model = os.environ.get('NVOICE_QWEN_MODEL', 'Qwen/Qwen3-ASR-1.7B'); "
+            "Qwen3ASRModel.from_pretrained(model, max_inference_batch_size=1, max_new_tokens=10)"
+        ])
 
     print("[+] Models ready.")
 
 
 def download_vad_model():
     """Download silero-vad model to models/silero-vad/"""
-    vad_dir = VENV_BASE / "models" / "silero-vad"
+    vad_dir = PROJECT_ROOT / "models" / "silero-vad"
     vad_file = vad_dir / "silero_vad.onnx"
     if vad_file.exists():
         print(f"[~] VAD model already exists at {vad_file}, skipping download")

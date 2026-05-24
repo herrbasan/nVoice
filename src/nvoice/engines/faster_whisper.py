@@ -59,3 +59,18 @@ class FasterWhisperAdapter:
             result = self.transcribe(f.name, language=language, beam_size=beam_size)
         Path(f.name).unlink(missing_ok=True)
         return result
+
+    def create_stream(self):
+        return {"samples": []}
+        
+    def accept_waveform(self, stream, samples: list, sample_rate: int = 16000):
+        stream["samples"].extend(samples)
+        
+    def decode(self, stream) -> str:
+        return ""
+        
+    def is_endpoint(self, stream) -> bool:
+        return False
+        
+    def reset(self, stream):
+        stream["samples"] = []

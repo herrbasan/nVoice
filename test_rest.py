@@ -6,14 +6,14 @@ from pathlib import Path
 
 
 def test_rest():
-    base = "http://127.0.0.1:2245"
+    base = "https://127.0.0.1:2245"
 
     # Health check
-    r = requests.get(f"{base}/health")
+    r = requests.get(f"{base}/health", verify=False)
     print(f"Health: {r.json()}")
 
     # Engine info
-    r = requests.get(f"{base}/engine")
+    r = requests.get(f"{base}/engine", verify=False)
     print(f"Engine: {r.json()}")
 
     # Generate a test audio file
@@ -26,14 +26,14 @@ def test_rest():
         tmp_path = f.name
 
     with open(tmp_path, "rb") as audio_file:
-        r = requests.post(f"{base}/stt", files={"file": ("test.wav", audio_file, "audio/wav")})
+        r = requests.post(f"{base}/stt", files={"file": ("test.wav", audio_file, "audio/wav")}, verify=False)
 
     Path(tmp_path).unlink()
     print(f"STT Result: {r.json()}")
 
 
 def test_openai_compat():
-    base = "http://127.0.0.1:2245"
+    base = "https://127.0.0.1:2245"
 
     sr = 16000
     t = np.linspace(0, 2, sr * 2, endpoint=False)
@@ -48,6 +48,7 @@ def test_openai_compat():
             f"{base}/v1/audio/transcriptions",
             files={"file": ("test.wav", audio_file, "audio/wav")},
             data={"model": "whisper-1"},
+            verify=False
         )
 
     Path(tmp_path).unlink()
