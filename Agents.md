@@ -155,17 +155,25 @@ To get true real-time partial results from Qwen3, a vLLM server must be running 
 
 ## Candidate Engines for Future Evaluation
 
+### Faster Whisper (MIT) — RECOMMENDED for local LLM setup
+- CTranslate2-based Whisper, ~4GB VRAM on GPU (small model, float16)
+- RTF ~5x real-time on RTX 5090 (2.4s for 12.7s audio)
+- GPU acceleration works with PyTorch cu132 nightly
+- Multilingual support via Whisper base
+- **Key advantage:** Fits alongside Gemma 4 (~9GB VRAM) on same GPU — enables full local STT+LLM pipeline without separate machine
+- **Limitation:** Same batch-mode latency as Qwen3 (~1s silence pause before result). No true streaming partials.
+
+**Optimization potential:** Could faster_whisper be optimized to feel more realtime? Options to explore:
+1. Chunked inference on shorter audio segments (every 2-3s instead of full utterance)
+2. Prefix caching across chunks to avoid re-processing
+3. Smaller model (tiny/base) for speed, larger (small/medium) for final quality
+4. VAD-triggered partial decode — smaller chunks = faster first result
+
 ### Lite Whisper (Apache-2.0)
 - Compressed Whisper variants (Large V3 Turbo Fast, Large V3 Acc, Large V3)
 - LiteASR technology: reduced size, maintained accuracy
 - API: likely batch-only like Qwen3 transformers backend — needs verification
 - Multilingual support via Whisper base
-
-### Faster Whisper (MIT)
-- CTranslate2-based Whisper (already has adapter in `engines/faster_whisper.py`)
-- ~4x speedup over vanilla Whisper on CPU
-- GPU support via CUDA
-- Status: uncertain — may have had environment issues, needs fresh test
 
 ### Moonshine (MIT)
 - English-only, resource-constrained platforms

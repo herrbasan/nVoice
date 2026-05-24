@@ -27,11 +27,12 @@ import time
 from pathlib import Path
 
 import av
+import numpy as np
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 
 from nvoice.logger import info, error
 from nvoice.stt import get_engine
-from nvoice.config import NVOICE_LLM_ENABLED, NVOICE_LLM_MAX_SEGMENTS, NVOICE_VAD_ENABLED, NVOICE_VAD_THRESHOLD, NVOICE_VAD_MIN_SPEECH_MS, NVOICE_VAD_MAX_SPEECH_MS, NVOICE_VAD_MODEL_DIR, NVOICE_VAD_SPEECH_WINDOWS, NVOICE_VAD_SILENCE_WINDOWS, NVOICE_VAD_MIN_CHUNK_MS, NVOICE_RECORD_RAW, NVOICE_RECORD_DIR
+from nvoice.config import NVOICE_LLM_ENABLED, NVOICE_LLM_MAX_SEGMENTS, NVOICE_VAD_ENABLED, NVOICE_VAD_THRESHOLD, NVOICE_VAD_MIN_SPEECH_MS, NVOICE_VAD_MAX_SPEECH_MS, NVOICE_VAD_MODEL_DIR, NVOICE_VAD_SPEECH_WINDOWS, NVOICE_VAD_SILENCE_WINDOWS, NVOICE_VAD_MIN_CHUNK_MS, NVOICE_RECORD_RAW, NVOICE_RECORD_DIR, NVOICE_PARTIAL_INTERVAL_MS, NVOICE_PARTIAL_MIN_AUDIO_MS
 
 
 class RawAudioRecorder:
@@ -290,6 +291,12 @@ class AudioConsumerTrack(MediaStreamTrack):
         self._prebuffer_max_samples = int(16000 * self._prebuffer_seconds)  # 32000 samples
         self._skip_current_feed = False  # Skip feeding current samples when we fed prebuffer
 
+        # Partial results for batch-mode engines
+        self._partial_interval_ms = NVOICE_PARTIAL_INTERVAL_MS
+        self._partial_min_audio_ms = NVOICE_PARTIAL_MIN_AUDIO_MS
+        self._last_partial_time = None  # Track when we last emitted a partial
+        self._partial_count = 0  # Count partials emitted for current utterance
+
         if NVOICE_LLM_ENABLED:
             from nvoice.llm_client import LLMEnhancer
             self.llm_enhancer = LLMEnhancer()
@@ -354,6 +361,10 @@ class AudioConsumerTrack(MediaStreamTrack):
                                 print(f"[VAD] Fed {len(prebuffer)} prebuffer samples ({len(prebuffer)/16000:.1f}s)")
                                 self._sample_count += len(prebuffer)
                             self._skip_current_feed = True  # Skip feeding current chunk next iteration
+                            
+                            # Reset partial timing for new utterance
+                            self._last_partial_time = time.monotonic()
+                            self._partial_count = 0
 
                         elif is_speech and self._vad_active:
                             # Still hearing speech - reset silence tracker, keep feeding
@@ -377,7 +388,6 @@ class AudioConsumerTrack(MediaStreamTrack):
                                 
                                 # Fallback: batch recognition for non-streaming engines 
                                 if not final_text and getattr(self.stream, "get", lambda x: None)("samples"):
-                                    import numpy as np
                                     samples_arr = np.array(self.stream["samples"], dtype=np.float32)
                                     if len(samples_arr) > 16000 * 0.5: # At least half a second
                                         def _batch_decode():
@@ -394,11 +404,14 @@ class AudioConsumerTrack(MediaStreamTrack):
                                 self._prebuffer_samples.clear()
                                 self._skip_current_feed = False
                                 self._sample_count = 0
+                                self._last_partial_time = None
+                                self._partial_count = 0
                                 continue
 
                         if not self._vad_active:
                             # VAD says silence, skip STT, keep prebuffering
                             self._skip_current_feed = False
+                            self._last_partial_time = None
                             continue
 
                         # VAD says speech OR we were active - feed current samples to STT
@@ -411,7 +424,7 @@ class AudioConsumerTrack(MediaStreamTrack):
                         # VAD disabled - always feed to STT
                         self.engine.accept_waveform(self.stream, samples, 16000)
 
-                    # Decode in thread pool
+                    # Try decode (works for streaming engines like sherpa-onnx)
                     def _decode():
                         return self.engine.decode(self.stream)
 
@@ -420,6 +433,31 @@ class AudioConsumerTrack(MediaStreamTrack):
                     if text and text != self.last_text:
                         self.last_text = text
                         self._send({"type": "partial", "text": text})
+                        self._last_partial_time = time.monotonic()  # Reset partial timer on real decode
+
+                    # For batch-mode engines: emit periodic partials even when decode returns ""
+                    # Only do this if we haven't gotten a real decode result recently
+                    if not text or text == self.last_text:
+                        now = time.monotonic()
+                        audio_duration_ms = (self._sample_count / 16000) * 1000
+
+                        if audio_duration_ms >= self._partial_min_audio_ms:
+                            elapsed_since_partial = (now - self._last_partial_time) * 1000 if self._last_partial_time else float('inf')
+                            if elapsed_since_partial >= self._partial_interval_ms:
+                                # Get accumulated samples from the stream and run batch decode
+                                stream_samples = self.stream.get("samples", []) if isinstance(self.stream, dict) else []
+                                samples_arr = np.array(stream_samples, dtype=np.float32)
+                                if len(samples_arr) > 16000 * 0.5:
+                                    def _batch_partial():
+                                        res, _ = self.engine.transcribe_array(samples_arr, 16000)
+                                        return res
+                                    partial_text = await loop.run_in_executor(None, _batch_partial)
+                                    if partial_text and partial_text.strip() and partial_text != self.last_text:
+                                        print(f"[PARTIAL] {audio_duration_ms:.0f}ms audio: '{partial_text[:60]}...'")
+                                        self.last_text = partial_text
+                                        self._send({"type": "partial", "text": partial_text})
+                                        self._last_partial_time = now
+                                        self._partial_count += 1
 
                     # Check endpoint - but only use it to send intermediate results, don't reset stream
                     def _check_endpoint():
@@ -440,6 +478,8 @@ class AudioConsumerTrack(MediaStreamTrack):
                         
                         self._sample_count = 0
                         self.last_text = ""
+                        self._last_partial_time = None  # Reset partial timer
+                        self._partial_count = 0
 
         except (asyncio.CancelledError, av.error.EOFError):
             pass # Client disconnected normally
