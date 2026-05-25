@@ -205,11 +205,45 @@ Reviewer flagged potential thread-safety issue with `OnlineStream` accessed from
 
 ---
 
+## Future Features
+
+### Wake Word / Keyword Spotting (KWS)
+**Goal:** Reduce compute by only running STT after a trigger phrase is spoken.
+
+**Use case:** "Hey Siri" style activation — pipeline idles until wake word detected, then activates VAD+STT.
+
+**Options:**
+| Engine | Size | Notes |
+|--------|------|-------|
+| Porcupine (Picovoice) | ~1MB RAM | Many built-in phrases, custom training available |
+| OpenWakeWord | varies | Open source, free, custom phrases |
+| Snowboy | small | Older but proven, custom training |
+
+**Pipeline concept:**
+```
+Audio stream → [Wake Word Detection] 
+               ↓ (phrase detected)
+               [VAD + STT pipeline] 
+               ↓ (silence timeout) 
+               [Return to wake word listening]
+```
+
+**Config would be:**
+```
+NVOICE_WAKE_WORD_ENABLED=true
+NVOICE_WAKE_PHRASE=hey_siri
+NVOICE_WAKE_ENGINE=porcupine
+```
+
+**Trade-off:** ~100-200ms detection latency after wake word, but saves GPU/CPU by eliminating continuous STT.
+
+---
+
 ## Environment Reference
 
-- **Python:** 3.13.6 in `venv\qwen3_asr\env\`
-- **Key deps:** aiortc 1.14.0, av 16.1.0, fastapi, uvicorn, numpy, soundfile, torch (cu132 nightly)
-- **Model:** Qwen/Qwen3-ASR-1.7B via transformers, GPU (RTX 5090)
-- **STT performance:** RTF ~0.1 (10x real-time) on GPU
+- **Python:** 3.13.6 in `venv\faster_whisper\env\` (GPU mode with cu132 PyTorch)
+- **Key deps:** aiortc 1.14.0, av 16.1.0, fastapi, uvicorn, numpy, soundfile, torch (cu132 nightly), faster-whisper
+- **Current STT engine:** faster-whisper (small model, 4GB VRAM, 5x real-time on GPU)
+- **Alternative STT:** Qwen/Qwen3-ASR-1.7B via transformers (12GB VRAM, 10x real-time, GPU warmup on load)
 - **LLM Gateway:** 192.168.0.100:3400, model `badkid-llama-chat` (currently disabled for eval)
 - **iOS Safari:** Requires HTTPS. Self-signed cert in `cert.pem`/`key.pem`.

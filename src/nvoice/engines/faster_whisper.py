@@ -29,6 +29,10 @@ class FasterWhisperAdapter:
                 device = "cpu"
                 compute_type = "int8"
 
+        if device == "cpu" and compute_type == "float16":
+            print("[faster_whisper] CPU doesn't support float16, falling back to int8")
+            compute_type = "int8"
+
         self.model = WhisperModel(
             model_size,
             device=device,
@@ -54,11 +58,21 @@ class FasterWhisperAdapter:
         }
 
     def transcribe_array(self, audio: np.ndarray, sample_rate: int, language: str = None, beam_size: int = 5) -> tuple:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            sf.write(f.name, audio, sample_rate)
-            result = self.transcribe(f.name, language=language, beam_size=beam_size)
-        Path(f.name).unlink(missing_ok=True)
-        return result
+        # Pass numpy array directly to faster-whisper (avoids temp file I/O)
+        # Audio must be float32 in range [-1.0, 1.0]
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+        segments, info = self.model.transcribe(
+            audio,
+            language=language,
+            beam_size=beam_size,
+        )
+        text = " ".join([segment.text.strip() for segment in segments])
+        return text, {
+            "language": info.language,
+            "language_probability": info.language_probability,
+            "duration": info.duration,
+        }
 
     def create_stream(self):
         return {"samples": []}

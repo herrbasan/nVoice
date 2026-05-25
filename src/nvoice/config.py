@@ -79,9 +79,13 @@ NVOICE_VAD_SPEECH_WINDOWS = int(os.environ.get("NVOICE_VAD_SPEECH_WINDOWS", "2")
 NVOICE_VAD_SILENCE_WINDOWS = int(os.environ.get("NVOICE_VAD_SILENCE_WINDOWS", "8"))
 NVOICE_VAD_MIN_CHUNK_MS = int(os.environ.get("NVOICE_VAD_MIN_CHUNK_MS", "500"))
 
+# -- Language hint (speeds up CPU transcription ~2x when set) --
+NVOICE_LANGUAGE = os.environ.get("NVOICE_LANGUAGE", "").strip() or None  # None = auto-detect
+
 # -- Partial Results (for batch-mode engines like faster-whisper/Qwen3) --
 NVOICE_PARTIAL_INTERVAL_MS = int(os.environ.get("NVOICE_PARTIAL_INTERVAL_MS", "3000"))  # Emit partial every N ms during speech
 NVOICE_PARTIAL_MIN_AUDIO_MS = int(os.environ.get("NVOICE_PARTIAL_MIN_AUDIO_MS", "1000"))  # Minimum audio before first partial
+NVOICE_PARTIAL_WINDOW_MS = int(os.environ.get("NVOICE_PARTIAL_WINDOW_MS", "5000"))  # Rolling window for partial transcribe
 
 # -- Audio Recording (for debugging) --
 NVOICE_RECORD_RAW = os.environ.get("NVOICE_RECORD_RAW", "false").lower() == "true"

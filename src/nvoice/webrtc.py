@@ -26,13 +26,13 @@ import struct
 import time
 from pathlib import Path
 
-import av
 import numpy as np
+import av
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 
 from nvoice.logger import info, error
 from nvoice.stt import get_engine
-from nvoice.config import NVOICE_LLM_ENABLED, NVOICE_LLM_MAX_SEGMENTS, NVOICE_VAD_ENABLED, NVOICE_VAD_THRESHOLD, NVOICE_VAD_MIN_SPEECH_MS, NVOICE_VAD_MAX_SPEECH_MS, NVOICE_VAD_MODEL_DIR, NVOICE_VAD_SPEECH_WINDOWS, NVOICE_VAD_SILENCE_WINDOWS, NVOICE_VAD_MIN_CHUNK_MS, NVOICE_RECORD_RAW, NVOICE_RECORD_DIR, NVOICE_PARTIAL_INTERVAL_MS, NVOICE_PARTIAL_MIN_AUDIO_MS
+from nvoice.config import NVOICE_LLM_ENABLED, NVOICE_RECORD_RAW, NVOICE_RECORD_DIR, NVOICE_LANGUAGE
 
 
 class RawAudioRecorder:
@@ -44,7 +44,7 @@ class RawAudioRecorder:
         self.frames = []
         self.sample_rate = 16000
         self._closed = False
-        self._min_samples = int(NVOICE_VAD_MIN_CHUNK_MS * 16)  # 16 samples per ms
+        self._min_samples = 8000  # 500ms at 16kHz
 
     def accept(self, samples: list):
         if self._closed:
@@ -265,37 +265,39 @@ class AudioConsumerTrack(MediaStreamTrack):
             format="flt", layout="mono", rate=16000
         )
         self.engine = get_engine()
-        self.stream = self.engine.create_stream()
-        self.last_text = ""
         self._stop_event = asyncio.Event()
         self._task = None
         self.segment_buffer = SegmentBuffer()
         self._llm_task = None
 
-        # VAD state
-        self._vad_enabled = NVOICE_VAD_ENABLED
-        self.vad_manager = VADManager()
-        self._vad_active = False  # True when VAD detected speech, STT running
-        self._vad_check_interval = 160  # Check VAD every ~160 samples (10ms at 16kHz)
-        self._sample_count = 0
-        
-        # Audio recording for debugging
-        # self._recorder = RawAudioRecorder.start(self.pc_id)
-        self._recorder = None
-        
-        self._vad_silence_start = None  # Track when VAD silence started
-        self._vad_silence_timeout = 1.0  # 1 second of silence before finalizing (fast NUI)
-        # Rolling buffer: keep 0.5 seconds of audio before VAD detects speech
-        self._prebuffer_seconds = 0.5
-        self._prebuffer_samples = []
-        self._prebuffer_max_samples = int(16000 * self._prebuffer_seconds)  # 32000 samples
-        self._skip_current_feed = False  # Skip feeding current samples when we fed prebuffer
+        # Audio buffer for VAD-gated scanning
+        self._audio_buffer = []
+        self._scanning = False
+        self._last_text = ""
+        self._last_scan = 0.0
+        self._scan_interval = 2.0
+        self._silence_streak = 0  # Consecutive silent scans
+        self._MAX_SCAN_SAMPLES = 10 * 16000
+        self._BUFFER_CAP_SAMPLES = 30 * 16000
 
-        # Partial results for batch-mode engines
-        self._partial_interval_ms = NVOICE_PARTIAL_INTERVAL_MS
-        self._partial_min_audio_ms = NVOICE_PARTIAL_MIN_AUDIO_MS
-        self._last_partial_time = None  # Track when we last emitted a partial
-        self._partial_count = 0  # Count partials emitted for current utterance
+        # Transcribe opts (tuned for CPU; harmless on GPU)
+        self._transcribe_opts = {
+            "beam_size": 5,
+            "vad_filter": True,
+            "condition_on_previous_text": False,
+            "vad_parameters": {
+                "threshold": 0.5,
+                "min_speech_duration_ms": 250,
+                "min_silence_duration_ms": 500,
+                "speech_pad_ms": 400,
+                "max_speech_duration_s": 30,
+            },
+        }
+        if NVOICE_LANGUAGE:
+            self._transcribe_opts["language"] = NVOICE_LANGUAGE
+
+        self._recorder = RawAudioRecorder.start(self.pc_id)
+        # self._recorder = None
 
         if NVOICE_LLM_ENABLED:
             from nvoice.llm_client import LLMEnhancer
@@ -311,206 +313,133 @@ class AudioConsumerTrack(MediaStreamTrack):
         self._task = asyncio.create_task(self._consume_loop())
 
     async def _consume_loop(self):
+        """VAD-gated: buffer audio, scan every N seconds with built-in VAD."""
         loop = asyncio.get_running_loop()
         await self.state["dc_ready"].wait()
+        self._last_scan = time.monotonic()
+
         try:
             while not self._stop_event.is_set():
                 try:
                     frame = await asyncio.wait_for(self.track.recv(), timeout=1.0)
                 except asyncio.TimeoutError:
+                    pass
+                else:
+                    out_frames = self.resampler.resample(frame)
+                    for of in out_frames:
+                        samples = of.to_ndarray().flatten().tolist()
+                        if self._recorder:
+                            self._recorder.accept(samples)
+                        self._audio_buffer.extend(samples)
+
+                # Scan timer
+                now = time.monotonic()
+                if now - self._last_scan < self._scan_interval or self._scanning:
+                    continue
+                self._scanning = True
+                # Note: _last_scan updated at END of scan, not here
+
+                if len(self._audio_buffer) < 16000:
+                    self._scanning = False
                     continue
 
-                # Resample to 16kHz mono float32
-                out_frames = self.resampler.resample(frame)
-                for of in out_frames:
-                    arr = of.to_ndarray().flatten()
-                    samples = arr.tolist()
+                # Cap scan size
+                limit = min(len(self._audio_buffer), self._MAX_SCAN_SAMPLES)
+                scan_buf = self._audio_buffer[:limit]
+                samples_arr = np.array(scan_buf, dtype=np.float32)
+                ts = time.strftime("%H:%M:%S")
 
-                    self._sample_count += len(samples)
+                def _transcribe():
+                    opts = dict(self._transcribe_opts)
+                    if self._last_text:
+                        opts["initial_prompt"] = self._last_text
+                        opts["condition_on_previous_text"] = True
+                    return self.engine.model.transcribe(samples_arr, **opts)
 
-                    # Record raw audio for debugging
-                    if self._recorder:
-                        self._recorder.accept(samples)
+                t0 = time.monotonic()
+                segments, info = await loop.run_in_executor(None, _transcribe)
+                elapsed = (time.monotonic() - t0) * 1000
 
-                    if self._vad_enabled:
-                        # Maintain rolling prebuffer: always keep last 2s of audio
-                        self._prebuffer_samples.extend(samples)
-                        while len(self._prebuffer_samples) > self._prebuffer_max_samples:
-                            self._prebuffer_samples.pop(0)
+                text_parts = []
+                last_end = 0.0
+                for seg in segments:
+                    if seg.no_speech_prob < 0.6 and seg.text.strip():
+                        text_parts.append(seg.text.strip())
+                        last_end = max(last_end, seg.end)
 
-                        is_speech = await self.vad_manager.is_speech(samples, 16000)
+                if text_parts:
+                    self._silence_streak = 0
+                    seg_text = " ".join(text_parts)
+                    if seg_text != self._last_text:
+                        print(f"[{ts} STT] {len(samples_arr)/16000:.1f}s in {elapsed:.0f}ms -> '{seg_text[:80]}'")
+                        self._last_text = seg_text
+                        self.segment_buffer.add_segment(seg_text)
+                        self._send({"type": "final", "text": seg_text})
+                        if self.llm_enhancer:
+                            if self._llm_task and not self._llm_task.done():
+                                self._llm_task.cancel()
+                            self._llm_task = asyncio.create_task(self._enhance_locked())
+                        self._send_display_state()
 
-                        if is_speech and not self._vad_active:
-                            # Speech just started - VAD detected sound, activate STT
-                            print(f"[VAD] Speech detected, starting STT with 2s prebuffer")
-                            self._vad_active = True
-                            self._vad_silence_start = None
-                            self._sample_count = 0  # Reset audio counter for new utterance
-
-                            # Reset stream FIRST
-                            def _reset_stream():
-                                self.engine.reset(self.stream)
-                            await loop.run_in_executor(None, _reset_stream)
-                            self.last_text = ""
-
-                            # Feed entire prebuffer (last 2s of audio before current moment)
-                            # This gives STT context for words spoken before detection
-                            if self._prebuffer_samples:
-                                prebuffer = list(self._prebuffer_samples)
-                                self.engine.accept_waveform(self.stream, prebuffer, 16000)
-                                print(f"[VAD] Fed {len(prebuffer)} prebuffer samples ({len(prebuffer)/16000:.1f}s)")
-                                self._sample_count += len(prebuffer)
-                            self._skip_current_feed = True  # Skip feeding current chunk next iteration
-                            
-                            # Reset partial timing for new utterance
-                            self._last_partial_time = time.monotonic()
-                            self._partial_count = 0
-
-                        elif is_speech and self._vad_active:
-                            # Still hearing speech - reset silence tracker, keep feeding
-                            self._vad_silence_start = None
-
-                        elif not is_speech and self._vad_active:
-                            # VAD silence while STT running - track timeout
-                            if self._vad_silence_start is None:
-                                print("[VAD] Silence detected, starting timeout countdown...")
-                                self._vad_silence_start = time.monotonic()
-                            elif time.monotonic() - self._vad_silence_start > self._vad_silence_timeout:
-                                # VAD silence - force finalize
-                                print(f"[VAD] {self._vad_silence_timeout}s silence timeout reached, finalizing segment...")
-                                self._vad_active = False
-                                self._vad_silence_start = None
-
-                                def _final_decode():
-                                    return self.engine.decode(self.stream)
-
-                                final_text = await loop.run_in_executor(None, _final_decode)
-                                
-                                # Fallback: batch recognition for non-streaming engines 
-                                if not final_text and getattr(self.stream, "get", lambda x: None)("samples"):
-                                    samples_arr = np.array(self.stream["samples"], dtype=np.float32)
-                                    if len(samples_arr) > 16000 * 0.5: # At least half a second
-                                        def _batch_decode():
-                                            res, _ = self.engine.transcribe_array(samples_arr, 16000)
-                                            return res
-                                        final_text = await loop.run_in_executor(None, _batch_decode)
-
-                                if final_text and final_text.strip():
-                                    await self._finalize_segment(final_text)
-
-                                def _reset_stream():
-                                    self.engine.reset(self.stream)
-                                await loop.run_in_executor(None, _reset_stream)
-                                self._prebuffer_samples.clear()
-                                self._skip_current_feed = False
-                                self._sample_count = 0
-                                self._last_partial_time = None
-                                self._partial_count = 0
-                                continue
-
-                        if not self._vad_active:
-                            # VAD says silence, skip STT, keep prebuffering
-                            self._skip_current_feed = False
-                            self._last_partial_time = None
-                            continue
-
-                        # VAD says speech OR we were active - feed current samples to STT
-                        if self._skip_current_feed:
-                            # We just fed prebuffer, skip this chunk to avoid double-feeding
-                            self._skip_current_feed = False
-                        else:
-                            self.engine.accept_waveform(self.stream, samples, 16000)
+                    # Advance past transcribed audio — no overlap, VAD handles boundaries
+                    scan_dur = len(scan_buf) / 16000
+                    if last_end > scan_dur * 0.8:
+                        disc = max(int(last_end * 16000), len(scan_buf) - int(1 * 16000))
+                    elif last_end > 0:
+                        disc = int(last_end * 16000)
                     else:
-                        # VAD disabled - always feed to STT
-                        self.engine.accept_waveform(self.stream, samples, 16000)
+                        disc = 0
+                    self._audio_buffer = self._audio_buffer[max(0, disc):]
+                else:
+                    # Silence — skip more each consecutive silent scan
+                    self._silence_streak += 1
+                    skip_sec = min(0.5 * self._silence_streak, 5.0)
+                    self._audio_buffer = self._audio_buffer[int(skip_sec * 16000):]
 
-                    # Try decode (works for streaming engines like sherpa-onnx)
-                    def _decode():
-                        return self.engine.decode(self.stream)
+                # Hard cap
+                if len(self._audio_buffer) > self._BUFFER_CAP_SAMPLES:
+                    self._audio_buffer = self._audio_buffer[-self._BUFFER_CAP_SAMPLES:]
 
-                    text = await loop.run_in_executor(None, _decode)
-
-                    if text and text != self.last_text:
-                        self.last_text = text
-                        self._send({"type": "partial", "text": text})
-                        self._last_partial_time = time.monotonic()  # Reset partial timer on real decode
-
-                    # For batch-mode engines: emit periodic partials even when decode returns ""
-                    # Only do this if we haven't gotten a real decode result recently
-                    if not text or text == self.last_text:
-                        now = time.monotonic()
-                        audio_duration_ms = (self._sample_count / 16000) * 1000
-
-                        if audio_duration_ms >= self._partial_min_audio_ms:
-                            elapsed_since_partial = (now - self._last_partial_time) * 1000 if self._last_partial_time else float('inf')
-                            if elapsed_since_partial >= self._partial_interval_ms:
-                                # Get accumulated samples from the stream and run batch decode
-                                stream_samples = self.stream.get("samples", []) if isinstance(self.stream, dict) else []
-                                samples_arr = np.array(stream_samples, dtype=np.float32)
-                                if len(samples_arr) > 16000 * 0.5:
-                                    def _batch_partial():
-                                        res, _ = self.engine.transcribe_array(samples_arr, 16000)
-                                        return res
-                                    partial_text = await loop.run_in_executor(None, _batch_partial)
-                                    if partial_text and partial_text.strip() and partial_text != self.last_text:
-                                        print(f"[PARTIAL] {audio_duration_ms:.0f}ms audio: '{partial_text[:60]}...'")
-                                        self.last_text = partial_text
-                                        self._send({"type": "partial", "text": partial_text})
-                                        self._last_partial_time = now
-                                        self._partial_count += 1
-
-                    # Check endpoint - but only use it to send intermediate results, don't reset stream
-                    def _check_endpoint():
-                        return self.engine.is_endpoint(self.stream)
-
-                    is_endpoint = await loop.run_in_executor(None, _check_endpoint)
-                    if is_endpoint:
-                        # Endpoint detected - check if we have enough accumulated audio to finalize
-                        audio_duration_sec = self._sample_count / 16000
-                        if audio_duration_sec > 0.5 and text and text.strip():
-                            print(f"[ENDPOINT] Sentence complete ({audio_duration_sec:.1f}s audio): '{text[:80]}...'")
-                            await self._finalize_segment(text)
-
-                        # Always reset the stream after an endpoint to clear the flag
-                        def _reset():
-                            self.engine.reset(self.stream)
-                        await loop.run_in_executor(None, _reset)
-                        
-                        self._sample_count = 0
-                        self.last_text = ""
-                        self._last_partial_time = None  # Reset partial timer
-                        self._partial_count = 0
+                self._scanning = False
+                self._last_scan = time.monotonic()
 
         except (asyncio.CancelledError, av.error.EOFError):
-            pass # Client disconnected normally
+            pass
         except Exception as e:
             import traceback
             from aiortc.mediastreams import MediaStreamError
             if isinstance(e, MediaStreamError):
                 print(f"[WebRTC] Client track closed normally.")
-                pass
             else:
                 error("webrtc_audio_consumer_error", {"pc_id": self.pc_id, "error": str(e), "traceback": traceback.format_exc()}, "webrtc")
                 print(f"[ERROR] Audio consumer crashed: {traceback.format_exc()}")
         finally:
-            # Flush resampler and record final audio
             if self._recorder:
                 out_frames = self.resampler.resample(None)
                 for of in out_frames:
-                    arr = of.to_ndarray().flatten()
-                    self._recorder.accept(arr.tolist())
+                    self._recorder.accept(of.to_ndarray().flatten().tolist())
 
-            def _final():
-                text = self.engine.decode(self.stream)
-                return text
+            # Final flush
+            if len(self._audio_buffer) > 16000 * 0.5:
+                ts = time.strftime("%H:%M:%S")
+                print(f"[{ts} FLUSH] Transcribing remaining {len(self._audio_buffer)/16000:.1f}s...")
+                samples_arr = np.array(self._audio_buffer, dtype=np.float32)
 
-            text = await loop.run_in_executor(None, _final)
-            print(f"[FINAL FLUSH] Got text: '{text}'")
-            if text:
-                self.segment_buffer.add_segment(text)
-                self._send({"type": "final", "text": text})
-                if self.llm_enhancer:
-                    await self._enhance_locked()
+                def _flush():
+                    opts = dict(self._transcribe_opts)
+                    if self._last_text:
+                        opts["initial_prompt"] = self._last_text
+                        opts["condition_on_previous_text"] = True
+                    return self.engine.model.transcribe(samples_arr, **opts)
+
+                segments, info = await loop.run_in_executor(None, _flush)
+                text_parts = [s.text.strip() for s in segments if s.no_speech_prob < 0.6 and s.text.strip()]
+                if text_parts:
+                    text = " ".join(text_parts)
+                    self.segment_buffer.add_segment(text)
+                    self._send({"type": "final", "text": text})
+                    if self.llm_enhancer:
+                        await self._enhance_locked()
 
     async def _finalize_segment(self, text: str):
         """Finalize a segment: add to buffer, send to client, trigger LLM."""
