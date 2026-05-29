@@ -15,7 +15,14 @@ nVoice v2 abandons fixed overlapping heuristics and static VAD slicing in favor 
 1. WebRTC ingest pushes continuous float32 frames straight to an unstructured, rolling `audio_buffer`.
 2. A separate inference daemon loop grabs everything pending (capped around 30s) and runs STT.
 3. The time it takes inherently dictates the time size of the chunk available for the *next* tick, organically breathing with the system's compute power.
-4. Overlaps are handled by inspecting specific segment end timestamps generated natively by the STT engine.
+4. Active speech dynamically emits provisional transcripts without truncating the buffer, preserving 100% of Whisper's acoustic context. Finalization explicitly waits for absolute RMS silence or a configurable timestamp gap (`commit_silence_tail_sec`), immediately committing flawless transcription chunks free of overlap hallucinations.
+
+### Directory Structure & Intent
+- `src/`: The core application code (WebRTC handling, STT processing loop, Server).
+- `web/`: The vanilla HTML/JS frontend interface visualizing realtime provisional vs. final emissions alongside latency telemetry.
+- `simulations/`: High-fidelity standalone simulation scripts that emulate the live WebRTC environment for isolated back-end benchmarking.
+- `tests/`: Isolated algorithmic, overlapping, and logical test cases.
+- `legacy_v1/`: Ignore entirely; retained only for structural archaeology.
 
 ### Environment Reference
 - **Active Engine:** `faster_whisper` (via local python pipeline). 

@@ -14,5 +14,17 @@ nVoice is a highly-optimized, real-time Speech-to-Text (STT) inference pipeline 
 - **Telemetry-First:** Realtime DataChannel payload containing backlog times and processing states keeps the client fully aware of pipeline health.
 - **Engine Layer:** Streamlined STT adapter pattern focusing initially on getting safe cursor advancement and overlapping right using `faster_whisper`.
 
-## Setup (WIP)
-Documentation scaling back while core architecture is re-written. Reference `legacy_v1` for older configurations.
+## Setup and Testing
+To install requirements:
+`python install.py`
+
+To run the local server natively:
+`python run.py`
+
+### Simulations & Testing
+The project includes self-contained simulation scripts and tests in the `simulations/` and `tests/` directories designed to test engine responsiveness without needing the WebRTC browser stack.
+
+- `simulations/sim_realtime.py`: Simulates continuous WebRTC ingestion against the engine using the same buffer mechanics, providing real-time final vs. provisional text output testing and logging.
+- `simulations/sim_offline.py`: Pure offline execution for accurate speed benchmarking.
+- `simulations/offline_record_and_transcribe.py`: Records audio and plays back the inference.
+- `tests/`: Contains isolated logic unit tests for overlapping, patching, and data channel behaviors.
