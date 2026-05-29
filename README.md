@@ -12,7 +12,7 @@ nVoice is a highly-optimized, real-time Speech-to-Text (STT) inference pipeline 
 
 - **Decoupled Buffering:** Ingestion unconditionally accepts audio and appends it to a ring buffer. The inference loop grabs dynamic chunks based entirely on available compute context. If STT takes 5 seconds, the next chunk is simply 5 seconds larger, scaling naturally without crash or lockup.
 - **Telemetry-First:** Realtime DataChannel payload containing backlog times and processing states keeps the client fully aware of pipeline health.
-- **Engine Layer:** Streamlined STT adapter pattern focusing initially on getting safe cursor advancement and overlapping right using `faster_whisper`.
+- **Engine Layer:** Streamlined STT adapter pattern using `faster_whisper`, maintaining perfect acoustic context by eliminating static overlapping heuristics and emitting continuous provisional updates.
 
 ## Setup and Testing
 To install requirements:
