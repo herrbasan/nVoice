@@ -107,5 +107,8 @@ def run_simulation(audio_path: str):
 
 if __name__ == "__main__":
     import sys
-    target = r"legacy_v1\models\recordings\raw_pc_2718880655952_1779698492728.wav"
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(current_dir)
+    target = os.path.join(root_dir, "tests", "reference.wav")
     run_simulation(target)

@@ -70,5 +70,8 @@ async def run_client(wav_path: str, server_url: str = "http://127.0.0.1:2244/off
         await pc.close()
 
 if __name__ == "__main__":
-    wav_file = r"legacy_v1\models\recordings\raw_pc_2718880655952_1779698492728.wav"
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(current_dir)
+    wav_file = os.path.join(root_dir, "tests", "reference.wav")
     asyncio.run(run_client(wav_file))

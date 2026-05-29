@@ -8,7 +8,7 @@ def main():
     venv_dir = os.path.join(root_dir, "venv")
     
     print(f"Creating virtual environment in {venv_dir}...")
-    builder = venv.EnvBuilder(with_pip=True)
+    builder = venv.EnvBuilder(with_pip=True, clear=True)
     builder.create(venv_dir)
     
     if os.name == "nt":
