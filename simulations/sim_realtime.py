@@ -51,7 +51,7 @@ class MockTrack:
         return frame
 
 
-async def run_simulation(wav_path="reference.wav"):
+async def run_simulation(wav_path="tests/reference.wav"):
     wf = wave.open(wav_path, "rb")
     n_frames = wf.getnframes()
     raw_data = wf.readframes(n_frames)

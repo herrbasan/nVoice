@@ -15,7 +15,7 @@ def callback(indata, frames, time, status):
         print(status, file=sys.stderr)
     q.put(indata.copy())
 
-def record_audio(filename="reference.wav"):
+def record_audio(filename="tests/reference.wav"):
     print("=== RECORDING ===")
     print("Speak into your microphone. Press Ctrl+C to stop recording.")
     
@@ -38,7 +38,7 @@ def record_audio(filename="reference.wav"):
     
     return True
 
-def transcribe_offline(filename="reference.wav"):
+def transcribe_offline(filename="tests/reference.wav"):
     print("\n=== OFFLINE TRANSCRIPTION ===")
     print("Loading large-v3 model on CUDA dictating offline batch mode (highest quality)...")
     model = WhisperModel("large-v3", device="cuda", compute_type="float16")
@@ -62,9 +62,9 @@ def transcribe_offline(filename="reference.wav"):
     print("\nFull text:")
     print(full_text.strip())
     
-    with open("reference_transcript.txt", "w") as f:
+    with open("tests/reference_transcript.txt", "w", encoding="utf-8") as f:
         f.write(full_text.strip())
-    print("\nSaved transcript to reference_transcript.txt")
+    print("\nSaved transcript to tests/reference_transcript.txt")
 
 if __name__ == "__main__":
     import importlib.util
