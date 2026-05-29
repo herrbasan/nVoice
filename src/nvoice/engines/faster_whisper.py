@@ -1,90 +1,95 @@
 """
-faster-whisper STT Engine Adapter
-CTranslate2-based Whisper implementation with GPU acceleration.
+faster-whisper Engine Adapter (v2)
 """
-import tempfile
-import time
-from pathlib import Path
-
 import numpy as np
-import soundfile as sf
-from nvoice import config
+from typing import List
+from faster_whisper import WhisperModel
+
+from nvoice.stt import STTAdapter, STTSegment, STTWord
+from nvoice.config import Config
 
 
-class FasterWhisperAdapter:
-    """STT engine adapter for faster-whisper."""
-
-    def __init__(self):
-        from faster_whisper import WhisperModel
-
-        self.engine_name = "faster_whisper"
-        model_size = config.NVOICE_DEFAULT_MODEL_SIZE
-        device = config.NVOICE_DEFAULT_DEVICE
-        compute_type = config.NVOICE_DEFAULT_COMPUTE_TYPE
-
-        if device == "cuda":
-            import torch
-            if not torch.cuda.is_available():
-                print("[faster_whisper] CUDA not available, falling back to CPU/int8")
-                device = "cpu"
-                compute_type = "int8"
-
-        if device == "cpu" and compute_type == "float16":
-            print("[faster_whisper] CPU doesn't support float16, falling back to int8")
-            compute_type = "int8"
-
+class FasterWhisperAdapter(STTAdapter):
+    def __init__(self, model_size="small", compute_type="int8", device="cpu"):
+        super().__init__()
+        self.model_size = model_size
+        
+        print(f"[Engine] Loading faster_whisper ({model_size}) on {device}...")
+        # Fail fast: If model fails to load, crash immediately.
         self.model = WhisperModel(
             model_size,
             device=device,
             compute_type=compute_type,
-            download_root=config.NVOICE_MODEL_DIR,
+            # CPU limits
+            cpu_threads=Config.CPU_THREADS,
+            num_workers=getattr(Config, "NUM_WORKERS", 1)
         )
-        self.model_size = model_size
-        self.device = device
-        self.compute_type = compute_type
-        self.sample_rate = config.NVOICE_SAMPLE_RATE
+        print("[Engine] Loaded successfully.")
 
-    def transcribe(self, audio_path: str, language: str = None, beam_size: int = 5) -> tuple:
-        segments, info = self.model.transcribe(
-            audio_path,
-            language=language,
-            beam_size=beam_size,
-        )
-        text = " ".join([segment.text.strip() for segment in segments])
-        return text, {
-            "language": info.language,
-            "language_probability": info.language_probability,
-            "duration": info.duration,
+    def transcribe(self, audio_array: np.ndarray, sample_rate: int = 16000, context_text: str = None) -> List[STTSegment]:
+        """
+        Runs VAD-gated STT on a raw 1D numpy array.
+        """
+        # Our N-1 strategy mathematically requires word timestamps or clean VAD boundaries.
+        kwargs = {
+            "word_timestamps": True,
+            "vad_filter": True, # Critical for ignoring trailing absolute silence in chunks
+            "vad_parameters": dict(threshold=Config.VAD_THRESHOLD), # Stricter VAD to prevent CPU churning on background noise
+            "condition_on_previous_text": True, # Let's see if this fixes the LLM fragmentation
+            "no_speech_threshold": getattr(Config, "NO_SPEECH_THRESHOLD", 0.6),
+            "log_prob_threshold": getattr(Config, "LOG_PROB_THRESHOLD", -1.0),
+            "compression_ratio_threshold": getattr(Config, "COMPRESSION_RATIO_THRESHOLD", 2.4),
+            "beam_size": getattr(Config, "BEAM_SIZE", 5),
+            "best_of": getattr(Config, "BEST_OF", 5),
+            "temperature": getattr(Config, "TEMPERATURE", 0.0),
+            "hallucination_silence_threshold": getattr(Config, "HALLUCINATION_SILENCE_THRESHOLD", 2.0),
         }
+        if hasattr(Config, "LANGUAGE") and Config.LANGUAGE and Config.LANGUAGE != "auto":
+            kwargs["language"] = Config.LANGUAGE
+        
+        # Determine contextual prompt
+        initial_prompt = getattr(Config, "INITIAL_PROMPT", None)
+        if context_text and context_text.strip():
+            # Dynamically injected context overrides config
+            kwargs["initial_prompt"] = context_text.strip()
+        elif initial_prompt is not None:
+            kwargs["initial_prompt"] = initial_prompt
+            
+        hotwords = getattr(Config, "HOTWORDS", None)
+        if hotwords is not None:
+            kwargs["hotwords"] = hotwords
 
-    def transcribe_array(self, audio: np.ndarray, sample_rate: int, language: str = None, beam_size: int = 5) -> tuple:
-        # Pass numpy array directly to faster-whisper (avoids temp file I/O)
-        # Audio must be float32 in range [-1.0, 1.0]
-        if audio.dtype != np.float32:
-            audio = audio.astype(np.float32)
-        segments, info = self.model.transcribe(
-            audio,
-            language=language,
-            beam_size=beam_size,
+        segments_gen, _ = self.model.transcribe(
+            audio_array,
+            **kwargs
         )
-        text = " ".join([segment.text.strip() for segment in segments])
-        return text, {
-            "language": info.language,
-            "language_probability": info.language_probability,
-            "duration": info.duration,
-        }
-
-    def create_stream(self):
-        return {"samples": []}
         
-    def accept_waveform(self, stream, samples: list, sample_rate: int = 16000):
-        stream["samples"].extend(samples)
-        
-    def decode(self, stream) -> str:
-        return ""
-        
-    def is_endpoint(self, stream) -> bool:
-        return False
-        
-    def reset(self, stream):
-        stream["samples"] = []
+        results = []
+        for seg in segments_gen:
+            # Drop segments marked globally as silence/no speech 
+            if seg.no_speech_prob > getattr(Config, "NO_SPEECH_THRESHOLD", 0.6):
+                continue
+                
+            seg_words = []
+            if seg.words:
+                for w in seg.words:
+                    seg_words.append(
+                        STTWord(
+                            word=w.word,
+                            start=w.start,
+                            end=w.end,
+                            probability=w.probability
+                        )
+                    )
+                
+            results.append(
+                STTSegment(
+                    text=seg.text.strip(),
+                    start=seg.start,
+                    end=seg.end,
+                    probability=(1.0 - seg.no_speech_prob),
+                    words=seg_words
+                )
+            )
+            
+        return results
