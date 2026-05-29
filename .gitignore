@@ -19,4 +19,6 @@ Thumbs.db
 
 # Test files
 test.ogg
-*.loglegacy_v1/
+*.log
+
+legacy_v1/

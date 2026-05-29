@@ -1,0 +1,22 @@
+{
+    "host": "0.0.0.0",
+    "port": 2244,
+    "model_size": "large-v3",
+    "model_device": "cuda",
+    "compute_type": "float16",
+    "vad_threshold": 0.4,
+    "cpu_threads": 4,
+    "language": "auto",
+    "no_speech_threshold": 0.6,
+    "log_prob_threshold": -1.0,
+    "compression_ratio_threshold": 2.4,
+    "beam_size": 5,
+    "best_of": 5,
+    "initial_prompt": null,
+    "hotwords": null,
+    "num_workers": 1,
+    "buffer_min_sec": 0.3,
+    "commit_silence_tail_sec": 1.0,
+    "temperature": 0.0,
+    "hallucination_silence_threshold": 2.0
+}
