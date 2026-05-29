@@ -5,6 +5,8 @@ const transcriptionDiv = document.getElementById('transcription');
 const telemetryDiv = document.getElementById('telemetry');
 const systemInfoDiv = document.getElementById('systemInfo');
 const micSelect = document.getElementById('micSelect');
+const wakeWordToggle = document.getElementById('wakeWordToggle');
+const sleepBtn = document.getElementById('sleepBtn');
 
 let client = null;
 
@@ -49,20 +51,35 @@ function initClient() {
         stopBtn.disabled = false;
         startBtn.disabled = true;
         micSelect.disabled = true;
+        wakeWordToggle.disabled = true;
+    });
+
+    client.on('asleep', () => {
+        statusDiv.textContent = "Connected [ASLEEP - Waiting for Voice]";
+        sleepBtn.disabled = true;
+    });
+
+    client.on('wakeWordDetected', () => {
+        statusDiv.textContent = "Connected [AWAKE - Listening]";
+        sleepBtn.disabled = false;
     });
 
     client.on('standby', () => {
         statusDiv.textContent = "Standby (Connection Kept Alive)";
         startBtn.disabled = false;
         stopBtn.disabled = true;
+        sleepBtn.disabled = true;
         micSelect.disabled = false;
+        wakeWordToggle.disabled = false;
     });
 
     client.on('disconnected', () => {
         statusDiv.textContent = "Disconnected";
         stopBtn.disabled = true;
         startBtn.disabled = false;
+        sleepBtn.disabled = true;
         micSelect.disabled = false;
+        wakeWordToggle.disabled = false;
     });
 
     client.on('error', (err) => {
@@ -107,11 +124,26 @@ function initClient() {
     });
 }
 
-startBtn.addEventListener('click', () => {
+startBtn.addEventListener('click', async () => {
     initClient();
     startBtn.disabled = true;
     micSelect.disabled = true;
+    wakeWordToggle.disabled = true;
     
+    if (wakeWordToggle.checked && !client.wakeWordEnabled) {
+        try {
+            await client.enableWakeWord('/sdk/silero_vad.onnx');
+        } catch (e) {
+            alert("Error loading Wake Word model: " + e);
+            startBtn.disabled = false;
+            wakeWordToggle.disabled = false;
+            return;
+        }
+    } else if (!wakeWordToggle.checked) {
+        client.wakeWordEnabled = false;
+        client.isAwake = true;
+    }
+
     client.setAudioDevice(micSelect.value);
     client.start().catch(e => console.error(e));
 });
@@ -119,5 +151,11 @@ startBtn.addEventListener('click', () => {
 stopBtn.addEventListener('click', () => {
     if (client) {
         client.stop();
+    }
+});
+
+sleepBtn.addEventListener('click', () => {
+    if (client) {
+        client.sleep();
     }
 });
