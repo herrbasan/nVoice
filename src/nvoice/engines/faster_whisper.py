@@ -2,6 +2,7 @@
 faster-whisper Engine Adapter (v2)
 """
 import numpy as np
+import threading
 from typing import List
 from faster_whisper import WhisperModel
 
@@ -13,6 +14,7 @@ class FasterWhisperAdapter(STTAdapter):
     def __init__(self, model_size="small", compute_type="int8", device="cpu"):
         super().__init__()
         self.model_size = model_size
+        self.lock = threading.Lock()
         
         print(f"[Engine] Loading faster_whisper ({model_size}) on {device}...")
         # Fail fast: If model fails to load, crash immediately.
@@ -59,37 +61,38 @@ class FasterWhisperAdapter(STTAdapter):
         if hotwords is not None:
             kwargs["hotwords"] = hotwords
 
-        segments_gen, _ = self.model.transcribe(
-            audio_array,
-            **kwargs
-        )
-        
-        results = []
-        for seg in segments_gen:
-            # Drop segments marked globally as silence/no speech 
-            if seg.no_speech_prob > getattr(Config, "NO_SPEECH_THRESHOLD", 0.6):
-                continue
-                
-            seg_words = []
-            if seg.words:
-                for w in seg.words:
-                    seg_words.append(
-                        STTWord(
-                            word=w.word,
-                            start=w.start,
-                            end=w.end,
-                            probability=w.probability
-                        )
-                    )
-                
-            results.append(
-                STTSegment(
-                    text=seg.text.strip(),
-                    start=seg.start,
-                    end=seg.end,
-                    probability=(1.0 - seg.no_speech_prob),
-                    words=seg_words
-                )
+        with self.lock:
+            segments_gen, _ = self.model.transcribe(
+                audio_array,
+                **kwargs
             )
             
-        return results
+            results = []
+            for seg in segments_gen:
+                # Drop segments marked globally as silence/no speech 
+                if seg.no_speech_prob > getattr(Config, "NO_SPEECH_THRESHOLD", 0.6):
+                    continue
+                    
+                seg_words = []
+                if seg.words:
+                    for w in seg.words:
+                        seg_words.append(
+                            STTWord(
+                                word=w.word,
+                                start=w.start,
+                                end=w.end,
+                                probability=w.probability
+                            )
+                        )
+                    
+                results.append(
+                    STTSegment(
+                        text=seg.text.strip(),
+                        start=seg.start,
+                        end=seg.end,
+                        probability=(1.0 - seg.no_speech_prob),
+                        words=seg_words
+                    )
+                )
+                
+            return results
