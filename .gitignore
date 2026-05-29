@@ -6,6 +6,7 @@ models/
 
 # ENV
 .env
+config.json
 
 # SSL Certificates
 cert.pem
@@ -18,4 +19,4 @@ Thumbs.db
 
 # Test files
 test.ogg
-*.log
+*.loglegacy_v1/
