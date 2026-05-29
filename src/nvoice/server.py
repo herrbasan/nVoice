@@ -17,8 +17,11 @@ rtc_manager = WebRTCManager()
 
 # Ensure web directory exists
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "web")
+SDK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "sdk")
 
 app.mount("/js", StaticFiles(directory=os.path.join(WEB_DIR, "js")), name="js")
+if os.path.exists(SDK_DIR):
+    app.mount("/sdk", StaticFiles(directory=SDK_DIR), name="sdk")
 
 class OfferParams(BaseModel):
     sdp: str

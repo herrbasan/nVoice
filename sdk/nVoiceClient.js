@@ -1,6 +1,6 @@
 class nVoiceClient {
     constructor(config = {}) {
-        this.serverUrl = config.serverUrl || 'http://localhost:8000';
+        this.serverUrl = config.serverUrl || '';
         this.audioDeviceId = config.audioDeviceId || null;
         
         this.pc = null;
@@ -29,7 +29,11 @@ class nVoiceClient {
         }
     }
 
-    async connect() {
+    setAudioDevice(deviceId) {
+        this.audioDeviceId = deviceId;
+    }
+
+    async start() {
         try {
             // 1. Get microphone access
             const constraints = {
@@ -40,16 +44,29 @@ class nVoiceClient {
                 }
             };
             
-            if (this.audioDeviceId) {
+            if (this.audioDeviceId && this.audioDeviceId !== 'default') {
                 constraints.audio.deviceId = { exact: this.audioDeviceId };
             }
             
             this.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-            // 2. Initialize PeerConnection
+            // 2. Hot-swap if already connected
+            if (this.pc) {
+                const audioTrack = this.audioStream.getAudioTracks()[0];
+                const sender = this.pc.getSenders().find(s => !s.track || s.track.kind === 'audio');
+                if (sender) {
+                    await sender.replaceTrack(audioTrack);
+                } else {
+                    this.pc.addTrack(audioTrack, this.audioStream);
+                }
+                this.emit('connected');
+                return;
+            }
+
+            // 3. Initialize PeerConnection
             this.pc = new RTCPeerConnection();
 
-            // 3. Setup DataChannel for receiving transcript & telemetry
+            // 4. Setup DataChannel for receiving transcript & telemetry
             this.dc = this.pc.createDataChannel('stt-events');
             
             this.dc.onopen = () => {
@@ -73,17 +90,18 @@ class nVoiceClient {
                 }
             };
 
-            // 4. Add audio track to PeerConnection
+            // 5. Add audio track to PeerConnection
             this.audioStream.getTracks().forEach(track => {
                 this.pc.addTrack(track, this.audioStream);
             });
 
-            // 5. Create Offer
+            // 6. Create Offer
             const offer = await this.pc.createOffer();
             await this.pc.setLocalDescription(offer);
 
-            // 6. Send Offer to Server
-            const response = await fetch(`${this.serverUrl}/offer`, {
+            // 7. Send Offer to Server
+            const endpoint = this.serverUrl ? `${this.serverUrl}/offer` : '/offer';
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -100,17 +118,36 @@ class nVoiceClient {
 
             const answer = await response.json();
             
-            // 7. Accept Server Answer
+            // 8. Accept Server Answer
             await this.pc.setRemoteDescription(answer);
 
         } catch (error) {
             this.emit('error', error);
-            this.disconnect();
             throw error;
         }
     }
 
+    stop() {
+        if (this.audioStream) {
+            this.audioStream.getTracks().forEach(track => track.stop());
+            
+            if (this.pc) {
+                const senders = this.pc.getSenders();
+                senders.forEach(sender => {
+                    if (sender.track && sender.track.kind === 'audio') {
+                        sender.replaceTrack(null);
+                    }
+                });
+            }
+            this.audioStream = null;
+        }
+        
+        this.emit('standby');
+    }
+
     disconnect() {
+        this.stop();
+
         if (this.dc) {
             this.dc.close();
             this.dc = null;
@@ -119,11 +156,6 @@ class nVoiceClient {
         if (this.pc) {
             this.pc.close();
             this.pc = null;
-        }
-        
-        if (this.audioStream) {
-            this.audioStream.getTracks().forEach(track => track.stop());
-            this.audioStream = null;
         }
         
         this.emit('disconnected');

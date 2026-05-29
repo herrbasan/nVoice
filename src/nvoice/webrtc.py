@@ -58,14 +58,17 @@ class AudioConsumer:
                 self.stop()
                 break
 
-    def _send_telemetry(self, rtf: float, backlog_sec: float, state: str = "processing"):
+    def _send_telemetry(self, rtf: float, backlog_sec: float, state: str = "processing", extra: dict = None):
         if self.dc and self.dc.readyState == "open":
-            self.dc.send(json.dumps({
+            payload = {
                 "type": "telemetry",
                 "rtf": round(rtf, 2),
                 "backlog_sec": round(backlog_sec, 2),
                 "state": state
-            }))
+            }
+            if extra:
+                payload.update(extra)
+            self.dc.send(json.dumps(payload))
 
     def _send_transcript(self, text: str, is_final: bool = False):
         cleaned = text.strip()
@@ -113,7 +116,7 @@ class AudioConsumer:
                     # If there's no sound across the ENTIRE buffer, we can safely flush it all.
                     self.audio_buffer = np.array([], dtype=np.float32)
                     self.read_cursor_sec += available_sec
-                    self._send_telemetry(0.0, 0.0, "idle/silence")
+                    self._send_telemetry(0.0, 0.0, "idle/silence", {"rms": float(rms)})
                     await asyncio.sleep(0.05)
                     continue
                 
@@ -124,7 +127,7 @@ class AudioConsumer:
                 infer_time = time.monotonic() - t0
                 
                 rtf = infer_time / available_sec
-                self._send_telemetry(rtf, available_sec, "processing")
+                self._send_telemetry(rtf, available_sec, "processing", {"infer_time": round(infer_time, 3), "rms": float(rms), "buffer_size_sec": round(available_sec, 2)})
                 
                 if not segments:
                     # No speech found. Don't flush completely as it might be the start of a word!

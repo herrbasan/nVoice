@@ -1,7 +1,3 @@
-let pc = null;
-let stream = null;
-let dataChannel = null;
-
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusDiv = document.getElementById('status');
@@ -9,6 +5,8 @@ const transcriptionDiv = document.getElementById('transcription');
 const telemetryDiv = document.getElementById('telemetry');
 const systemInfoDiv = document.getElementById('systemInfo');
 const micSelect = document.getElementById('micSelect');
+
+let client = null;
 
 // Fetch system config on load and populate devices
 window.addEventListener('DOMContentLoaded', async () => {
@@ -40,148 +38,86 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-async function start() {
-    const t0 = performance.now();
-    const logTime = (step) => console.log(`[${(performance.now() - t0).toFixed(0)} ms] ${step}`);
+function initClient() {
+    if (client) return;
     
-    logTime("Start clicked, disabling UI");
-    startBtn.disabled = true;
-    micSelect.disabled = true;
+    // Pass empty URL, it defaults to same domain '/offer'
+    client = new window.nVoiceClient({ serverUrl: '' });
     
-    try {
-        logTime("Requesting user media...");
-        const constraints = {
-            audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false
-            }, 
-            video: false 
-        };
-        
-        if (micSelect.value && micSelect.value !== 'default') {
-            constraints.audio.deviceId = { exact: micSelect.value };
-        }
-        
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        logTime("User media acquired");
-    } catch (e) {
-        alert("Microphone access denied or error: " + e);
+    client.on('connected', () => {
+        statusDiv.textContent = "Connected";
+        stopBtn.disabled = false;
+        startBtn.disabled = true;
+        micSelect.disabled = true;
+    });
+
+    client.on('standby', () => {
+        statusDiv.textContent = "Standby (Connection Kept Alive)";
         startBtn.disabled = false;
-        return;
-    }
+        stopBtn.disabled = true;
+        micSelect.disabled = false;
+    });
 
-    if (pc) {
-        logTime("Reusing RTCPeerConnection - Hot-swapping track");
-        const audioTrack = stream.getAudioTracks()[0];
-        const sender = pc.getSenders().find(s => !s.track || s.track.kind === 'audio');
-        if (sender) {
-            await sender.replaceTrack(audioTrack);
-        } else {
-            pc.addTrack(audioTrack, stream);
-        }
-        statusDiv.textContent = "Connected";
-        stopBtn.disabled = false;
-        logTime("Track re-attached instantly!");
-        return;
-    }
-
-    logTime("Creating RTCPeerConnection");
-    pc = new RTCPeerConnection();
-    
-    // Create data channel for transcription & telemetry
-    dataChannel = pc.createDataChannel('stt_events');
-    dataChannel.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'transcript') {
-            let finalSpan = document.getElementById('finalText');
-            let provSpan = document.getElementById('provisionalText');
-            if(!finalSpan){
-                transcriptionDiv.innerHTML = '<span id="finalText"></span><span id="provisionalText" style="color: gray;"></span>';
-                finalSpan = document.getElementById('finalText');
-                provSpan = document.getElementById('provisionalText');
-            }
-            if (msg.is_final) {
-                finalSpan.textContent += msg.text + " ";
-                provSpan.textContent = "";
-            } else {
-                provSpan.textContent = msg.text + " ";
-            }
-            transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
-        } else if (msg.type === 'telemetry') {
-            if (msg.state === 'idle/silence') {
-                telemetryDiv.style.color = 'gray';
-                telemetryDiv.textContent = `State: Listening (Silence Detected)`;
-            } else {
-                telemetryDiv.style.color = '#2e8b57'; // Greenish when processing
-                telemetryDiv.textContent = `State: ${msg.state} | RTF: ${msg.rtf} | Backlog: ${msg.backlog_sec}s`;
-            }
-        }
-    };
-    dataChannel.onopen = () => {
-        logTime("DataChannel opened! Ready.");
-        statusDiv.textContent = "Connected";
-        stopBtn.disabled = false;
-    };
-    dataChannel.onclose = () => {
-        logTime("DataChannel closed");
+    client.on('disconnected', () => {
         statusDiv.textContent = "Disconnected";
         stopBtn.disabled = true;
         startBtn.disabled = false;
-    };
-
-    // Add audio track
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-    // Offer / Answer signaling
-    logTime("Creating WebRTC Offer");
-    const offer = await pc.createOffer();
-    logTime("Setting Local Description");
-    await pc.setLocalDescription(offer);
-
-    logTime("Sending Offer to Server");
-    const sdpResponse = await fetch('/offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            sdp: pc.localDescription.sdp,
-            type: pc.localDescription.type
-        })
+        micSelect.disabled = false;
     });
-    
-    logTime("Received Server Answer");
-    const answer = await sdpResponse.json();
-    logTime("Setting Remote Description");
-    await pc.setRemoteDescription(answer);
-    logTime("WebRTC Signaling Completed");
-}
 
-function stop() {
-    console.log(`[${new Date().toISOString()}] Stop clicked`);
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        
-        if (pc) {
-            // Hot-swap out the track with null so the server WebRTC connection
-            // stays perfectly alive, but stops receiving audio frames.
-            const senders = pc.getSenders();
-            senders.forEach(sender => {
-                if (sender.track && sender.track.kind === 'audio') {
-                    sender.replaceTrack(null);
-                }
-            });
+    client.on('error', (err) => {
+        alert("Microphone access denied or error: " + err);
+        startBtn.disabled = false;
+        micSelect.disabled = false;
+    });
+
+    client.on('transcript', (msg) => {
+        let finalSpan = document.getElementById('finalText');
+        let provSpan = document.getElementById('provisionalText');
+        if(!finalSpan){
+            transcriptionDiv.innerHTML = '<span id="finalText"></span><span id="provisionalText" style="color: gray;"></span>';
+            finalSpan = document.getElementById('finalText');
+            provSpan = document.getElementById('provisionalText');
         }
-        stream = null;
-    }
-    
-    // We intentionally DO NOT close `pc` or `dataChannel` here anymore. 
-    // This entirely avoids the 5-second WebRTC initialization penalty.
-    statusDiv.textContent = "Standby (Connection Kept Alive)";
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    micSelect.disabled = false;
-    console.log(`[${new Date().toISOString()}] Teardown complete`);
+        if (msg.is_final) {
+            finalSpan.textContent += msg.text + " ";
+            provSpan.textContent = "";
+        } else {
+            provSpan.textContent = msg.text + " ";
+        }
+        transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
+    });
+
+    client.on('telemetry', (msg) => {
+        let extraStats = '';
+        if (msg.rms !== undefined) {
+            extraStats += ` | RMS: ${msg.rms.toFixed(4)}`;
+        }
+        if (msg.infer_time !== undefined) {
+            extraStats += ` | Infer: ${msg.infer_time.toFixed(3)}s`;
+        }
+
+        if (msg.state === 'idle/silence') {
+            telemetryDiv.style.color = 'gray';
+            telemetryDiv.textContent = `State: Listening (Silence Detected)${extraStats}`;
+        } else {
+            telemetryDiv.style.color = '#2e8b57'; // Greenish when processing
+            telemetryDiv.textContent = `State: ${msg.state} | RTF: ${msg.rtf} | Backlog: ${msg.backlog_sec}s${extraStats}`;
+        }
+    });
 }
 
-startBtn.addEventListener('click', start);
-stopBtn.addEventListener('click', stop);
+startBtn.addEventListener('click', () => {
+    initClient();
+    startBtn.disabled = true;
+    micSelect.disabled = true;
+    
+    client.setAudioDevice(micSelect.value);
+    client.start().catch(e => console.error(e));
+});
+
+stopBtn.addEventListener('click', () => {
+    if (client) {
+        client.stop();
+    }
+});
