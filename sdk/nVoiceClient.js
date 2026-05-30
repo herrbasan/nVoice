@@ -2,13 +2,15 @@ class nVoiceClient {
     constructor(config = {}) {
         this.serverUrl = config.serverUrl || '';
         this.audioDeviceId = config.audioDeviceId || null;
-        
+
         this.pc = null;
         this.dc = null;
         this.audioStream = null;
         this.dummyTrack = null;
-        
-        // Wake Word / VAD State
+
+        // VAD state (Silero V4 legacy model from vad-web)
+        // Model inputs:  input[1,N], sr[int64], h[2,1,64], c[2,1,64]
+        // Model outputs: output[1,1], hn[2,1,64], cn[2,1,64]
         this.wakeWordEnabled = false;
         this.isAwake = true;
         this.wwSession = null;
@@ -16,15 +18,21 @@ class nVoiceClient {
         this.wwC = null;
         this.wwSr = null;
         this.audioContext = null;
-        
-        // Simple event emitter
+        this.workletNode = null;
+        this._vadChain = Promise.resolve();
+
+        // Auto-sleep: after a final transcript, count consecutive silence frames
+        // 1536 samples @ 16kHz = 96ms/frame, so ~31 frames = ~3s silence
+        this._finalReceived = false;
+        this._silenceCount = 0;
+        this._silenceFramesToSleep = 31;
+        this._silenceThreshold = 0.3;
+
         this.listeners = {};
     }
 
     on(event, callback) {
-        if (!this.listeners[event]) {
-            this.listeners[event] = [];
-        }
+        if (!this.listeners[event]) this.listeners[event] = [];
         this.listeners[event].push(callback);
     }
 
@@ -34,9 +42,7 @@ class nVoiceClient {
     }
 
     emit(event, data) {
-        if (this.listeners[event]) {
-            this.listeners[event].forEach(cb => cb(data));
-        }
+        if (this.listeners[event]) this.listeners[event].forEach(cb => cb(data));
     }
 
     setAudioDevice(deviceId) {
@@ -45,115 +51,172 @@ class nVoiceClient {
 
     async enableWakeWord(modelUrl) {
         if (typeof ort === 'undefined') {
-            throw new Error("onnxruntime-web is not loaded. Please include it via script tag.");
+            throw new Error("onnxruntime-web is not loaded.");
         }
-        
+
         this.emit('telemetry', { state: 'Loading ONNX model...', rtf: 0, backlog_sec: 0 });
-        
-        ort.env.wasm.numThreads = 1;
-        this.wwSession = await ort.InferenceSession.create(modelUrl, { executionProviders: ['wasm'] });
-        
-        // Initial states for Silero VAD
-        this.wwH = new ort.Tensor('float32', new Float32Array(2 * 1 * 64), [2, 1, 64]);
-        this.wwC = new ort.Tensor('float32', new Float32Array(2 * 1 * 64), [2, 1, 64]);
-        this.wwSr = new ort.Tensor('int64', new BigInt64Array([16000n]), [1]);
-        
+
+        // Match vad-web: fetch to ArrayBuffer first, then create session from buffer
+        const modelResponse = await fetch(modelUrl);
+        const modelBuffer = await modelResponse.arrayBuffer();
+        this.wwSession = await ort.InferenceSession.create(modelBuffer);
+
+        // Silero V4 legacy: h/c [2, 1, 64] float32 zeros
+        this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+        this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+        this.wwSr = new ort.Tensor('int64', [16000n]);
+
         this.wakeWordEnabled = true;
-        this.isAwake = false; // We start asleep
-        
+        this.isAwake = false;
+
         this.emit('telemetry', { state: 'ONNX model loaded', rtf: 0, backlog_sec: 0 });
     }
 
     _createDummyTrack() {
-        // Create an audio context to generate a purely silent track
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const dest = ctx.createMediaStreamDestination();
         return dest.stream.getAudioTracks()[0];
     }
 
     async _setupAudioWorklet() {
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const nativeSr = this.audioContext.sampleRate;
+        const targetSr = 16000;
+        const frameSize = 1536;
+
         const source = this.audioContext.createMediaStreamSource(this.audioStream);
-        
+
+        // Exact vad-web resampler algorithm ported into AudioWorklet
         const workletCode = `
         class VADProcessor extends AudioWorkletProcessor {
             constructor() {
                 super();
-                this.buffer = new Float32Array(512);
-                this.bufferIndex = 0;
+                this.nativeSr = ${nativeSr};
+                this.targetSr = ${targetSr};
+                this.frameSize = ${frameSize};
+                this.inputBuffer = [];
+                this._fc = 0;
             }
-            process(inputs, outputs, parameters) {
-                const input = inputs[0];
-                if (input && input.length > 0) {
-                    const channelData = input[0];
-                    for (let i = 0; i < channelData.length; i++) {
-                        this.buffer[this.bufferIndex++] = channelData[i];
-                        if (this.bufferIndex >= 512) {
-                            this.port.postMessage(this.buffer.slice(0));
-                            this.bufferIndex = 0;
+
+            _hasEnoughData() {
+                return (this.inputBuffer.length * this.targetSr) / this.nativeSr >= this.frameSize;
+            }
+
+            _generateFrame() {
+                const frame = new Float32Array(this.frameSize);
+                let outIdx = 0;
+                let inIdx = 0;
+
+                while (outIdx < this.frameSize) {
+                    let sum = 0;
+                    let num = 0;
+                    const boundary = ((outIdx + 1) * this.nativeSr) / this.targetSr;
+                    const limit = Math.min(this.inputBuffer.length, boundary);
+                    while (inIdx < limit) {
+                        const val = this.inputBuffer[inIdx];
+                        if (val !== undefined) {
+                            sum += val;
+                            num++;
                         }
+                        inIdx++;
+                    }
+                    frame[outIdx] = sum / num;
+                    outIdx++;
+                }
+
+                this.inputBuffer = this.inputBuffer.slice(inIdx);
+                return frame;
+            }
+
+            process(inputs) {
+                const input = inputs[0];
+                if (!input || input.length === 0) return true;
+                const channelData = input[0];
+                if (!channelData || channelData.length === 0) return true;
+
+                for (let i = 0; i < channelData.length; i++) {
+                    this.inputBuffer.push(channelData[i]);
+
+                    while (this._hasEnoughData()) {
+                        const frame = this._generateFrame();
+                        this._fc++;
+                        this.port.postMessage({ audio: frame.buffer, fc: this._fc }, [frame.buffer]);
                     }
                 }
+
                 return true;
             }
         }
         registerProcessor('vad-processor', VADProcessor);
         `;
-        
+
         const blob = new Blob([workletCode], { type: 'application/javascript' });
         const workletUrl = URL.createObjectURL(blob);
         await this.audioContext.audioWorklet.addModule(workletUrl);
-        
+
         this.workletNode = new AudioWorkletNode(this.audioContext, 'vad-processor');
+        console.log('[VAD] AudioWorklet registered. nativeSr=' + nativeSr + ' targetSr=' + targetSr + ' frameSize=' + frameSize);
+
         this.workletNode.port.onmessage = (event) => {
-            if (!this.isAwake) {
-                this._processWakeWord(event.data);
-            }
+            const audio = new Float32Array(event.data.audio);
+            this._vadChain = this._vadChain.then(() => this._processVAD(audio, event.data.fc)).catch(console.error);
         };
-        
+
         source.connect(this.workletNode);
-        
-        // Connect to destination through a 0-gain node to mute loopback while keeping worklet alive 
+
         const silentGain = this.audioContext.createGain();
         silentGain.gain.value = 0;
         this.workletNode.connect(silentGain);
         silentGain.connect(this.audioContext.destination);
     }
 
-    async _processWakeWord(audioFloat32Array) {
-        if (!this.wakeWordEnabled || this.isAwake) return;
+    async _processVAD(audioFrame, fc) {
+        if (!this.wakeWordEnabled) return;
 
-        try {
-            const inputTensor = new ort.Tensor('float32', audioFloat32Array, [1, audioFloat32Array.length]);
-            const feeds = {
-                input: inputTensor,
-                sr: this.wwSr,
-                h: this.wwH,
-                c: this.wwC
-            };
-            
-            const results = await this.wwSession.run(feeds);
-            
-            this.wwH = results.hn;
-            this.wwC = results.cn;
-            
-            const prob = results.output.data[0];
-            
-            if (prob > 0.6) { // High threshold to wake up
+        const inputTensor = new ort.Tensor('float32', audioFrame, [1, audioFrame.length]);
+
+        const feeds = {
+            input: inputTensor,
+            h: this.wwH,
+            c: this.wwC,
+            sr: this.wwSr
+        };
+
+        const results = await this.wwSession.run(feeds);
+
+        this.wwH = results.hn;
+        this.wwC = results.cn;
+
+        const prob = results.output.data[0];
+
+        if (!this.isAwake) {
+            // ASLEEP: listening for wake word
+            if (prob > 0.5) {
+                console.log('[VAD] WAKE');
                 this.wake();
             }
-        } catch (e) {
-            console.error("ONNX Inference error:", e);
+        } else {
+            // AWAKE: tracking silence after final transcript for auto-sleep
+            if (prob > this._silenceThreshold) {
+                this._silenceCount = 0;
+            } else if (this._finalReceived) {
+                this._silenceCount++;
+                if (this._silenceCount >= this._silenceFramesToSleep) {
+                    console.log('[VAD] AUTO-SLEEP after ' + this._silenceCount + ' silent frames');
+                    this.sleep();
+                }
+            }
         }
     }
 
     wake() {
         if (!this.wakeWordEnabled || this.isAwake) return;
-        
+
         this.isAwake = true;
+        this._finalReceived = false;
+        this._silenceCount = 0;
         this.emit('wakeWordDetected');
-        
-        // Hot-swap the real microphone in
+
         if (this.pc) {
             const audioTrack = this.audioStream.getAudioTracks()[0];
             const sender = this.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
@@ -165,27 +228,26 @@ class nVoiceClient {
 
     sleep() {
         if (!this.wakeWordEnabled || !this.isAwake) return;
-        
+
         this.isAwake = false;
-        
-        // Reset RNN hidden states context so previous speech doesn't linger
-        this.wwH = new ort.Tensor('float32', new Float32Array(2 * 1 * 64), [2, 1, 64]);
-        this.wwC = new ort.Tensor('float32', new Float32Array(2 * 1 * 64), [2, 1, 64]);
-        
-        // Swap back to dummy track
+        this._finalReceived = false;
+        this._silenceCount = 0;
+
+        this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+        this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+
         if (this.pc && this.dummyTrack) {
             const sender = this.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
             if (sender) {
                 sender.replaceTrack(this.dummyTrack);
             }
         }
-        
+
         this.emit('asleep');
     }
 
     async start() {
         try {
-            // 1. Get microphone access
             const constraints = {
                 audio: {
                     echoCancellation: false,
@@ -193,28 +255,28 @@ class nVoiceClient {
                     autoGainControl: false
                 }
             };
-            
+
             if (this.audioDeviceId && this.audioDeviceId !== 'default') {
                 constraints.audio.deviceId = { exact: this.audioDeviceId };
             }
-            
+
             this.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
 
             let streamToSend = this.audioStream;
 
             if (this.wakeWordEnabled) {
+                this.isAwake = false;
+                this._finalReceived = false;
+                this._silenceCount = 0;
+                this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+                this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+
                 this.dummyTrack = this._createDummyTrack();
-                if (!this.isAwake) {
-                    streamToSend = new MediaStream([this.dummyTrack]); // Only send silence initially
-                }
+                streamToSend = new MediaStream([this.dummyTrack]);
                 await this._setupAudioWorklet();
-                
-                if (!this.isAwake) {
-                    this.emit('asleep');
-                }
+                this.emit('asleep');
             }
 
-            // 2. Hot-swap if already connected
             if (this.pc) {
                 const audioTrack = streamToSend.getAudioTracks()[0];
                 const sender = this.pc.getSenders().find(s => !s.track || s.track.kind === 'audio');
@@ -227,24 +289,25 @@ class nVoiceClient {
                 return;
             }
 
-            // 3. Initialize PeerConnection
             this.pc = new RTCPeerConnection();
 
-            // 4. Setup DataChannel for receiving transcript & telemetry
             this.dc = this.pc.createDataChannel('stt-events');
-            
+
             this.dc.onopen = () => {
                 this.emit('connected');
             };
-            
+
             this.dc.onclose = () => {
                 this.emit('disconnected');
             };
-            
+
             this.dc.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
                     if (data.type === 'transcript') {
+                        if (this.wakeWordEnabled && data.is_final) {
+                            this._finalReceived = true;
+                        }
                         this.emit('transcript', data);
                     } else if (data.type === 'telemetry') {
                         this.emit('telemetry', data);
@@ -254,22 +317,17 @@ class nVoiceClient {
                 }
             };
 
-            // 5. Add audio track to PeerConnection
             streamToSend.getTracks().forEach(track => {
                 this.pc.addTrack(track, streamToSend);
             });
 
-            // 6. Create Offer
             const offer = await this.pc.createOffer();
             await this.pc.setLocalDescription(offer);
 
-            // 7. Send Offer to Server
             const endpoint = this.serverUrl ? `${this.serverUrl}/offer` : '/offer';
             const response = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     sdp: this.pc.localDescription.sdp,
                     type: this.pc.localDescription.type
@@ -277,12 +335,10 @@ class nVoiceClient {
             });
 
             if (!response.ok) {
-                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                throw new Error('Server returned ' + response.status + ': ' + response.statusText);
             }
 
             const answer = await response.json();
-            
-            // 8. Accept Server Answer
             await this.pc.setRemoteDescription(answer);
 
         } catch (error) {
@@ -294,12 +350,13 @@ class nVoiceClient {
     stop() {
         if (this.audioStream) {
             this.audioStream.getTracks().forEach(track => track.stop());
-            
+
             if (this.pc) {
+                const dummy = this._createDummyTrack();
                 const senders = this.pc.getSenders();
                 senders.forEach(sender => {
                     if (sender.track && sender.track.kind === 'audio') {
-                        sender.replaceTrack(null);
+                        sender.replaceTrack(dummy);
                     }
                 });
             }
@@ -310,7 +367,7 @@ class nVoiceClient {
             this.audioContext.close();
             this.audioContext = null;
         }
-        
+
         this.emit('standby');
     }
 
@@ -321,17 +378,16 @@ class nVoiceClient {
             this.dc.close();
             this.dc = null;
         }
-        
+
         if (this.pc) {
             this.pc.close();
             this.pc = null;
         }
-        
+
         this.emit('disconnected');
     }
 }
 
-// Export for ES modules, but attach to window if in raw browser environment
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { nVoiceClient };
 } else if (typeof window !== 'undefined') {

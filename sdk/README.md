@@ -1,105 +1,72 @@
 # nVoice WebRTC JavaScript SDK
 
-The nVoice SDK provides a simple, zero-dependency vanilla JavaScript client for integrating real-time Speech-to-Text (STT) into any browser-based application (or Electron apps). 
-It leverages WebRTC for ultra-low latency audio streaming and DataChannels for receiving real-time transcripts and pipeline telemetry.
+Zero-dependency vanilla JS client for real-time STT via WebRTC. Includes client-side Silero VAD for wake-on-voice.
 
-## Installation
-
-Simply include the `nVoiceClient.js` in your project.
+## Usage
 
 ```html
-<script src="path/to/nVoiceClient.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.js"></script>
+<script src="/sdk/nVoiceClient.js"></script>
 ```
 
-Or if using ES modules:
-
 ```javascript
-import { nVoiceClient } from './nVoiceClient.js';
-```
+const client = new nVoiceClient({ serverUrl: '' });
 
-## Quick Start
-
-```javascript
-const client = new nVoiceClient({
-    serverUrl: 'http://localhost:8000'
-});
-
-// Listen for connection state changes
-client.on('connected', () => console.log('Connected to nVoice STT!'));
-client.on('disconnected', () => console.log('Disconnected.'));
-
-// Listen for transcripts
+client.on('connected', () => console.log('Connected'));
 client.on('transcript', (data) => {
-    if (data.is_final) {
-        console.log("FINAL:", data.text);
-    } else {
-        console.log("PROVISIONAL:", data.text);
-    }
+    console.log(data.is_final ? 'FINAL:' : 'PROV:', data.text);
 });
+client.on('telemetry', (data) => console.log(`RTF: ${data.rtf} Backlog: ${data.backlog_sec}s`));
 
-// Listen for telemetry
-client.on('telemetry', (data) => {
-    console.log(`Server backlog: ${data.backlog_sec}s, RTF: ${data.rtf}`);
-});
+// Plain STT (no wake word)
+await client.start();
 
-// Start listening (prompts user for microphone permission)
-await client.connect();
+// With wake-on-voice (VAD triggers on any speech)
+await client.enableWakeWord('/sdk/silero_vad.onnx');
+await client.start(); // Starts asleep, wakes on speech, auto-sleeps after final transcript + silence
 
-// Stop listening
-// client.disconnect();
+client.stop();       // Mute mic, keep connection
+client.disconnect(); // Full teardown
 ```
 
-## API Reference
+## API
 
-### `new nVoiceClient(config)`
-
-Creates a new instance of the nVoice client.
-
-**Parameters:**
-- `config` (Object):
-  - `serverUrl` (String): The URL of the nVoice backend server (default: `http://localhost:8000`).
-  - `audioDeviceId` (String, optional): Specific microphone device ID to use.
+### Constructor
+`new nVoiceClient({ serverUrl, audioDeviceId })`
 
 ### Methods
 
-#### `async connect()`
-Requests microphone access from the user, establishes a WebRTC peer connection, and negotiates with the backend server via its `/offer` REST endpoint. 
-
-**Returns:** `Promise<void>` - Resolves when the connection and DataChannel are fully established.
-
-#### `disconnect()`
-Stops all audio tracks, closes the DataChannel and WebRTC PeerConnection, and resets the client state.
+| Method | Description |
+|--------|-------------|
+| `start()` | Get mic, establish WebRTC, start audio. If wake word enabled, starts asleep. |
+| `stop()` | Mute mic (silent dummy track), keep connection alive. |
+| `disconnect()` | Full teardown: close PeerConnection, DataChannel, AudioContext. |
+| `setAudioDevice(id)` | Set mic device ID for next `start()`. |
+| `enableWakeWord(modelUrl)` | Load Silero VAD ONNX model. Enables wake-on-voice mode. Must be called before `start()`. |
+| `sleep()` | Manually put to sleep (swap to dummy track, resume VAD listening). |
+| `on(event, cb)` / `off(event, cb)` | Event listener management. |
 
 ### Events
 
-The client extends a simple event emitter interface. Use `.on(eventName, callback)` and `.off(eventName, callback)` to manage listeners.
+| Event | Description |
+|-------|-------------|
+| `connected` | WebRTC + DataChannel open. |
+| `disconnected` | Connection closed. |
+| `standby` | Mic muted, connection kept alive (`stop()`). |
+| `transcript` | `{ text, is_final }` from backend. |
+| `telemetry` | `{ rtf, backlog_sec, state }` from backend. |
+| `wakeWordDetected` | VAD detected speech, backend now receiving live mic. |
+| `asleep` | System went to sleep (dummy track active, VAD listening). |
+| `error` | Irrecoverable error. |
 
-| Event Name | Description | Callback Arguments |
-|------------|-------------|--------------------|
-| `connected` | Fired when the WebRTC connection & DataChannel are securely open. | None |
-| `disconnected` | Fired when the connection is closed or fails. | None |
-| `transcript` | Fired when the engine emits speech text. | `data` (Object): `{ text: String, is_final: Boolean }` |
-| `telemetry` | Fired periodically by continuous back-end metrics. | `data` (Object): `{ rtf: Number, backlog_sec: Number, state: String }` |
-| `error` | Fired when an irrecoverable error occurs. | `error` (Error object) |
+## Wake-on-Voice Flow
 
-## Event Payload Formats
+1. `enableWakeWord()` loads the Silero V4 legacy ONNX model.
+2. `start()` sends a silent dummy track to the backend (0% compute). VAD runs locally via AudioWorklet.
+3. VAD detects speech probability > 50% → hot-swaps live mic track → backend Whisper processes.
+4. Backend sends `is_final` transcript → SDK starts counting silence frames (~3s).
+5. Silence threshold met → auto-sleep: swap back to dummy track, reset VAD state.
 
-### Transcript Payload
-```javascript
-{
-    "type": "transcript",
-    "text": "Hello world",
-    "is_final": false // true if the user paused/stopped speaking, false for real-time uncommitted updates
-}
-```
+## Model File
 
-### Telemetry Payload
-Provides insight into server-side backpressure and inference speeds.
-```javascript
-{
-    "type": "telemetry",
-    "rtf": 0.35,           // Real Time Factor (inference time / audio duration). < 1.0 means faster than real-time.
-    "backlog_sec": 2.1,    // Seconds of un-transcribed audio in the server buffer.
-    "state": "processing"  // 'processing' or 'idle/silence'
-}
-```
+`sdk/silero_vad.onnx` is the Silero V4 legacy model from `@ricky0123/vad`. Input signature: `input`, `sr`, `h` [2,1,64], `c` [2,1,64]. Output: `output`, `hn`, `cn`. Frame size: 1536 samples at 16kHz (96ms).

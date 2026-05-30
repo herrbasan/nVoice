@@ -3,6 +3,7 @@ venv/
 __pycache__/
 logs/
 models/
+node_modules/
 
 # ENV
 .env
@@ -17,8 +18,9 @@ desktop.ini
 Thumbs.db
 .DS_Store
 
-# Test files
-test.ogg
+# Temp / debug artifacts
 *.log
+*.onnx
+!sdk/silero_vad.onnx
 
 legacy_v1/
