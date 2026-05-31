@@ -47,7 +47,11 @@ function initClient() {
     client = new window.nVoiceClient({ serverUrl: '' });
     
     client.on('connected', () => {
-        statusDiv.textContent = "Connected";
+        if (client.wakeWordEnabled && !client.isAwake) {
+            statusDiv.textContent = "Connected [ASLEEP - Waiting for Voice]";
+        } else {
+            statusDiv.textContent = "Connected";
+        }
         stopBtn.disabled = false;
         startBtn.disabled = true;
         micSelect.disabled = true;
