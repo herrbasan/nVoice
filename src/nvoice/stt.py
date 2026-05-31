@@ -5,7 +5,7 @@ Defines a clean interface for STT engines to ensure standardized
 segment outputs for the dynamic buffer "N-1" overlap logic.
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Union
 import numpy as np
 
 
@@ -41,9 +41,9 @@ class STTAdapter:
     def __init__(self):
         pass
 
-    def transcribe(self, audio_array: np.ndarray, sample_rate: int = 16000, context_text: str = None) -> List[STTSegment]:
+    def transcribe(self, audio: Union[np.ndarray, str], sample_rate: int = 16000, context_text: str = None) -> List[STTSegment]:
         """
-        Takes raw floated numpy audio array and blocks to transcribe it.
+        Takes raw floated numpy audio array (or path to audio file) and blocks to transcribe it.
         Optionally uses `context_text` to feed linguistic context to the model.
         Raises an exception if the engine fails (fail fast principle).
         """

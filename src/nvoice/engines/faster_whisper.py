@@ -3,7 +3,7 @@ faster-whisper Engine Adapter (v2)
 """
 import numpy as np
 import threading
-from typing import List
+from typing import List, Union
 from faster_whisper import WhisperModel
 
 from nvoice.stt import STTAdapter, STTSegment, STTWord
@@ -28,9 +28,9 @@ class FasterWhisperAdapter(STTAdapter):
         )
         print("[Engine] Loaded successfully.")
 
-    def transcribe(self, audio_array: np.ndarray, sample_rate: int = 16000, context_text: str = None) -> List[STTSegment]:
+    def transcribe(self, audio: Union[np.ndarray, str], sample_rate: int = 16000, context_text: str = None) -> List[STTSegment]:
         """
-        Runs VAD-gated STT on a raw 1D numpy array.
+        Runs VAD-gated STT on a raw 1D numpy array or audio file path.
         """
         # Our N-1 strategy mathematically requires word timestamps or clean VAD boundaries.
         kwargs = {
@@ -63,7 +63,7 @@ class FasterWhisperAdapter(STTAdapter):
 
         with self.lock:
             segments_gen, _ = self.model.transcribe(
-                audio_array,
+                audio,
                 **kwargs
             )
             

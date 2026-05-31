@@ -1,4 +1,5 @@
 import os
+import tempfile
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -50,3 +51,47 @@ async def offer(params: OfferParams):
     logger.info("Received WebRTC offer.")
     answer = await rtc_manager.process_offer(params.sdp, params.type)
     return answer
+
+@app.post("/transcribe")
+async def transcribe_audio(request: Request, text: str = None):
+    """
+    Non-realtime endpoint for bulk transcription (e.g. from TTS generator).
+    Accepts raw binary audio payload (WAV, MP3, etc).
+    Optionally accepts a URL query parameter `text` containing the known transcript 
+    to guide the STT engine for perfect accuracy and alignment.
+    Returns JSON with sentence and word-level timestamps.
+    """
+    body = await request.body()
+    if not body:
+        return {"error": "Empty audio body"}
+    
+    # Save raw audio binary to a temporary file for the engine to read directly.
+    fd, temp_path = tempfile.mkstemp(suffix=".tmp")
+    with os.fdopen(fd, "wb") as f:
+        f.write(body)
+        
+    try:
+        segments = rtc_manager.stt_engine.transcribe(temp_path, context_text=text)
+        
+        results = []
+        for seg in segments:
+            results.append({
+                "text": seg.text,
+                "start": seg.start,
+                "end": seg.end,
+                "probability": seg.probability,
+                "words": [
+                    {
+                        "word": w.word,
+                        "start": w.start,
+                        "end": w.end,
+                        "probability": w.probability
+                    } for w in seg.words
+                ]
+            })
+            
+        return {"segments": results}
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
