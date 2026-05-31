@@ -21,6 +21,27 @@ To install requirements:
 To run the local server natively:
 `python run.py`
 
+## Features & Endpoints
+
+### 1. Real-time WebRTC
+The core functionality runs over WebRTC for continuous, low-latency streaming STT designed to handle live user interaction gracefully.
+- **POST `/offer`**: WebRTC SDP exchange endpoint.
+
+### 2. Forced-Alignment Transcription
+nVoice supports offline/batch audio transcription with high-precision word-level alignment mapping (ideal for animating UI cursor highlights during TTS playback).
+
+- **POST `/transcribe`**
+  - Takes raw binary audio (WAV, MP3, etc) as the request body.
+  - Optional `?text=` query parameter forces `faster-whisper`'s cross-attention mechanisms to perfectly align timestamps to a known script (like a synthesized TTS sentence), solving alignment without hallucinating.
+  - Returns a JSON dictionary containing the final transcript string, probability scores, and deeply nested millisecond-accurate word-level starting/ending timestamps.
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:2244/transcribe?text=This%20is%20a%20test." \
+     -H "Content-Type: application/octet-stream" \
+     --data-binary @speech.wav
+```
+
 ### Simulations & Testing
 The project includes self-contained simulation scripts and tests in the `simulations/` and `tests/` directories designed to test engine responsiveness without needing the WebRTC browser stack.
 
