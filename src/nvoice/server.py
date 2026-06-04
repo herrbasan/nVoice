@@ -52,45 +52,71 @@ async def offer(params: OfferParams):
     answer = await rtc_manager.process_offer(params.sdp, params.type)
     return answer
 
+def _segments_to_json(segments):
+    """Convert STTSegment list to JSON-serializable dicts."""
+    results = []
+    for seg in segments:
+        results.append({
+            "text": seg.text,
+            "start": seg.start,
+            "end": seg.end,
+            "probability": seg.probability,
+            "words": [
+                {
+                    "word": w.word,
+                    "start": w.start,
+                    "end": w.end,
+                    "probability": w.probability
+                } for w in seg.words
+            ]
+        })
+    return results
+
+def _save_temp_audio(body):
+    """Save raw audio bytes to a temp file, return the path."""
+    fd, temp_path = tempfile.mkstemp(suffix=".tmp")
+    with os.fdopen(fd, "wb") as f:
+        f.write(body)
+    return temp_path
+
 @app.post("/transcribe")
-async def transcribe_audio(request: Request, text: str = None):
+async def transcribe_audio(request: Request):
     """
-    Non-realtime endpoint for bulk transcription (e.g. from TTS generator).
+    Pure speech-to-text: audio in, transcript + timestamps out.
     Accepts raw binary audio payload (WAV, MP3, etc).
-    Optionally accepts a URL query parameter `text` containing the known transcript 
-    to guide the STT engine for perfect accuracy and alignment.
     Returns JSON with sentence and word-level timestamps.
     """
     body = await request.body()
     if not body:
         return {"error": "Empty audio body"}
-    
-    # Save raw audio binary to a temporary file for the engine to read directly.
-    fd, temp_path = tempfile.mkstemp(suffix=".tmp")
-    with os.fdopen(fd, "wb") as f:
-        f.write(body)
-        
+
+    temp_path = _save_temp_audio(body)
+    try:
+        segments = rtc_manager.stt_engine.transcribe(temp_path)
+        return {"segments": _segments_to_json(segments)}
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+@app.post("/align")
+async def align_audio(request: Request, text: str = ""):
+    """
+    Forced alignment: map a known transcript to precise word/sentence timestamps.
+    Accepts raw binary audio payload (WAV, MP3, etc).
+    Required query parameter `text` containing the full known transcript.
+    Returns JSON with sentence and word-level timestamps aligned to the script.
+    """
+    if not text or not text.strip():
+        return {"error": "Missing required 'text' query parameter"}
+
+    body = await request.body()
+    if not body:
+        return {"error": "Empty audio body"}
+
+    temp_path = _save_temp_audio(body)
     try:
         segments = rtc_manager.stt_engine.transcribe(temp_path, context_text=text)
-        
-        results = []
-        for seg in segments:
-            results.append({
-                "text": seg.text,
-                "start": seg.start,
-                "end": seg.end,
-                "probability": seg.probability,
-                "words": [
-                    {
-                        "word": w.word,
-                        "start": w.start,
-                        "end": w.end,
-                        "probability": w.probability
-                    } for w in seg.words
-                ]
-            })
-            
-        return {"segments": results}
+        return {"segments": _segments_to_json(segments)}
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)

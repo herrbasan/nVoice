@@ -27,17 +27,31 @@ To run the local server natively:
 The core functionality runs over WebRTC for continuous, low-latency streaming STT designed to handle live user interaction gracefully.
 - **POST `/offer`**: WebRTC SDP exchange endpoint.
 
-### 2. Forced-Alignment Transcription
-nVoice supports offline/batch audio transcription with high-precision word-level alignment mapping (ideal for animating UI cursor highlights during TTS playback).
-
+### 2. Batch Transcription
 - **POST `/transcribe`**
+  - Pure speech-to-text: audio in, transcript + timestamps out.
   - Takes raw binary audio (WAV, MP3, etc) as the request body.
-  - Optional `?text=` query parameter forces `faster-whisper`'s cross-attention mechanisms to perfectly align timestamps to a known script (like a synthesized TTS sentence), solving alignment without hallucinating.
-  - Returns a JSON dictionary containing the final transcript string, probability scores, and deeply nested millisecond-accurate word-level starting/ending timestamps.
+  - Returns JSON with sentence and word-level timestamps.
 
 **Example Request:**
 ```bash
-curl -X POST "http://localhost:2244/transcribe?text=This%20is%20a%20test." \
+curl -X POST "http://localhost:2244/transcribe" \
+     -H "Content-Type: application/octet-stream" \
+     --data-binary @speech.wav
+```
+
+### 3. Forced Alignment
+nVoice supports forced alignment — mapping a known transcript to precise word-level timestamps (ideal for animating UI cursor highlights during TTS playback).
+
+- **POST `/align`**
+  - Takes raw binary audio (WAV, MP3, etc) as the request body.
+  - **Required** query parameter `?text=` containing the full known transcript.
+  - Uses `faster-whisper`'s cross-attention mechanisms to perfectly align timestamps to the known script, solving alignment without hallucinating.
+  - Returns JSON with sentence and word-level timestamps aligned to the script.
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:2244/align?text=This%20is%20a%20test." \
      -H "Content-Type: application/octet-stream" \
      --data-binary @speech.wav
 ```
