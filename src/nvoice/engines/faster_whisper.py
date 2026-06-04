@@ -49,11 +49,13 @@ class FasterWhisperAdapter(STTAdapter):
         if hasattr(Config, "LANGUAGE") and Config.LANGUAGE and Config.LANGUAGE != "auto":
             kwargs["language"] = Config.LANGUAGE
         
-        # Determine contextual prompt
+        # Determine contextual prompt (alignment mode)
         initial_prompt = getattr(Config, "INITIAL_PROMPT", None)
         if context_text and context_text.strip():
-            # Dynamically injected context overrides config
             kwargs["initial_prompt"] = context_text.strip()
+            kwargs["vad_filter"] = False  # Alignment mode: we know the exact text, VAD splitting breaks prompt continuity
+        elif initial_prompt is not None:
+            kwargs["initial_prompt"] = initial_prompt
         elif initial_prompt is not None:
             kwargs["initial_prompt"] = initial_prompt
             
