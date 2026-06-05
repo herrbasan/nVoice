@@ -18,8 +18,9 @@ nVoice is a highly-optimized, real-time Speech-to-Text (STT) inference pipeline 
 To install requirements:
 `python install.py`
 
-To run the local server natively:
-`python run.py`
+To run the local server:
+- **Windows:** Double-click `start.bat` (or run it from a terminal)
+- **Linux/Mac:** `source venv/bin/activate && python run.py`
 
 ## Features & Endpoints
 

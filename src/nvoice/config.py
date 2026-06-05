@@ -37,3 +37,7 @@ class Config:
     HALLUCINATION_SILENCE_THRESHOLD = _settings.get("hallucination_silence_threshold", 2.0)
 
     SAMPLE_RATE = 16000
+
+    _project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    SSL_CERT = _settings.get("ssl_cert", os.path.join(_project_root, "tls", "cert.pem"))
+    SSL_KEY = _settings.get("ssl_key", os.path.join(_project_root, "tls", "key.pem"))
