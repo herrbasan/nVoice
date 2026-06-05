@@ -12,6 +12,7 @@ config.json
 # SSL Certificates
 cert.pem
 key.pem
+tls/
 
 # OS / OS files
 desktop.ini
