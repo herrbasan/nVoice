@@ -24,6 +24,10 @@ To run the local server:
 
 ## Features & Endpoints
 
+The server exposes both HTTPS (for browser/mic access) and HTTP (for backend/API use):
+- **HTTPS** on the configured port (default `2244`) — use this for browser access (required for microphone permissions on LAN).
+- **HTTP** on port+1 (default `2245`) — use this for direct API calls from scripts/backends (no TLS overhead).
+
 ### 1. Real-time WebRTC
 The core functionality runs over WebRTC for continuous, low-latency streaming STT designed to handle live user interaction gracefully.
 - **POST `/offer`**: WebRTC SDP exchange endpoint.

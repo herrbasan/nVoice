@@ -64,7 +64,23 @@ if __name__ == "__main__":
             f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
         print(f"[TLS] Generated self-signed cert (SAN IPs: 127.0.0.1, {local_ip})")
 
-    print(f"Starting nVoice server on https://{Config.HOST}:{Config.PORT}/")
+    # Derive HTTP port from HTTPS port (e.g. 2244 -> 2245)
+    http_port = Config.PORT + 1
+
+    print(f"  HTTPS: https://{Config.HOST}:{Config.PORT}/  (browser / mic access)")
+    print(f"  HTTP:  http://{Config.HOST}:{http_port}/   (API / backend)")
+
+    # Run HTTPS as the main server, spawn HTTP as a background thread
+    import threading
+    http_thread = threading.Thread(
+        target=uvicorn.run,
+        args=("nvoice.server:app",),
+        kwargs={"host": Config.HOST, "port": http_port, "reload": False},
+        daemon=True,
+    )
+    http_thread.start()
+
+    # Main thread runs HTTPS
     uvicorn.run(
         "nvoice.server:app",
         host=Config.HOST,
