@@ -28,3 +28,9 @@ nVoice v2 abandons fixed overlapping heuristics and static VAD slicing in favor 
 - **Active Engine:** `faster_whisper` (via local python pipeline). 
 - **Engine Documentation:** ALWAYS refer to [docs/faster_whisper_api_reference.md](docs/faster_whisper_api_reference.md) for implementation details, parameter tuning, and understanding timestamp behavior.
 - **Previous Code:** Refer to `legacy_v1/` directory. Do not actively run imports from legacy space.
+
+### Batch `/align` Endpoint
+- `/align?text=...` is used by `LLM Chat Arena Slides` for TTS word highlighting, but faster-whisper does not provide true forced alignment here.
+- Do NOT pass the full `text` query value as `initial_prompt`; long prompts consume decode context and caused long audio to truncate or jump timestamps around 30s.
+- Current working behavior is to transcribe the audio normally with `word_timestamps=True` and return `segments[].words[]`. The caller consumes raw segment/word timestamps directly.
+- Keep `/align` and `/transcribe` timestamp behavior close. When changing settings, test both endpoints on the same long MP3 and compare word count, last segment end, and word continuity around the middle of the file.
