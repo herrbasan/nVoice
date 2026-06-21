@@ -1,7 +1,7 @@
 import os
 import tempfile
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -45,6 +45,19 @@ async def status():
         "cpu_threads": getattr(Config, "CPU_THREADS", 4),
         "language": getattr(Config, "LANGUAGE", "auto")
     }
+
+@app.get("/health")
+async def health():
+    """
+    Health check: returns 200 when the service is up and the model is loaded.
+    """
+    engine = getattr(rtc_manager, "stt_engine", None)
+    if engine is None or not getattr(engine, "model", None):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "starting", "error": "STT model not yet loaded"}
+        )
+    return {"status": "ok"}
 
 @app.post("/offer")
 async def offer(params: OfferParams):
@@ -93,6 +106,11 @@ async def transcribe_audio(request: Request):
     temp_path = _save_temp_audio(body)
     try:
         segments = rtc_manager.stt_engine.transcribe(temp_path)
+        if not segments:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "No speech detected in audio", "segments": []}
+            )
         return {"segments": _segments_to_json(segments)}
     finally:
         if os.path.exists(temp_path):
@@ -116,6 +134,11 @@ async def align_audio(request: Request, text: str = ""):
     temp_path = _save_temp_audio(body)
     try:
         segments = rtc_manager.stt_engine.transcribe(temp_path, context_text=text)
+        if not segments:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "No speech detected in audio", "segments": []}
+            )
         return {"segments": _segments_to_json(segments)}
     finally:
         if os.path.exists(temp_path):
