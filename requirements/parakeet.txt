@@ -1,0 +1,25 @@
+# Parakeet-TDT 0.6B v3 — NeMo ASR engine
+# Requires Python 3.10 or 3.11
+
+# PyTorch with CUDA (install first, before nemo)
+# For CUDA 12.1:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+torchaudio
+
+# NeMo ASR toolkit
+nemo_toolkit[asr]
+
+# Worker runtime (same as faster_whisper)
+fastapi
+uvicorn
+aiortc
+av
+soundfile
+numpy
+requests
+
+# Windows GPU (uncomment if needed)
+# nvidia-cublas-cu12
+# nvidia-cudnn-cu12

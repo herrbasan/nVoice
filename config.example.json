@@ -22,7 +22,8 @@
     "temperature": 0.0,
     "hallucination_silence_threshold": 2.0,
     "engine_dirs": {
-        "faster_whisper": "venv/faster_whisper"
+        "faster_whisper": "venv/faster_whisper",
+        "parakeet": "venv/parakeet"
     },
     "vad": {
         "client_gate": true,

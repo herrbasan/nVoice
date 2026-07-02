@@ -94,6 +94,15 @@ def parse_engine_args(engine_name):
         )
         return FasterWhisperAdapter, kwargs
 
+    if engine_name.startswith("parakeet"):
+        from nvoice.engines.parakeet import ParakeetAdapter
+        kwargs = dict(
+            model_name="nvidia/parakeet-tdt-0.6b-v3",
+            device=raw_config.get("model_device", "cuda"),
+            language=raw_config.get("language", "auto"),
+        )
+        return ParakeetAdapter, kwargs
+
     raise ValueError(f"Unknown engine: {engine_name}")
 
 
