@@ -2,7 +2,7 @@
   "elevenlabs_": {
     "adapter": "elevenlabs.js",
     "credentials": ["ELEVENLABS_API_KEY"],
-    "supports_batch": false,
+    "supports_batch": true,
     "supports_realtime": true,
     "supports_align": false,
     "realtime_strategy": "native-streaming"

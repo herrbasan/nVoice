@@ -382,6 +382,14 @@ class nVoiceClient {
             this._sessionId = session.id;
             console.log('[nVoice] Session created: ' + session.id);
 
+            // Cloud engines use WebSocket directly — no WebRTC
+            if (session.cloud) {
+                console.log('[nVoice] Cloud engine detected (' + session.provider + '), using WebSocket flow');
+                await this._startCloudRealtime(session, streamToSend);
+                return;
+            }
+
+            // Local engines use WebRTC peer-to-peer to the Python worker
             const endpoint = `${base}${session.offer_endpoint}`;
             console.log('[nVoice] Sending SDP offer to ' + endpoint + ' (sdp length=' + this.pc.localDescription.sdp.length + ')');
             const response = await fetch(endpoint, {
@@ -408,7 +416,160 @@ class nVoiceClient {
         }
     }
 
+    /**
+     * Cloud realtime: connect directly to the provider via WebSocket.
+     * The browser captures mic audio, converts to PCM 16kHz, and sends as base64 chunks.
+     * Transcript events are received via the WebSocket and emitted as normal events.
+     */
+    async _startCloudRealtime(session, audioStream) {
+        const base = this.serverUrl || '';
+
+        // 1. Fetch a single-use token from our server
+        const tokenUrl = `${base}${session.token_endpoint}?model=${encodeURIComponent(session.model)}`;
+        console.log('[nVoice] Fetching cloud token from', tokenUrl);
+        const tokenResp = await fetch(tokenUrl);
+        if (!tokenResp.ok) {
+            throw new Error('Failed to fetch cloud token: ' + tokenResp.status);
+        }
+        const tokenData = await tokenResp.json();
+        const token = tokenData.token;
+        console.log('[nVoice] Cloud token received');
+
+        // 2. Connect to ElevenLabs WebSocket
+        const wsParams = new URLSearchParams({
+            model_id: 'scribe_v2_realtime',
+            token,
+            include_timestamps: 'true',
+            commit_strategy: 'vad',
+            vad_silence_threshold_secs: '1.5',
+            vad_threshold: '0.4',
+        });
+        const wsUrl = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${wsParams}`;
+        console.log('[nVoice] Connecting to ElevenLabs WebSocket...');
+
+        this._cloudWs = new WebSocket(wsUrl);
+
+        // 3. Set up audio capture → PCM 16kHz → base64 chunks
+        this._cloudAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const source = this._cloudAudioContext.createMediaStreamSource(audioStream);
+
+        // Use ScriptProcessorNode for broad compatibility (AudioWorklet is complex for this use case)
+        const bufferSize = 4096;
+        this._cloudProcessor = this._cloudAudioContext.createScriptProcessor(bufferSize, 1, 1);
+
+        this._cloudProcessor.onaudioprocess = (e) => {
+            if (!this._cloudWs || this._cloudWs.readyState !== WebSocket.OPEN) return;
+
+            const inputData = e.inputBuffer.getChannelData(0);
+            // Convert float32 [-1, 1] to int16 PCM
+            const pcm16 = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+                const sample = Math.max(-1, Math.min(1, inputData[i]));
+                pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            }
+
+            // Send as base64 chunk
+            const bytes = new Uint8Array(pcm16.buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+
+            this._cloudWs.send(JSON.stringify({
+                message_type: 'input_audio_chunk',
+                audio_base_64: base64,
+                commit: false,
+                sample_rate: 16000,
+            }));
+        };
+
+        source.connect(this._cloudProcessor);
+        // ScriptProcessorNode must connect to destination to work (even if silent)
+        const silentGain = this._cloudAudioContext.createGain();
+        silentGain.gain.value = 0;
+        this._cloudProcessor.connect(silentGain);
+        silentGain.connect(this._cloudAudioContext.destination);
+
+        // 4. Handle WebSocket events
+        this._cloudWs.onopen = () => {
+            console.log('[nVoice] ElevenLabs WebSocket connected, starting audio capture');
+        };
+
+        this._cloudWs.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+
+                switch (msg.message_type) {
+                    case 'session_started':
+                        console.log('[nVoice] ElevenLabs session started:', msg.session_id);
+                        this.emit('connected');
+                        break;
+
+                    case 'partial_transcript':
+                        if (msg.text) {
+                            this.emit('transcript', { text: msg.text, is_final: false });
+                        }
+                        break;
+
+                    case 'committed_transcript':
+                        if (msg.text) {
+                            if (this.wakeWordEnabled) {
+                                this._finalReceived = true;
+                            }
+                            this.emit('transcript', { text: msg.text, is_final: true });
+                        }
+                        break;
+
+                    case 'committed_transcript_with_timestamps':
+                        if (msg.text) {
+                            this.emit('transcript', { text: msg.text, is_final: true });
+                        }
+                        break;
+
+                    case 'error':
+                    case 'input_error':
+                        console.error('[nVoice] ElevenLabs error:', msg);
+                        this.emit('error', new Error('ElevenLabs: ' + (msg.error || JSON.stringify(msg))));
+                        break;
+                }
+            } catch (e) {
+                console.error('[nVoice] Failed to parse WebSocket message:', e);
+            }
+        };
+
+        this._cloudWs.onerror = (error) => {
+            console.error('[nVoice] ElevenLabs WebSocket error:', error);
+            this.emit('error', new Error('ElevenLabs WebSocket error'));
+        };
+
+        this._cloudWs.onclose = () => {
+            console.log('[nVoice] ElevenLabs WebSocket closed');
+            this.emit('disconnected');
+        };
+    }
+
+    _stopCloudRealtime() {
+        if (this._cloudProcessor) {
+            this._cloudProcessor.disconnect();
+            this._cloudProcessor = null;
+        }
+        if (this._cloudAudioContext) {
+            this._cloudAudioContext.close();
+            this._cloudAudioContext = null;
+        }
+        if (this._cloudWs) {
+            if (this._cloudWs.readyState === WebSocket.OPEN || this._cloudWs.readyState === WebSocket.CONNECTING) {
+                this._cloudWs.close();
+            }
+            this._cloudWs = null;
+        }
+    }
+
     stop() {
+        // Clean up cloud realtime if active
+        this._stopCloudRealtime();
+
         if (this.audioStream) {
             this.audioStream.getTracks().forEach(track => track.stop());
 
