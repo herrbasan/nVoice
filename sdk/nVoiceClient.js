@@ -56,15 +56,38 @@ class nVoiceClient {
 
         this.emit('telemetry', { state: 'Loading ONNX model...', rtf: 0, backlog_sec: 0 });
 
+        // Configure ORT for cross-platform compatibility (especially iOS Safari)
+        // WASM files must be served from same origin — use the local server, not CDN
+        try {
+            ort.env.wasm.wasmPaths = '/sdk/';
+        } catch (e) {
+            console.warn('[VAD] Could not set ort.env.wasm.wasmPaths:', e);
+        }
+        // Force WASM backend (no WebGPU/threads on iOS)
+        try {
+            ort.env.wasm.numThreads = 1;
+            ort.env.wasm.proxy = false;
+        } catch (e) {
+            console.warn('[VAD] Could not set ort.env.wasm options:', e);
+        }
+
+        console.log('[VAD] Loading ONNX model from', modelUrl);
+
         // Match vad-web: fetch to ArrayBuffer first, then create session from buffer
         const modelResponse = await fetch(modelUrl);
         const modelBuffer = await modelResponse.arrayBuffer();
-        this.wwSession = await ort.InferenceSession.create(modelBuffer);
+        console.log('[VAD] Model loaded, size=', modelBuffer.byteLength, 'bytes');
+        this.wwSession = await ort.InferenceSession.create(modelBuffer, {
+            executionProviders: ['wasm'],
+            graphOptimizationLevel: 'all',
+        });
+        console.log('[VAD] ORT session created, inputs:', this.wwSession.inputNames, 'outputs:', this.wwSession.outputNames);
 
         // Silero V4 legacy: h/c [2, 1, 64] float32 zeros
         this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
         this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
-        this.wwSr = new ort.Tensor('int64', [16000n]);
+        // Use BigInt constructor for broader compatibility (not literal syntax)
+        this.wwSr = new ort.Tensor('int64', [BigInt(16000)], []);
 
         this.wakeWordEnabled = true;
         this.isAwake = false;
@@ -80,6 +103,17 @@ class nVoiceClient {
 
     async _setupAudioWorklet() {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // iOS Safari: AudioContext starts suspended, must be resumed after user gesture
+        if (this.audioContext.state === 'suspended') {
+            console.log('[VAD] AudioContext suspended, resuming...');
+            try {
+                await this.audioContext.resume();
+            } catch (e) {
+                console.warn('[VAD] Could not resume AudioContext:', e);
+            }
+        }
+
         const nativeSr = this.audioContext.sampleRate;
         const targetSr = 16000;
         const frameSize = 1536;
@@ -171,41 +205,45 @@ class nVoiceClient {
     }
 
     async _processVAD(audioFrame, fc) {
-        if (!this.wakeWordEnabled) return;
+        if (!this.wakeWordEnabled || !this.wwSession) return;
 
-        const inputTensor = new ort.Tensor('float32', audioFrame, [1, audioFrame.length]);
+        try {
+            const inputTensor = new ort.Tensor('float32', audioFrame, [1, audioFrame.length]);
 
-        const feeds = {
-            input: inputTensor,
-            h: this.wwH,
-            c: this.wwC,
-            sr: this.wwSr
-        };
+            const feeds = {
+                input: inputTensor,
+                h: this.wwH,
+                c: this.wwC,
+                sr: this.wwSr
+            };
 
-        const results = await this.wwSession.run(feeds);
+            const results = await this.wwSession.run(feeds);
 
-        this.wwH = results.hn;
-        this.wwC = results.cn;
+            this.wwH = results.hn;
+            this.wwC = results.cn;
 
-        const prob = results.output.data[0];
+            const prob = results.output.data[0];
 
-        if (!this.isAwake) {
-            // ASLEEP: listening for wake word
-            if (prob > 0.5) {
-                console.log('[VAD] WAKE');
-                this.wake();
-            }
-        } else {
-            // AWAKE: tracking silence after final transcript for auto-sleep
-            if (prob > this._silenceThreshold) {
-                this._silenceCount = 0;
-            } else if (this._finalReceived) {
-                this._silenceCount++;
-                if (this._silenceCount >= this._silenceFramesToSleep) {
-                    console.log('[VAD] AUTO-SLEEP after ' + this._silenceCount + ' silent frames');
-                    this.sleep();
+            if (!this.isAwake) {
+                // ASLEEP: listening for wake word
+                if (prob > 0.5) {
+                    console.log('[VAD] WAKE (prob=' + prob.toFixed(3) + ')');
+                    this.wake();
+                }
+            } else {
+                // AWAKE: tracking silence after final transcript for auto-sleep
+                if (prob > this._silenceThreshold) {
+                    this._silenceCount = 0;
+                } else if (this._finalReceived) {
+                    this._silenceCount++;
+                    if (this._silenceCount >= this._silenceFramesToSleep) {
+                        console.log('[VAD] AUTO-SLEEP after ' + this._silenceCount + ' silent frames');
+                        this.sleep();
+                    }
                 }
             }
+        } catch (e) {
+            console.error('[VAD] Inference error:', e);
         }
     }
 

@@ -23,3 +23,6 @@ Thumbs.db
 *.log
 *.onnx
 !sdk/silero_vad.onnx
+
+# ORT WASM binaries (downloaded, not committed — 23MB+)
+sdk/ort-wasm*
