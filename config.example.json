@@ -22,9 +22,7 @@
     "temperature": 0.0,
     "hallucination_silence_threshold": 2.0,
     "engine_dirs": {
-        "faster_whisper": "venv/faster_whisper",
-        "qwen3_asr": "venv/qwen3_asr",
-        "sherpa_onnx": "venv/sherpa_onnx"
+        "faster_whisper": "venv/faster_whisper"
     },
     "vad": {
         "client_gate": true,
