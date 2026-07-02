@@ -5,7 +5,7 @@
  * GET  /v1/models       — list available models from all engines.
  */
 import { listEngines, getEngine } from '../engine/registry.js';
-import { listCloudEngines } from '../cloud/registry.js';
+import { listCloudEngines, lookupCloudAdapter } from '../cloud/registry.js';
 import { logger } from '../logger.js';
 
 export function registerAdminRoutes(app, engineManager) {
@@ -54,8 +54,11 @@ export function registerAdminRoutes(app, engineManager) {
     }
 
     const engineName = body.engine;
+
+    // Check both local and cloud registries
     const entry = getEngine(engineName);
-    if (!entry) {
+    const cloudMatch = lookupCloudAdapter(engineName);
+    if (!entry && !cloudMatch) {
       return reply.code(400).send({
         error: {
           message: `Model '${engineName}' is not registered`,

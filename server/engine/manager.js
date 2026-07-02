@@ -13,6 +13,7 @@
 import { execSync } from 'node:child_process';
 import { logger } from '../logger.js';
 import { getEngine, listEngines } from './registry.js';
+import { lookupCloudAdapter } from '../cloud/registry.js';
 import { WorkerProcess } from './worker.js';
 import { config } from '../config.js';
 
@@ -82,6 +83,24 @@ export class EngineManager {
 
   async _doSwitch(engineName) {
     const events = [];
+
+    // Cloud engines are stateless — no worker to spawn, just set active
+    const cloudMatch = lookupCloudAdapter(engineName);
+    if (cloudMatch) {
+      // Unload any active GPU worker when switching
+      const oldWorker = this.workers.get(this.activeEngine);
+      if (oldWorker) {
+        events.push({ stage: 'unload_start', engine: this.activeEngine });
+        await oldWorker.kill();
+        this.workers.delete(this.activeEngine);
+        events.push({ stage: 'unload_done', engine: this.activeEngine });
+      }
+      this.activeEngine = engineName;
+      events.push({ stage: 'load_done', engine: engineName });
+      logger.info('Switched to cloud engine (no worker needed)', { engine: engineName }, 'EngineManager', { console: true });
+      return events;
+    }
+
     const entry = getEngine(engineName);
     if (!entry) {
       throw new EngineError(`Model '${engineName}' is not registered`, 'model_not_found', 'model');
