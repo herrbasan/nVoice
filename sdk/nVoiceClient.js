@@ -2,6 +2,7 @@ class nVoiceClient {
     constructor(config = {}) {
         this.serverUrl = config.serverUrl || '';
         this.audioDeviceId = config.audioDeviceId || null;
+        this.rawAudio = config.rawAudio || false;
 
         this.pc = null;
         this.dc = null;
@@ -277,13 +278,22 @@ class nVoiceClient {
     async start() {
         try {
             console.log('[nVoice] start() called, wakeWordEnabled=' + this.wakeWordEnabled);
+
+            // Audio constraints: phones need AGC/noiseSuppression because the mic
+            // is far from the mouth. Desktop with a good mic benefits from raw audio.
+            // User can override with the "Raw Audio" toggle.
+            const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+            const useProcessing = this.rawAudio ? false : isMobile;
+
             const constraints = {
                 audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
+                    echoCancellation: useProcessing,
+                    noiseSuppression: useProcessing,
+                    autoGainControl: useProcessing,
                 }
             };
+
+            console.log('[nVoice] Audio constraints:', JSON.stringify(constraints.audio), '(mobile=' + isMobile + ', rawOverride=' + !!this.rawAudio + ')');
 
             if (this.audioDeviceId && this.audioDeviceId !== 'default') {
                 constraints.audio.deviceId = { exact: this.audioDeviceId };

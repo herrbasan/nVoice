@@ -6,6 +6,7 @@ const telemetryDiv = document.getElementById('telemetry');
 const systemInfoDiv = document.getElementById('systemInfo');
 const micSelect = document.getElementById('micSelect');
 const wakeWordToggle = document.getElementById('wakeWordToggle');
+const rawAudioToggle = document.getElementById('rawAudioToggle');
 const sleepBtn = document.getElementById('sleepBtn');
 
 let client = null;
@@ -202,6 +203,7 @@ startBtn.addEventListener('click', async () => {
     }
 
     client.setAudioDevice(micSelect.value);
+    client.rawAudio = rawAudioToggle.checked;
     client.start().catch(e => console.error(e));
 });
 
