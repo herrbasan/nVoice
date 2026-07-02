@@ -17,7 +17,7 @@ import { logger } from '../logger.js';
 
 const ELEVENLABS_WSS_URL = 'wss://api.elevenlabs.io/v1/speech-to-text/realtime';
 const MODEL_ID = 'scribe_v2_realtime';
-const TOKEN_API_URL = 'https://api.elevenlabs.io/v1/single-use-tokens';
+const TOKEN_API_URL = 'https://api.elevenlabs.io/v1/single-use-token';
 
 class ElevenLabsAdapter {
   constructor(apiKey) {
@@ -32,13 +32,12 @@ class ElevenLabsAdapter {
    * Token expires after 15 minutes.
    */
   async createToken() {
-    const resp = await fetch(TOKEN_API_URL, {
+    const resp = await fetch(`${TOKEN_API_URL}/realtime_scribe`, {
       method: 'POST',
       headers: {
         'xi-api-key': this.apiKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ type: 'realtime_scribe' }),
     });
 
     if (!resp.ok) {
