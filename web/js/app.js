@@ -13,12 +13,20 @@ let client = null;
 // Fetch system config on load and populate devices
 window.addEventListener('DOMContentLoaded', async () => {
     try {
-        const res = await fetch('/status');
+        const res = await fetch('/v1/admin/status');
         const data = await res.json();
-        systemInfoDiv.textContent = `Ready: ${data.engine} [${data.model_size}] on ${data.device.toUpperCase()} (${data.compute_type}). Threads: ${data.cpu_threads} | Lang: ${data.language} | VAD: ${data.vad_threshold}`;
+        systemInfoDiv.textContent = `nVoice v${data.version} | Active engine: ${data.active_engine}`;
     } catch (e) {
         systemInfoDiv.textContent = "Failed to load engine status. Server may be down.";
     }
+
+    // Populate engine list
+    try {
+        const res = await fetch('/v1/admin/engines');
+        const data = await res.json();
+        const engineInfo = data.engines.map(e => `${e.name} [${e.capabilities.join(',')}]`).join(' | ');
+        systemInfoDiv.textContent += `\nRegistered: ${engineInfo}`;
+    } catch {}
 
     // Ask for permission gracefully just to get device labels
     try {
@@ -37,6 +45,51 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     } catch (err) {
         micSelect.innerHTML = '<option value="">Microphone permission denied</option>';
+    }
+});
+
+// --- Batch transcription ---
+
+const batchFile = document.getElementById('batchFile');
+const batchFormat = document.getElementById('batchFormat');
+const transcribeBtn = document.getElementById('transcribeBtn');
+const batchResult = document.getElementById('batchResult');
+
+batchFile.addEventListener('change', () => {
+    transcribeBtn.disabled = !batchFile.files.length;
+});
+
+transcribeBtn.addEventListener('click', async () => {
+    if (!batchFile.files.length) return;
+    transcribeBtn.disabled = true;
+    batchResult.textContent = 'Transcribing...';
+
+    const formData = new FormData();
+    formData.append('file', batchFile.files[0]);
+    formData.append('model', 'faster_whisper_tiny');
+    formData.append('response_format', batchFormat.value);
+
+    try {
+        const resp = await fetch('/v1/audio/transcriptions', {
+            method: 'POST',
+            body: formData,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            batchResult.textContent = `Error: ${err.error?.message || resp.statusText}`;
+            return;
+        }
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            const data = await resp.json();
+            batchResult.textContent = JSON.stringify(data, null, 2);
+        } else {
+            batchResult.textContent = await resp.text();
+        }
+    } catch (e) {
+        batchResult.textContent = `Error: ${e.message}`;
+    } finally {
+        transcribeBtn.disabled = false;
     }
 });
 

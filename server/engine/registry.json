@@ -1,0 +1,47 @@
+{
+  "faster_whisper_tiny": {
+    "family": "faster_whisper",
+    "venv_python": "venv/faster_whisper/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": false,
+    "capabilities": ["batch", "translate", "align", "realtime"],
+    "realtime_strategy": "buffer-retranscribe"
+  },
+  "faster_whisper_small": {
+    "family": "faster_whisper",
+    "venv_python": "venv/faster_whisper/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": false,
+    "capabilities": ["batch", "translate", "align", "realtime"],
+    "realtime_strategy": "buffer-retranscribe"
+  },
+  "faster_whisper_large-v3": {
+    "family": "faster_whisper",
+    "venv_python": "venv/faster_whisper/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": true,
+    "capabilities": ["batch", "translate", "align", "realtime"],
+    "realtime_strategy": "buffer-retranscribe"
+  },
+  "qwen3_asr": {
+    "family": "qwen3_asr",
+    "venv_python": "venv/qwen3_asr/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": true,
+    "capabilities": ["batch"],
+    "realtime_strategy": null
+  },
+  "sherpa_onnx": {
+    "family": "sherpa_onnx",
+    "venv_python": "venv/sherpa_onnx/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": false,
+    "capabilities": ["batch", "realtime"],
+    "realtime_strategy": "native-streaming"
+  }
+}

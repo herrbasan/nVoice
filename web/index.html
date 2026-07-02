@@ -1,24 +1,25 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>nVoice v2 STT</title>
+    <title>nVoice v3 STT</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; transition: background-color 0.3s, color 0.3s; }
+        body { font-family: sans-serif; padding: 20px; transition: background-color 0.3s, color 0.3s; max-width: 900px; margin: 0 auto; }
+        h1 { margin-bottom: 5px; }
+        h2 { font-size: 18px; margin-top: 30px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
         #transcription {
-            width: 100%;
-            height: 300px;
-            border: 1px solid #ccc;
-            padding: 10px;
-            overflow-y: scroll;
-            margin-top: 10px;
-            white-space: pre-wrap;
-            background-color: #fff;
+            width: 100%; height: 300px; border: 1px solid #ccc; padding: 10px;
+            overflow-y: scroll; margin-top: 10px; white-space: pre-wrap; background-color: #fff;
             transition: background-color 0.3s, color 0.3s, border-color 0.3s;
         }
         .btn { padding: 10px 20px; font-size: 16px; margin-right: 10px; cursor: pointer; border: 1px solid #ccc; background-color: #f0f0f0; border-radius: 4px; transition: background-color 0.3s, color 0.3s; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         #status { font-weight: bold; margin-bottom: 10px; }
         #telemetry { font-family: monospace; font-size: 12px; color: #555; margin-top: 10px; transition: color 0.3s; }
+        .section { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; }
+        input[type="file"] { margin: 10px 0; }
+        select { padding: 5px; font-size: 14px; min-width: 250px; }
+        #batchResult { background: #f9f9f9; border: 1px solid #ddd; padding: 10px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; }
 
         @media (prefers-color-scheme: dark) {
             body { background-color: #1e1e1e; color: #e0e0e0; }
@@ -26,22 +27,40 @@
             .btn { background-color: #3a3a3a; color: #e0e0e0; border-color: #555; }
             .btn:hover:not(:disabled) { background-color: #4a4a4a; }
             #telemetry { color: #aaa; }
+            #batchResult { background: #2d2d2d; border-color: #444; color: #e0e0e0; }
+            h2 { border-color: #444; }
         }
     </style>
 </head>
 <body>
-    <h1>nVoice v2 STT</h1>
-    
+    <h1>nVoice v3 STT</h1>
+
     <div id="systemInfo" style="font-size: 13px; color: #888; margin-bottom: 15px; font-style: italic;">
         Checking engine status...
     </div>
 
+    <h2>Batch Transcription</h2>
+    <div class="section">
+        <label for="batchFile">Audio file:</label>
+        <input type="file" id="batchFile" accept="audio/*">
+        <select id="batchFormat">
+            <option value="json">JSON</option>
+            <option value="text">Text</option>
+            <option value="verbose_json">Verbose JSON</option>
+            <option value="srt">SRT</option>
+            <option value="vtt">VTT</option>
+        </select>
+        <button id="transcribeBtn" class="btn" disabled>Transcribe</button>
+        <div id="batchResult"></div>
+    </div>
+
+    <h2>Real-time Streaming</h2>
     <div id="status">Disconnected</div>
     <div style="margin-bottom: 10px;">
-        <label for="micSelect" style="font-size: 14px; font-weight: bold;">Input Source:</label>
-        <select id="micSelect" style="padding: 5px; font-size: 14px; min-width: 250px;"></select>
+        <label for="micSelect">Input Source:</label>
+        <select id="micSelect"></select>
         <input type="checkbox" id="wakeWordToggle" style="margin-left: 15px;">
-        <label for="wakeWordToggle" style="font-size: 14px; font-weight: bold;">Enable Wake-on-Voice (WASM)</label>
+        <label for="wakeWordToggle">Enable Wake-on-Voice (WASM)</label>
     </div>
     <div>
         <button id="startBtn" class="btn">Start Audio</button>

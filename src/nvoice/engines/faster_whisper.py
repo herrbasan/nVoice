@@ -1,81 +1,140 @@
 """
-faster-whisper Engine Adapter (v2)
+faster-whisper Engine Adapter (v3)
+
+v3 changes:
+  - Deferred model loading: load() on background thread, not in __init__ (G3)
+  - vad_filter=False: shared vad.py is the single VAD authority (G7)
+  - capabilities() + realtime_strategy() declarations
+  - unload() / is_loaded() / list_models() lifecycle methods
+  - Config comes from constructor args, not global Config class
 """
-import numpy as np
+import gc
 import threading
+import numpy as np
 from typing import List, Union
-from faster_whisper import WhisperModel
 
 from nvoice.stt import STTAdapter, STTSegment, STTWord
-from nvoice.config import Config
 
 
 class FasterWhisperAdapter(STTAdapter):
-    def __init__(self, model_size="small", compute_type="int8", device="cpu"):
+
+    def __init__(self, model_size="small", compute_type="int8", device="cpu",
+                 language="auto", cpu_threads=4, num_workers=1,
+                 beam_size=5, best_of=5, temperature=0.0,
+                 no_speech_threshold=0.6, log_prob_threshold=-1.0,
+                 compression_ratio_threshold=2.4,
+                 initial_prompt=None, hotwords=None,
+                 hallucination_silence_threshold=2.0):
         super().__init__()
         self.model_size = model_size
+        self.compute_type = compute_type
+        self.device = device
+        self.language = language
+        self.cpu_threads = cpu_threads
+        self.num_workers = num_workers
+        self.beam_size = beam_size
+        self.best_of = best_of
+        self.temperature = temperature
+        self.no_speech_threshold = no_speech_threshold
+        self.log_prob_threshold = log_prob_threshold
+        self.compression_ratio_threshold = compression_ratio_threshold
+        self.initial_prompt = initial_prompt
+        self.hotwords = hotwords
+        self.hallucination_silence_threshold = hallucination_silence_threshold
+
         self.lock = threading.Lock()
-        
-        print(f"[Engine] Loading faster_whisper ({model_size}) on {device}...")
-        # Fail fast: If model fails to load, crash immediately.
+        self.model = None
+
+    # --- capability declaration ---
+
+    def capabilities(self):
+        return {"batch", "translate", "align", "realtime"}
+
+    def realtime_strategy(self):
+        return "buffer-retranscribe"
+
+    # --- lifecycle ---
+
+    def load(self):
+        """Load the WhisperModel. Called on a background thread by the worker."""
+        if self._loaded:
+            return
+        from faster_whisper import WhisperModel
+        print(f"[Engine] Loading faster_whisper ({self.model_size}) on {self.device}...")
         self.model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type,
-            # CPU limits
-            cpu_threads=Config.CPU_THREADS,
-            num_workers=getattr(Config, "NUM_WORKERS", 1)
+            self.model_size,
+            device=self.device,
+            compute_type=self.compute_type,
+            cpu_threads=self.cpu_threads,
+            num_workers=self.num_workers,
         )
+        self._loaded = True
         print("[Engine] Loaded successfully.")
 
-    def transcribe(self, audio: Union[np.ndarray, str], sample_rate: int = 16000, context_text: str = None) -> List[STTSegment]:
+    def is_loaded(self):
+        return self._loaded and self.model is not None
+
+    def unload(self):
+        """Free model resources. Drop reference, gc, empty CUDA cache."""
+        self.model = None
+        self._loaded = False
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+
+    def list_models(self):
+        return [
+            {"id": f"faster_whisper_{self.model_size}", "name": f"faster-whisper {self.model_size}"},
+        ]
+
+    # --- batch ---
+
+    def transcribe(self, audio, sample_rate=16000, context_text=None,
+                   task="transcribe", language=None, vad_filter=False):
         """
-        Runs VAD-gated STT on a raw 1D numpy array or audio file path.
+        Runs STT on a raw 1D numpy array or audio file path.
+        Returns List[STTSegment].
+
+        vad_filter defaults to False — the shared vad.py is the single VAD
+        authority (G7). Callers can override for batch-only use.
         """
-        # Our N-1 strategy mathematically requires word timestamps or clean VAD boundaries.
         kwargs = {
             "word_timestamps": True,
-            "vad_filter": True, # Critical for ignoring trailing absolute silence in chunks
-            "vad_parameters": dict(threshold=Config.VAD_THRESHOLD), # Stricter VAD to prevent CPU churning on background noise
-            "condition_on_previous_text": True, # Let's see if this fixes the LLM fragmentation
-            "no_speech_threshold": getattr(Config, "NO_SPEECH_THRESHOLD", 0.6),
-            "log_prob_threshold": getattr(Config, "LOG_PROB_THRESHOLD", -1.0),
-            "compression_ratio_threshold": getattr(Config, "COMPRESSION_RATIO_THRESHOLD", 2.4),
-            "beam_size": getattr(Config, "BEAM_SIZE", 5),
-            "best_of": getattr(Config, "BEST_OF", 5),
-            "temperature": getattr(Config, "TEMPERATURE", 0.0),
-            "hallucination_silence_threshold": getattr(Config, "HALLUCINATION_SILENCE_THRESHOLD", 2.0),
+            "vad_filter": vad_filter,
+            "condition_on_previous_text": True,
+            "no_speech_threshold": self.no_speech_threshold,
+            "log_prob_threshold": self.log_prob_threshold,
+            "compression_ratio_threshold": self.compression_ratio_threshold,
+            "beam_size": self.beam_size,
+            "best_of": self.best_of,
+            "temperature": self.temperature,
+            "hallucination_silence_threshold": self.hallucination_silence_threshold,
+            "task": task,
         }
-        if hasattr(Config, "LANGUAGE") and Config.LANGUAGE and Config.LANGUAGE != "auto":
-            kwargs["language"] = Config.LANGUAGE
-        
-        # Determine contextual prompt. The /align endpoint passes the full script
-        # as context_text, but faster-whisper initial_prompt is not forced
-        # alignment; long prompts consume the decode window and can truncate
-        # long audio around the first 30s chunk. Keep alignment timestamps tied
-        # to the audio by transcribing with the same settings as /transcribe.
-        initial_prompt = getattr(Config, "INITIAL_PROMPT", None)
-        if context_text and context_text.strip():
-            pass
-        elif initial_prompt is not None:
-            kwargs["initial_prompt"] = initial_prompt
-            
-        hotwords = getattr(Config, "HOTWORDS", None)
-        if hotwords is not None:
-            kwargs["hotwords"] = hotwords
+
+        lang = language or self.language
+        if lang and lang != "auto":
+            kwargs["language"] = lang
+
+        # initial_prompt: only from explicit config, never from context_text (G5).
+        # context_text is intentionally ignored to prevent hallucination loops.
+        if self.initial_prompt:
+            kwargs["initial_prompt"] = self.initial_prompt
+        if self.hotwords:
+            kwargs["hotwords"] = self.hotwords
 
         with self.lock:
-            segments_gen, _ = self.model.transcribe(
-                audio,
-                **kwargs
-            )
-            
+            segments_gen, _ = self.model.transcribe(audio, **kwargs)
+
             results = []
             for seg in segments_gen:
-                # Drop segments marked globally as silence/no speech 
-                if seg.no_speech_prob > getattr(Config, "NO_SPEECH_THRESHOLD", 0.6):
+                if seg.no_speech_prob > self.no_speech_threshold:
                     continue
-                    
+
                 seg_words = []
                 if seg.words:
                     for w in seg.words:
@@ -84,18 +143,22 @@ class FasterWhisperAdapter(STTAdapter):
                                 word=w.word,
                                 start=w.start,
                                 end=w.end,
-                                probability=w.probability
+                                probability=w.probability,
                             )
                         )
-                    
+
                 results.append(
                     STTSegment(
                         text=seg.text.strip(),
                         start=seg.start,
                         end=seg.end,
                         probability=(1.0 - seg.no_speech_prob),
-                        words=seg_words
+                        words=seg_words,
                     )
                 )
-                
+
             return results
+
+    def translate(self, audio, sample_rate=16000):
+        """Speech-to-English translation via Whisper's built-in task."""
+        return self.transcribe(audio, sample_rate=sample_rate, task="translate", language=None)

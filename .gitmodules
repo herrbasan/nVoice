@@ -1,0 +1,3 @@
+[submodule "server/nLogger"]
+	path = server/nLogger
+	url = https://github.com/herrbasan/nLogger.git

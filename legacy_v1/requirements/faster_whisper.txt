@@ -1,3 +1,0 @@
-# faster-whisper (CTranslate2-based Whisper)
-faster-whisper>=1.0.0
-huggingface-hub>=0.23.0

@@ -23,5 +23,3 @@ Thumbs.db
 *.log
 *.onnx
 !sdk/silero_vad.onnx
-
-legacy_v1/

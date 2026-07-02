@@ -8,29 +8,55 @@
 
 ---
 
-## Architecture (nVoice v2)
+## Architecture (nVoice v3)
 
-### The Backpressure Solution
-nVoice v2 abandons fixed overlapping heuristics and static VAD slicing in favor of pure decoupled buffering:
-1. WebRTC ingest pushes continuous float32 frames straight to an unstructured, rolling `audio_buffer`.
-2. A separate inference daemon loop grabs everything pending (capped around 30s) and runs STT.
-3. The time it takes inherently dictates the time size of the chunk available for the *next* tick, organically breathing with the system's compute power.
-4. Active speech dynamically emits provisional transcripts without truncating the buffer, preserving 100% of Whisper's acoustic context. Finalization explicitly waits for absolute RMS silence or a configurable timestamp gap (`commit_silence_tail_sec`), immediately committing flawless transcription chunks free of overlap hallucinations.
+### Two-Tier Architecture
+nVoice v3 uses a Node.js management layer that spawns, kills, and switches between per-engine Python workers at runtime. Node is a thin translation layer — it never runs inference and is never in the real-time media path.
+
+```
+Client → Node.js API Server (Fastify) → Per-engine Python HTTP Worker
+```
+
+- **Node server** (`server/`): OpenAI-compatible API surface, engine worker manager, audio normalization (ffmpeg), cloud adapters.
+- **Python workers** (`src/nvoice/`): Engine-native HTTP endpoints, STT adapters, WebRTC realtime pipeline.
+
+### API Surface (OpenAI-compatible)
+- `POST /v1/audio/transcriptions` — batch STT (multipart in, JSON/text/SRT/VTT out)
+- `POST /v1/audio/translations` — speech-to-English
+- `POST /v1/audio/align` — word timestamps for known text
+- `GET  /v1/realtime/sessions` — create WebRTC session
+- `POST /v1/realtime/sessions/{id}/offer` — SDP relay to worker
+- `GET  /v1/models` — list engines
+- `POST /v1/admin/engine` — switch engine (SSE progress)
+- `GET  /v1/admin/engines` — registered engines
+- `GET  /v1/admin/status` — worker manager status
+- `GET  /health` — server health
 
 ### Directory Structure & Intent
-- `src/`: The core application code (WebRTC handling, STT processing loop, Server).
-- `web/`: The vanilla HTML/JS frontend interface visualizing realtime provisional vs. final emissions alongside latency telemetry.
-- `simulations/`: High-fidelity standalone simulation scripts that emulate the live WebRTC environment for isolated back-end benchmarking.
-- `tests/`: Isolated algorithmic, overlapping, and logical test cases.
+- `server/`: Node.js management layer (Fastify, engine manager, API routes, audio normalization).
+- `src/`: Python worker code (STT adapters, WebRTC, worker HTTP server, realtime strategies).
+- `web/`: Vanilla HTML/JS dashboard (batch + realtime UI).
+- `sdk/`: Browser SDK (`nVoiceClient.js`) for WebRTC client.
+- `simulations/`: Standalone simulation scripts for backend benchmarking.
+- `tests/`: E2E test suite (`tests/e2e/test_runner.js`).
 - `legacy_v1/`: Ignore entirely; retained only for structural archaeology.
 
+### Engine Adapter Contract (v3)
+Every adapter declares `capabilities()` (subset of batch/translate/align/realtime) and `realtime_strategy()` (buffer-retranscribe | native-streaming | None). Model loading is deferred to a background thread (`load()` / `is_loaded()`). See `src/nvoice/stt.py`.
+
+### Realtime Strategy
+The v2 `AudioConsumer._daemon_loop` is extracted verbatim into `src/nvoice/realtime/buffer_retranscribe.py`. Its heuristics are load-bearing — do NOT simplify. The shared `vad.py` Silero stage replaces the old RMS gate.
+
+### Guardrails
+13 implementation guardrails (G1–G13) are documented in `docs/NVoice_API_DEV_PLAN.md` §13. Read them before touching any phase.
+
 ### Environment Reference
-- **Active Engine:** `faster_whisper` (via local python pipeline). 
-- **Engine Documentation:** ALWAYS refer to [docs/faster_whisper_api_reference.md](docs/faster_whisper_api_reference.md) for implementation details, parameter tuning, and understanding timestamp behavior.
-- **Previous Code:** Refer to `legacy_v1/` directory. Do not actively run imports from legacy space.
+- **Active Engine:** Configured in `config.json` (`default_engine`). Default: `faster_whisper_large-v3`.
+- **Engine Documentation:** ALWAYS refer to [docs/faster_whisper_api_reference.md](docs/faster_whisper_api_reference.md) for faster-whisper implementation details.
+- **Plans:** [docs/NVoice_API_PLAN.md](docs/NVoice_API_PLAN.md) (API spec) and [docs/NVoice_API_DEV_PLAN.md](docs/NVoice_API_DEV_PLAN.md) (development plan).
 
 ### Batch `/align` Endpoint
-- `/align?text=...` is used by `LLM Chat Arena Slides` for TTS word highlighting, but faster-whisper does not provide true forced alignment here.
-- Do NOT pass the full `text` query value as `initial_prompt`; long prompts consume decode context and caused long audio to truncate or jump timestamps around 30s.
+- `/v1/audio/align` is used by `LLM Chat Arena Slides` for TTS word highlighting, but faster-whisper does not provide true forced alignment here.
+- Do NOT pass the full `text` value as `initial_prompt`; long prompts consume decode context and caused long audio to truncate or jump timestamps around 30s.
 - Current working behavior is to transcribe the audio normally with `word_timestamps=True` and return `segments[].words[]`. The caller consumes raw segment/word timestamps directly.
-- Keep `/align` and `/transcribe` timestamp behavior close. When changing settings, test both endpoints on the same long MP3 and compare word count, last segment end, and word continuity around the middle of the file.
+- Keep `/v1/audio/transcriptions` and `/v1/audio/align` timestamp behavior close. When changing settings, test both endpoints on the same long MP3 and compare word count, last segment end, and word continuity around the middle of the file.

@@ -1,6 +1,8 @@
 {
     "host": "0.0.0.0",
     "port": 2244,
+    "default_engine": "faster_whisper_large-v3",
+    "log_level": "INFO",
     "model_size": "large-v3",
     "model_device": "cuda",
     "compute_type": "float16",
@@ -18,5 +20,17 @@
     "buffer_min_sec": 0.3,
     "commit_silence_tail_sec": 1.0,
     "temperature": 0.0,
-    "hallucination_silence_threshold": 2.0
+    "hallucination_silence_threshold": 2.0,
+    "engine_dirs": {
+        "faster_whisper": "venv/faster_whisper",
+        "qwen3_asr": "venv/qwen3_asr",
+        "sherpa_onnx": "venv/sherpa_onnx"
+    },
+    "vad": {
+        "client_gate": true,
+        "client_threshold": 0.3,
+        "backend_stage": true,
+        "backend_threshold": 0.5,
+        "silence_tail_sec": 1.5
+    }
 }

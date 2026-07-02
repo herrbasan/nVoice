@@ -248,6 +248,7 @@ class nVoiceClient {
 
     async start() {
         try {
+            console.log('[nVoice] start() called, wakeWordEnabled=' + this.wakeWordEnabled);
             const constraints = {
                 audio: {
                     echoCancellation: false,
@@ -290,14 +291,18 @@ class nVoiceClient {
             }
 
             this.pc = new RTCPeerConnection();
+            console.log('[nVoice] RTCPeerConnection created');
 
             this.dc = this.pc.createDataChannel('stt-events');
+            console.log('[nVoice] DataChannel "stt-events" created');
 
             this.dc.onopen = () => {
+                console.log('[nVoice] DataChannel opened');
                 this.emit('connected');
             };
 
             this.dc.onclose = () => {
+                console.log('[nVoice] DataChannel closed');
                 this.emit('disconnected');
             };
 
@@ -324,7 +329,21 @@ class nVoiceClient {
             const offer = await this.pc.createOffer();
             await this.pc.setLocalDescription(offer);
 
-            const endpoint = this.serverUrl ? `${this.serverUrl}/offer` : '/offer';
+            // v3: create a realtime session, then relay SDP to the session offer endpoint
+            console.log('[nVoice] Creating realtime session...');
+            const base = this.serverUrl || '';
+            const sessionResp = await fetch(`${base}/v1/realtime/sessions`, {
+                method: 'GET',
+            });
+            if (!sessionResp.ok) {
+                throw new Error('Failed to create realtime session: ' + sessionResp.status);
+            }
+            const session = await sessionResp.json();
+            this._sessionId = session.id;
+            console.log('[nVoice] Session created: ' + session.id);
+
+            const endpoint = `${base}${session.offer_endpoint}`;
+            console.log('[nVoice] Sending SDP offer to ' + endpoint + ' (sdp length=' + this.pc.localDescription.sdp.length + ')');
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -339,7 +358,9 @@ class nVoiceClient {
             }
 
             const answer = await response.json();
+            console.log('[nVoice] SDP answer received (length=' + (answer.sdp?.length || 0) + ')');
             await this.pc.setRemoteDescription(answer);
+            console.log('[nVoice] Remote description set, WebRTC connection should be establishing...');
 
         } catch (error) {
             this.emit('error', error);

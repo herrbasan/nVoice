@@ -1,237 +1,193 @@
+"""
+nVoice v3 — WebRTC Manager
+
+Manages RTCPeerConnection instances and wires incoming audio tracks to the
+appropriate realtime strategy driver.
+
+v3 changes from v2:
+  - Engine-agnostic: accepts any adapter with a realtime_strategy()
+  - Strategy selection: buffer-retranscribe → BufferRetranscribeStrategy
+  - Shared VAD: passes SileroVAD to the strategy (G7)
+  - AudioConsumer logic extracted to realtime/buffer_retranscribe.py (G4)
+"""
 import asyncio
 import json
-import time
 import numpy as np
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
 import av
+
 from nvoice.logger import get_logger
-from nvoice.engines.faster_whisper import FasterWhisperAdapter
-from nvoice.config import Config
 
-logger = get_logger(__name__)
+logger = get_logger("webrtc")
 
-class AudioConsumer:
-    """Consumes a WebRTC Audio track, buffers directly into an array, and orchestrates the inference daemon."""
-    def __init__(self, track: MediaStreamTrack, dc, stt_engine: FasterWhisperAdapter):
+
+class RealtimeSession:
+    """
+    Consumes a WebRTC audio track, resamples to 16kHz mono float32,
+    and feeds frames to the realtime strategy driver.
+
+    Replaces v2 AudioConsumer. The daemon loop logic now lives in the
+    strategy driver (realtime/buffer_retranscribe.py), extracted verbatim (G4).
+    """
+
+    def __init__(self, track, dc, strategy, sample_rate=16000):
         self.track = track
         self.dc = dc
-        self.stt_engine = stt_engine
-        
-        self.audio_buffer = np.array([], dtype=np.float32)
-        self.read_cursor_sec = 0.0
-        self.emitted_count = 0
-        
+        self.strategy = strategy
+        self.sample_rate = sample_rate
+
         self.resampler = av.audio.resampler.AudioResampler(
-            format='flt', layout='mono', rate=Config.SAMPLE_RATE
+            format='flt', layout='mono', rate=sample_rate
         )
-        self.last_sent_text = ""
-        self.context_history = ""
-        
-        # Tasks
+
         self._ingest_task = None
-        self._daemon_task = None
+        self._poll_task = None
         self._running = False
 
     def start(self):
         self._running = True
         self._ingest_task = asyncio.create_task(self._ingest_loop())
-        self._daemon_task = asyncio.create_task(self._daemon_loop())
+        self._poll_task = asyncio.create_task(self._poll_loop())
+        self.strategy.start()
+        logger.info(f"RealtimeSession started (strategy={type(self.strategy).__name__})")
 
     def stop(self):
         self._running = False
         if self._ingest_task:
             self._ingest_task.cancel()
-        if self._daemon_task:
-            self._daemon_task.cancel()
+        if self._poll_task:
+            self._poll_task.cancel()
+        if self.strategy:
+            self.strategy.stop()
+        logger.info("RealtimeSession stopped")
 
     async def _ingest_loop(self):
+        """Receive WebRTC frames, resample, feed to strategy."""
+        frame_count = 0
         while self._running:
             try:
                 frame = await self.track.recv()
-                # Resample frame to mono float32 16000Hz
                 for resampled_frame in self.resampler.resample(frame):
                     plane = resampled_frame.planes[0]
                     np_audio = np.frombuffer(plane, dtype=np.float32)
-                    self.audio_buffer = np.concatenate((self.audio_buffer, np_audio))
+                    self.strategy.on_audio(np_audio)
+                    frame_count += 1
+                    if frame_count % 100 == 0:
+                        buf_sec = len(self.strategy.audio_buffer) / self.sample_rate
+                        logger.info(f"Ingest: {frame_count} frames, buffer={buf_sec:.1f}s")
             except Exception as e:
                 logger.info(f"Ingest loop stopping: {e}")
                 self.stop()
                 break
 
-    def _send_telemetry(self, rtf: float, backlog_sec: float, state: str = "processing", extra: dict = None):
-        if self.dc and self.dc.readyState == "open":
-            payload = {
-                "type": "telemetry",
-                "rtf": round(rtf, 2),
-                "backlog_sec": round(backlog_sec, 2),
-                "state": state
-            }
-            if extra:
-                payload.update(extra)
-            self.dc.send(json.dumps(payload))
-
-    def _send_transcript(self, text: str, is_final: bool = False):
-        cleaned = text.strip()
-        if not cleaned:
-            return
-
-        # Hardcoded hallucination filter for trailing silence artifacts
-        hallucinations = [
-            "thank you.", "thank you", "thanks.", "thanks", "thanks for watching.", 
-            "subscribe.", "thank you for watching.", "thank you very much for your time.", 
-            "you.", "working.", "working"
-        ]
-        if cleaned.lower() in hallucinations:
-            return
-
-        if self.dc and getattr(self.dc, "readyState", "open") == "open":
-            self.dc.send(json.dumps({
-                "type": "transcript",
-                "text": cleaned,
-                "is_final": is_final
-            }))
-
-    async def _daemon_loop(self):
-        # We must offload the STT to a thread
+    async def _poll_loop(self):
+        """Poll the strategy for events and send them over the DataChannel."""
         while self._running:
             try:
-                available_sec = len(self.audio_buffer) / Config.SAMPLE_RATE
-                
-                # Check for failsafe reset
-                if available_sec > 600.0:  # 10 minutes max buffer
-                    logger.warning("Buffer overflow! Resetting.")
-                    self.audio_buffer = np.array([], dtype=np.float32)
-                    continue
-
-                if available_sec < getattr(Config, "BUFFER_MIN_SEC", 0.5):
-                    await asyncio.sleep(0.1)
-                    continue
-
-                # Cap scanning window
-                infer_view = self.audio_buffer[:int(30.0 * Config.SAMPLE_RATE)]
-
-                # Pre-inference baseline energy check (RMS) on the entire current buffer
-                rms = np.sqrt(np.mean(infer_view**2))
-                if rms < 0.005:  # Absolute digital silence / lowest static threshold
-                    # If there's no sound across the ENTIRE buffer, we can safely flush it all.
-                    self.audio_buffer = np.array([], dtype=np.float32)
-                    self.read_cursor_sec += available_sec
-                    self._send_telemetry(0.0, 0.0, "idle/silence", {"rms": float(rms)})
-                    await asyncio.sleep(0.05)
-                    continue
-                
-                t0 = time.monotonic()
-                # Run engine in thread so we don't block asyncio ingestion
-                # Removed context_text injection to physically prevent the hallucination loop
-                segments = await asyncio.to_thread(self.stt_engine.transcribe, infer_view, context_text=None)
-                infer_time = time.monotonic() - t0
-                
-                rtf = infer_time / available_sec
-                self._send_telemetry(rtf, available_sec, "processing", {"infer_time": round(infer_time, 3), "rms": float(rms), "buffer_size_sec": round(available_sec, 2)})
-                
-                if not segments:
-                    # No speech found. Don't flush completely as it might be the start of a word!
-                    # Only trim to prevent infinite growth of unrecognized background noise.
-                    if available_sec > 1.5:
-                        keep_sec = 0.5
-                        samples_to_keep = int(keep_sec * Config.SAMPLE_RATE)
-                        self.audio_buffer = self.audio_buffer[-samples_to_keep:]
-                        self.read_cursor_sec += (available_sec - keep_sec)
-                    await asyncio.sleep(0.01)
-                    continue
-                
-                advance_sec = 0.0
-                all_words = []
-                for s in segments:
-                    all_words.extend(s.words)
-                    
-                if not all_words:
-                    if segments:
-                        silence_tail = available_sec - segments[-1].end
-                        if silence_tail > getattr(Config, 'COMMIT_SILENCE_TAIL_SEC', 1.5) or available_sec >= 30.0:
-                            advance_sec = segments[-1].end
-                else:
-                    last_word = all_words[-1]
-                    silence_tail = available_sec - last_word.end
-                    forced = silence_tail > getattr(Config, 'COMMIT_SILENCE_TAIL_SEC', 1.5) or available_sec >= 30.0
-                    
-                    if forced:
-                        # Advance buffer, but preserve up to 0.4s of trailing silence 
-                        # so the NEXT buffer has some lead-in room-tone/silence 
-                        # before the speaker starts again. Avoids chopping consonants.
-                        padding = min(silence_tail / 2.0, 0.4)
-                        advance_sec = last_word.end + padding
-                        
-                        text = "".join(w.word for w in all_words)
-                        self._send_transcript(text, is_final=True)
-                    else:
-                        text = "".join(w.word for w in all_words)
-                        self._send_transcript(text, is_final=False)
-                        
-                        # CRITICAL: We DO NOT advance the audio buffer during active speech!
-                        # This allows Whisper to retain 100% of the acoustic context naturally,
-                        # avoiding the hallucination loops and context loss completely.
-                        advance_sec = 0.0
-                
-                if advance_sec > 0:
-                    samples_to_discard = int(advance_sec * Config.SAMPLE_RATE)
-                    self.audio_buffer = self.audio_buffer[samples_to_discard:]
-                    self.read_cursor_sec += advance_sec
-                
-                # Brief yield to ensure ingestion takes priority
-                await asyncio.sleep(0.01)
-
+                events = self.strategy.poll()
+                for event in events:
+                    if self.dc and getattr(self.dc, "readyState", "open") == "open":
+                        self.dc.send(json.dumps(event))
+                await asyncio.sleep(0.05)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Daemon error: {e}")
-                await asyncio.sleep(1)
+                logger.error(f"Poll loop error: {e}")
+                await asyncio.sleep(0.5)
+
+
+def create_strategy(adapter, config=None):
+    """
+    Create the appropriate realtime strategy for the adapter.
+    config is a dict (from config.json) or None for defaults.
+    Returns a RealtimeStrategy instance or raises if unsupported.
+    """
+    cfg = config or {}
+    strategy_name = adapter.realtime_strategy()
+    if strategy_name is None:
+        raise ValueError("Engine does not support realtime")
+
+    # Shared VAD (G7) — lazy-loaded
+    vad = None
+    vad_cfg = cfg.get('vad', {})
+    vad_enabled = vad_cfg.get('backend_stage', True)
+    if vad_enabled:
+        try:
+            from nvoice.vad import SileroVAD
+            vad = SileroVAD(threshold=vad_cfg.get('backend_threshold', 0.5))
+        except Exception as e:
+            logger.warning(f"VAD init failed, falling back to RMS: {e}")
+
+    if strategy_name == "buffer-retranscribe":
+        from nvoice.realtime.buffer_retranscribe import BufferRetranscribeStrategy
+        return BufferRetranscribeStrategy(
+            stt_engine=adapter,
+            sample_rate=16000,
+            vad=vad,
+            buffer_min_sec=cfg.get('buffer_min_sec', 0.3),
+            commit_silence_tail_sec=cfg.get('commit_silence_tail_sec', 1.0),
+        )
+
+    raise ValueError(f"Unknown realtime strategy: {strategy_name}")
 
 
 class WebRTCManager:
-    def __init__(self):
+    """
+    Manages RTCPeerConnection instances for realtime sessions.
+
+    Unlike v2, this is engine-agnostic — it receives an adapter and creates
+    the appropriate strategy driver from adapter.realtime_strategy().
+    """
+
+    def __init__(self, adapter, config=None):
+        self.adapter = adapter
+        self.config = config or {}
         self.pcs = set()
-        self.stt_engine = FasterWhisperAdapter(
-            model_size=Config.MODEL_SIZE, 
-            device=Config.MODEL_DEVICE, 
-            compute_type=Config.COMPUTE_TYPE
-        )
-    
-    async def process_offer(self, offer_sdp: str, offer_type: str):
+
+    async def process_offer(self, offer_sdp, offer_type):
+        logger.info(f"Processing WebRTC offer (sdp length={len(offer_sdp)})")
         offer = RTCSessionDescription(sdp=offer_sdp, type=offer_type)
         pc = RTCPeerConnection()
         self.pcs.add(pc)
-        
-        consumer = None
+
+        session = None
         data_channel = None
 
         @pc.on("datachannel")
         def on_datachannel(channel):
             nonlocal data_channel
             data_channel = channel
-            if consumer:
-                consumer.dc = channel
+            logger.info(f"DataChannel opened: {channel.label}")
+            if session:
+                session.dc = channel
 
         @pc.on("track")
         def on_track(track):
+            nonlocal session
+            logger.info(f"Track received: kind={track.kind}, id={track.id}")
             if track.kind == "audio":
-                nonlocal consumer
-                consumer = AudioConsumer(track, data_channel, self.stt_engine)
-                consumer.start()
+                strategy = create_strategy(self.adapter, self.config)
+                logger.info(f"Created strategy: {type(strategy).__name__}")
+                session = RealtimeSession(
+                    track, data_channel, strategy,
+                    sample_rate=16000,
+                )
+                session.start()
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
-            logger.info(f"Connection state is {pc.connectionState}")
-            if pc.connectionState == "failed" or pc.connectionState == "closed":
-                if consumer:
-                    consumer.stop()
+            logger.info(f"Connection state: {pc.connectionState}")
+            if pc.connectionState in ("failed", "closed"):
+                if session:
+                    session.stop()
                 self.pcs.discard(pc)
 
         await pc.setRemoteDescription(offer)
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
-        
+        logger.info(f"SDP answer created (length={len(pc.localDescription.sdp)})")
+
         return {
             "sdp": pc.localDescription.sdp,
-            "type": pc.localDescription.type
+            "type": pc.localDescription.type,
         }
