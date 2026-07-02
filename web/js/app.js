@@ -9,6 +9,14 @@ const wakeWordToggle = document.getElementById('wakeWordToggle');
 const rawAudioToggle = document.getElementById('rawAudioToggle');
 const sleepBtn = document.getElementById('sleepBtn');
 
+// Engine management
+const engineSelect = document.getElementById('engineSelect');
+const switchEngineBtn = document.getElementById('switchEngineBtn');
+const engineSwitchStatus = document.getElementById('engineSwitchStatus');
+
+let activeEngine = null;
+let availableEngines = [];
+
 let client = null;
 
 // Fetch system config on load and populate devices
@@ -16,16 +24,31 @@ window.addEventListener('DOMContentLoaded', async () => {
     try {
         const res = await fetch('/v1/admin/status');
         const data = await res.json();
-        systemInfoDiv.textContent = `nVoice v${data.version} | Active engine: ${data.active_engine}`;
+        activeEngine = data.active_engine;
+        systemInfoDiv.textContent = `nVoice v${data.version} | Active engine: ${activeEngine}`;
     } catch (e) {
         systemInfoDiv.textContent = "Failed to load engine status. Server may be down.";
     }
 
-    // Populate engine list
+    // Populate engine list and dropdown
     try {
         const res = await fetch('/v1/admin/engines');
         const data = await res.json();
-        const engineInfo = data.engines.map(e => `${e.name} [${e.capabilities.join(',')}]`).join(' | ');
+        availableEngines = data.engines;
+
+        // Build engine dropdown
+        engineSelect.innerHTML = '';
+        for (const e of availableEngines) {
+            const option = document.createElement('option');
+            option.value = e.name;
+            const caps = e.capabilities.join(', ');
+            const tag = e.cloud ? ' ☁️' : (e.gpu ? ' 🎮' : ' 💻');
+            option.text = `${e.name}${tag} [${caps}]`;
+            if (e.name === activeEngine) option.selected = true;
+            engineSelect.appendChild(option);
+        }
+
+        const engineInfo = availableEngines.map(e => `${e.name} [${e.capabilities.join(',')}]`).join(' | ');
         systemInfoDiv.textContent += `\nRegistered: ${engineInfo}`;
     } catch {}
 
@@ -49,6 +72,70 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+// --- Engine switching ---
+
+switchEngineBtn.addEventListener('click', async () => {
+    const targetEngine = engineSelect.value;
+    if (targetEngine === activeEngine) return;
+
+    switchEngineBtn.disabled = true;
+    engineSelect.disabled = true;
+    engineSwitchStatus.textContent = `Switching to ${targetEngine}...`;
+
+    try {
+        const resp = await fetch('/v1/admin/engine', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engine: targetEngine }),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error?.message || `HTTP ${resp.status}`);
+        }
+
+        // Read SSE stream
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let lastStage = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.stage) {
+                            lastStage = data.stage;
+                            engineSwitchStatus.textContent = `${data.stage}: ${data.engine || ''}`;
+                        }
+                    } catch {}
+                }
+            }
+        }
+
+        activeEngine = targetEngine;
+        engineSwitchStatus.textContent = `✓ ${activeEngine} active`;
+        systemInfoDiv.textContent = systemInfoDiv.textContent.replace(
+            /Active engine: .*/, `Active engine: ${activeEngine}`
+        );
+    } catch (e) {
+        engineSwitchStatus.textContent = `✗ ${e.message}`;
+        // Revert dropdown to active engine
+        engineSelect.value = activeEngine;
+    } finally {
+        switchEngineBtn.disabled = false;
+        engineSelect.disabled = false;
+    }
+});
+
 // --- Batch transcription ---
 
 const batchFile = document.getElementById('batchFile');
@@ -67,7 +154,7 @@ transcribeBtn.addEventListener('click', async () => {
 
     const formData = new FormData();
     formData.append('file', batchFile.files[0]);
-    formData.append('model', 'faster_whisper_tiny');
+    formData.append('model', engineSelect.value || activeEngine || 'faster_whisper_tiny');
     formData.append('response_format', batchFormat.value);
 
     try {
@@ -204,6 +291,7 @@ startBtn.addEventListener('click', async () => {
 
     client.setAudioDevice(micSelect.value);
     client.rawAudio = rawAudioToggle.checked;
+    client.engine = engineSelect.value || activeEngine;
     client.start().catch(e => console.error(e));
 });
 

@@ -3,6 +3,7 @@ class nVoiceClient {
         this.serverUrl = config.serverUrl || '';
         this.audioDeviceId = config.audioDeviceId || null;
         this.rawAudio = config.rawAudio || false;
+        this.engine = config.engine || null;
 
         this.pc = null;
         this.dc = null;
@@ -368,11 +369,12 @@ class nVoiceClient {
             await this.pc.setLocalDescription(offer);
 
             // v3: create a realtime session, then relay SDP to the session offer endpoint
-            console.log('[nVoice] Creating realtime session...');
+            console.log('[nVoice] Creating realtime session... (engine=' + (this.engine || 'default') + ')');
             const base = this.serverUrl || '';
-            const sessionResp = await fetch(`${base}/v1/realtime/sessions`, {
-                method: 'GET',
-            });
+            const sessionUrl = this.engine
+                ? `${base}/v1/realtime/sessions?model=${encodeURIComponent(this.engine)}`
+                : `${base}/v1/realtime/sessions`;
+            const sessionResp = await fetch(sessionUrl);
             if (!sessionResp.ok) {
                 throw new Error('Failed to create realtime session: ' + sessionResp.status);
             }
