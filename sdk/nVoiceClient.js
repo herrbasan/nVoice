@@ -56,20 +56,10 @@ class nVoiceClient {
 
         this.emit('telemetry', { state: 'Loading ONNX model...', rtf: 0, backlog_sec: 0 });
 
-        // Configure ORT for cross-platform compatibility (especially iOS Safari)
-        // WASM files must be served from same origin — use the local server, not CDN
-        try {
-            ort.env.wasm.wasmPaths = '/sdk/';
-        } catch (e) {
-            console.warn('[VAD] Could not set ort.env.wasm.wasmPaths:', e);
-        }
-        // Force WASM backend (no WebGPU/threads on iOS)
-        try {
-            ort.env.wasm.numThreads = 1;
-            ort.env.wasm.proxy = false;
-        } catch (e) {
-            console.warn('[VAD] Could not set ort.env.wasm options:', e);
-        }
+        // ORT resolves WASM paths relative to the ort.js script URL.
+        // Since ort.js is served from /sdk/ort.js, it will find /sdk/ort-wasm-*.wasm.
+        // No need to set wasmPaths explicitly — just ensure the files are there.
+        console.log('[VAD] ORT version:', ort.env.version || 'unknown');
 
         console.log('[VAD] Loading ONNX model from', modelUrl);
 
