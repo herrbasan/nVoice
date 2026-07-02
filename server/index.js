@@ -21,6 +21,7 @@ import { EngineManager } from './engine/manager.js';
 import { registerTranscriptionRoutes, registerAlignRoute } from './api/transcriptions.js';
 import { registerAdminRoutes } from './api/admin.js';
 import { registerRealtimeRoutes } from './api/realtime.js';
+import { listCloudEngines } from './cloud/registry.js';
 
 // Engine manager — singleton for the server lifetime
 const engineManager = new EngineManager();
@@ -79,7 +80,7 @@ function createApp(httpsOptions) {
   }));
 
   app.get('/v1/admin/engines', async () => ({
-    engines: engineManager.getEngines(),
+    engines: [...engineManager.getEngines(), ...listCloudEngines()],
   }));
 
   return app;

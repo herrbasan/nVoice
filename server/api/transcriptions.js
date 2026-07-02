@@ -11,7 +11,84 @@
 import { normalizeAudio, cleanupTemp } from '../audio/normalize.js';
 import { formatResponse } from '../audio/format.js';
 import { EngineError } from '../engine/manager.js';
+import { lookupCloudAdapter, loadCloudAdapter } from '../cloud/registry.js';
+import { config } from '../config.js';
 import { logger } from '../logger.js';
+
+/**
+ * Handle transcription for a cloud provider.
+ * Cloud adapters run directly in Node — no Python worker spawned.
+ */
+async function handleCloudTranscription(reply, cloudMatch, fileBuffer, opts) {
+  const { entry } = cloudMatch;
+  const { model, language, responseFormat, timestampGranularities, task } = opts;
+
+  if (!entry.supports_batch) {
+    return sendError(reply, 400,
+      `Cloud engine '${model}' does not support batch transcription (realtime only)`,
+      'invalid_request_error', 'model');
+  }
+
+  try {
+    const Adapter = await loadCloudAdapter(entry.adapter);
+
+    // Get the API key from config.env
+    const credKey = entry.credentials[0]; // e.g. "ELEVENLABS_API_KEY"
+    const apiKey = config.env[credKey];
+    if (!apiKey) {
+      return sendError(reply, 500,
+        `Missing ${credKey} in .env for cloud engine '${model}'`,
+        'engine_error');
+    }
+
+    const adapter = new Adapter(apiKey);
+
+    // Normalize audio to PCM 16kHz mono 16-bit for cloud
+    // Cloud adapters expect raw PCM, not WAV container
+    const pcmBuffer = await normalizeToPCM16(fileBuffer);
+
+    // Call the adapter's batch method
+    const result = await adapter.transcribeBatch(pcmBuffer, { language });
+
+    // Translate to OpenAI format (G12)
+    const workerData = {
+      segments: result.words.length > 0
+        ? [{ text: result.text, start: 0, end: result.duration, words: result.words }]
+        : [{ text: result.text, start: 0, end: result.duration, words: [] }],
+    };
+
+    const { body, contentType } = formatResponse(workerData, responseFormat, {
+      task,
+      language,
+      timestamp_granularities: timestampGranularities,
+    });
+
+    reply.type(contentType);
+    return reply.send(body);
+
+  } catch (e) {
+    logger.error('Cloud transcription failed', e, { model }, 'CloudAPI', { console: true });
+    return sendError(reply, 500, e.message, 'engine_error');
+  }
+}
+
+/**
+ * Normalize audio to raw PCM 16kHz mono 16-bit (no WAV container).
+ * Cloud adapters expect raw PCM for base64 encoding.
+ */
+async function normalizeToPCM16(fileBuffer) {
+  const { normalizeAudio, cleanupTemp } = await import('../audio/normalize.js');
+  // Reuse the WAV normalizer, then strip the WAV header (first 44 bytes)
+  const wavPath = await normalizeAudio(fileBuffer);
+  try {
+    const fs = await import('node:fs');
+    const wavBuffer = fs.readFileSync(wavPath);
+    // WAV header is 44 bytes — strip it to get raw PCM
+    return wavBuffer.subarray(44);
+  } finally {
+    cleanupTemp(wavPath);
+  }
+}
 
 /**
  * Register transcription routes on the Fastify app.
@@ -64,6 +141,16 @@ export function registerTranscriptionRoutes(app, engineManager) {
 
     logger.debug('Transcription request', { model, responseFormat, language, fileName }, 'API');
 
+    // --- Cloud engine routing ---
+    // Check if this model is a cloud provider before trying Python workers.
+    const cloudMatch = lookupCloudAdapter(model);
+    if (cloudMatch) {
+      return handleCloudTranscription(reply, cloudMatch, fileBuffer, {
+        model, language, responseFormat, timestampGranularities, task,
+      });
+    }
+
+    // --- Local engine (Python worker) ---
     // Normalize audio (G6)
     let tempPath;
     try {

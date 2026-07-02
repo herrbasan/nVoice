@@ -210,6 +210,43 @@ async function testRealtimeSessionCreate() {
   if (!data.ice_servers || !Array.isArray(data.ice_servers)) throw new Error('Missing ice_servers');
 }
 
+async function testCloudEngineListed() {
+  const resp = await fetch(`${BASE_URL}/v1/admin/engines`);
+  const data = await resp.json();
+  const cloud = data.engines.find(e => e.cloud === true);
+  if (!cloud) throw new Error('No cloud engine found in engines list');
+  if (!cloud.capabilities.includes('realtime')) throw new Error('Cloud engine missing realtime capability');
+}
+
+async function testCloudModelListed() {
+  const resp = await fetch(`${BASE_URL}/v1/models`);
+  const data = await resp.json();
+  const cloud = data.data.find(m => m.owned_by === 'elevenlabs');
+  if (!cloud) throw new Error('No elevenlabs model in /v1/models');
+}
+
+async function testCloudBatchRejected() {
+  const formData = new FormData();
+  formData.append('file', new Blob([fs.readFileSync(TEST_AUDIO)]), 'speech.wav');
+  formData.append('model', 'elevenlabs');
+
+  const resp = await fetch(`${BASE_URL}/v1/audio/transcriptions`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (resp.status === 200) throw new Error('Expected error for cloud batch, got 200');
+  const data = await resp.json();
+  if (!data.error?.message?.includes('does not support batch')) throw new Error(`Unexpected error: ${JSON.stringify(data)}`);
+}
+
+async function testCloudRealtimeSession() {
+  const resp = await fetch(`${BASE_URL}/v1/realtime/sessions?model=elevenlabs`);
+  const data = await resp.json();
+  if (!data.cloud) throw new Error('Expected cloud=true in session response');
+  if (!data.token_endpoint) throw new Error('Missing token_endpoint for cloud session');
+  if (!data.provider) throw new Error('Missing provider field');
+}
+
 // --- Runner ---
 
 async function runTest(name, fn) {
@@ -269,6 +306,12 @@ async function main() {
 
   console.log('\n  --- Realtime ---');
   await runTest('GET /v1/realtime/sessions (create)', testRealtimeSessionCreate);
+
+  console.log('\n  --- Cloud Engines ---');
+  await runTest('Cloud engine in /v1/admin/engines', testCloudEngineListed);
+  await runTest('Cloud model in /v1/models', testCloudModelListed);
+  await runTest('Cloud batch rejected (realtime-only)', testCloudBatchRejected);
+  await runTest('Cloud realtime session returns token endpoint', testCloudRealtimeSession);
 
   // Summary
   console.log(`\n═══ Results: ${passed} passed, ${failed} failed ═══\n`);

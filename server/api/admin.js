@@ -5,21 +5,31 @@
  * GET  /v1/models       — list available models from all engines.
  */
 import { listEngines, getEngine } from '../engine/registry.js';
+import { listCloudEngines } from '../cloud/registry.js';
 import { logger } from '../logger.js';
 
 export function registerAdminRoutes(app, engineManager) {
 
   /**
    * GET /v1/models
-   * Aggregates model lists from all registered engines.
+   * Aggregates model lists from all registered engines (local + cloud).
    */
   app.get('/v1/models', async () => {
-    const engines = listEngines();
-    const data = engines.map(e => ({
-      id: e.name,
-      object: 'model',
-      owned_by: 'nvoice',
-    }));
+    const localEngines = listEngines();
+    const cloudEngines = listCloudEngines();
+
+    const data = [
+      ...localEngines.map(e => ({
+        id: e.name,
+        object: 'model',
+        owned_by: 'nvoice',
+      })),
+      ...cloudEngines.map(e => ({
+        id: e.name,
+        object: 'model',
+        owned_by: e.name.split('_')[0],
+      })),
+    ];
     return { object: 'list', data };
   });
 
