@@ -274,8 +274,16 @@ startBtn.addEventListener('click', async () => {
     startBtn.disabled = true;
     micSelect.disabled = true;
     wakeWordToggle.disabled = true;
-    
-    if (wakeWordToggle.checked && !client.wakeWordEnabled) {
+
+    const selectedEngine = engineSelect.value || activeEngine;
+    const isCloudEngine = availableEngines.find(e => e.name === selectedEngine)?.cloud;
+
+    // Browser VAD wake/sleep only works for local engines (WebRTC track hot-swap).
+    // Cloud engines have their own server-side VAD — always send audio directly.
+    if (isCloudEngine) {
+        client.wakeWordEnabled = false;
+        client.isAwake = true;
+    } else if (wakeWordToggle.checked && !client.wakeWordEnabled) {
         try {
             await client.enableWakeWord('/sdk/silero_vad.onnx');
         } catch (e) {
@@ -291,7 +299,7 @@ startBtn.addEventListener('click', async () => {
 
     client.setAudioDevice(micSelect.value);
     client.rawAudio = rawAudioToggle.checked;
-    client.engine = engineSelect.value || activeEngine;
+    client.engine = selectedEngine;
     client.start().catch(e => console.error(e));
 });
 

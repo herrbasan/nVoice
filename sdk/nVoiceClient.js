@@ -444,6 +444,7 @@ class nVoiceClient {
             vad_silence_threshold_secs: '1.5',
             vad_threshold: '0.4',
         });
+        this._cloudExpectTimestamps = true;
         const wsUrl = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${wsParams}`;
         console.log('[nVoice] Connecting to ElevenLabs WebSocket...');
 
@@ -513,7 +514,10 @@ class nVoiceClient {
                         break;
 
                     case 'committed_transcript':
-                        if (msg.text) {
+                        // Skip — committed_transcript_with_timestamps will fire next
+                        // with the same text plus word data. Only emit if timestamps
+                        // are disabled (in which case this is the only committed event).
+                        if (!this._cloudExpectTimestamps && msg.text) {
                             if (this.wakeWordEnabled) {
                                 this._finalReceived = true;
                             }
@@ -523,6 +527,9 @@ class nVoiceClient {
 
                     case 'committed_transcript_with_timestamps':
                         if (msg.text) {
+                            if (this.wakeWordEnabled) {
+                                this._finalReceived = true;
+                            }
                             this.emit('transcript', { text: msg.text, is_final: true });
                         }
                         break;
