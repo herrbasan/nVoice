@@ -7,8 +7,6 @@ OpenAI-compatible API. WebRTC realtime. Dashboard at `web/index.html`.
 ## Engines registered (server/engine/registry.json)
 | Engine | Venv | GPU | Status |
 |--------|------|-----|--------|
-| faster_whisper_tiny | venv/faster_whisper/env/ | no | Working (CPU, int8) |
-| faster_whisper_small | venv/faster_whisper/env/ | no | Working (CPU, int8) |
 | faster_whisper_large-v3 | venv/faster_whisper/env/ | yes | Working (GPU, float16) |
 | parakeet_tdt | venv/parakeet/env/ | yes | Working (HF Transformers, CUDA FP16) |
 | sherpa_parakeet | venv/sherpa_onnx/env/ | no | Working (CPU, isolated venv) |
