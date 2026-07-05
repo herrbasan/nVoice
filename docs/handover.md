@@ -10,7 +10,6 @@ OpenAI-compatible API. WebRTC realtime. Dashboard at `web/index.html`.
 | faster_whisper_large-v3 | venv/faster_whisper/env/ | yes | Working (GPU, float16) |
 | parakeet_tdt | venv/parakeet/env/ | yes | Working (HF Transformers, CUDA FP16) |
 | sherpa_parakeet | venv/sherpa_onnx/env/ | no | Working (CPU, isolated venv) |
-| sherpa_whisper | venv/sherpa_onnx/env/ | no | Working (CPU, isolated venv) |
 
 ## The sherpa-onnx CPU engine
 
