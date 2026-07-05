@@ -46,7 +46,10 @@ class SileroVAD:
                     f"silero_vad.onnx not found. Searched: {candidates}"
                 )
 
-        self._session = ort.InferenceSession(self.model_path, providers=["CPUExecutionProvider"])
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1
+        opts.inter_op_num_threads = 1
+        self._session = ort.InferenceSession(self.model_path, opts, providers=["CPUExecutionProvider"])
         # Silero V4 legacy model: inputs input/h/c/sr, outputs output/hn/cn
         self._h = np.zeros((2, 1, 64), dtype=np.float32)
         self._c = np.zeros((2, 1, 64), dtype=np.float32)

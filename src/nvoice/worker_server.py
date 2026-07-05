@@ -25,22 +25,73 @@ import argparse
 
 # --- Windows survival hacks (G9) — must run BEFORE any imports that touch asyncio/CUDA ---
 
+# Detect engine name early — CPU-only engines (sherpa) must skip all CUDA initialization
+_engine_name = ''
+if '--engine' in sys.argv:
+    _idx = sys.argv.index('--engine')
+    if _idx + 1 < len(sys.argv):
+        _engine_name = sys.argv[_idx + 1]
+_is_cpu_only = _engine_name.startswith('sherpa')
+
 # 1. CUDA DLL path injection (faster-whisper GPU needs cublas64_12.dll etc.)
-_venv_dir = os.environ.get("NVOICE_VENV_DIR", "")
-if _venv_dir and os.path.isdir(_venv_dir):
-    _nvidia_base = os.path.join(_venv_dir, "Lib", "site-packages", "nvidia")
-    if os.path.isdir(_nvidia_base):
-        for _sub in ("cublas", "cudnn", "cuda_nvrtc", "cuda_runtime", "cufft", "curand", "cusolver", "cusparse"):
-            _bin = os.path.join(_nvidia_base, _sub, "bin")
-            if os.path.isdir(_bin):
-                os.environ["PATH"] = _bin + os.pathsep + os.environ.get("PATH", "")
-                if hasattr(os, "add_dll_directory"):
-                    os.add_dll_directory(_bin)
+# Skip for CPU-only engines to prevent ONNX Runtime from finding CUDA
+if not _is_cpu_only:
+    _venv_dir = os.environ.get("NVOICE_VENV_DIR", "")
+    if _venv_dir and os.path.isdir(_venv_dir):
+        _nvidia_base = os.path.join(_venv_dir, "Lib", "site-packages", "nvidia")
+        if os.path.isdir(_nvidia_base):
+            for _sub in ("cublas", "cudnn", "cuda_nvrtc", "cuda_runtime", "cufft", "curand", "cusolver", "cusparse"):
+                _bin = os.path.join(_nvidia_base, _sub, "bin")
+                if os.path.isdir(_bin):
+                    os.environ["PATH"] = _bin + os.pathsep + os.environ.get("PATH", "")
+                    if hasattr(os, "add_dll_directory"):
+                        os.add_dll_directory(_bin)
 
 # 2. asyncio policy (aiortc UDP crash / WinError 10054)
 if sys.platform == "win32":
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# --- Low-level CUDA and threading efficiency optimizations (Phase 6/Hardware tuning) ---
+# Only initialize CUDA driver for GPU engines — CPU-only engines (sherpa-onnx) need
+# the GPU completely hidden so ONNX Runtime doesn't auto-select CUDA provider.
+
+if not _is_cpu_only:
+    try:
+        import ctypes
+        # Instruct CUDA driver to use PASSIVE BLOCKING SYNC instead of high-power ACTIVE SPIN-WAIT loop.
+        # This yields the host CPU thread during GPU execution, dropping CPU wait-state usage to 0%.
+        if sys.platform.startswith("win"):
+            cuda_lib = ctypes.CDLL("nvcuda.dll")
+        else:
+            cuda_lib = ctypes.CDLL("libcuda.so.1")
+        
+        if cuda_lib.cuInit(0) == 0:
+            # device_id=0, CU_CTX_SCHED_BLOCKING_SYNC=0x04
+            cuda_lib.cuDevicePrimaryCtxSetFlags(0, 0x04)
+    except Exception:
+        pass
+
+# Instruct OpenMP and math backend libraries to drop active work-stealing/spin loops.
+# Let them sleep instantly on idle instead of wasting CPU cycles.
+_cpu_threads = "4"
+try:
+    _proj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _cfg_path = os.path.join(_proj_dir, "config.json")
+    if os.path.exists(_cfg_path):
+        with open(_cfg_path, "r") as _f:
+            _cfg = json.load(_f)
+            _cpu_threads = str(_cfg.get("cpu_threads", 4))
+except Exception:
+    pass
+
+os.environ["OMP_NUM_THREADS"] = _cpu_threads
+os.environ["MKL_NUM_THREADS"] = _cpu_threads
+os.environ["OPENBLAS_NUM_THREADS"] = _cpu_threads
+os.environ["VECLIB_MAXIMUM_THREADS"] = _cpu_threads
+os.environ["NUMEXPR_NUM_THREADS"] = _cpu_threads
+os.environ["OMP_WAIT_POLICY"] = "PASSIVE"
+os.environ["KMP_BLOCKTIME"] = "0"
 
 # Ensure src/ is on the path
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -75,10 +126,16 @@ def parse_engine_args(engine_name):
         parts = engine_name.split("_", 2)
         model_size = parts[2] if len(parts) > 2 else raw_config.get("model_size", "small")
 
+        # Determine device: respect NVOICE_GPU env var from Node registry
+        gpu_enabled = os.environ.get("NVOICE_GPU", "1") == "1"
+        device = raw_config.get("model_device", "cpu") if gpu_enabled else "cpu"
+        # CPU doesn't support float16 efficiently, use int8 for CPU engines
+        compute_type = raw_config.get("compute_type", "int8") if gpu_enabled else "int8"
+
         kwargs = dict(
             model_size=model_size,
-            compute_type=raw_config.get("compute_type", "int8"),
-            device=raw_config.get("model_device", "cpu"),
+            compute_type=compute_type,
+            device=device,
             language=raw_config.get("language", "auto"),
             cpu_threads=raw_config.get("cpu_threads", 4),
             num_workers=raw_config.get("num_workers", 1),
@@ -100,8 +157,30 @@ def parse_engine_args(engine_name):
             model_name="nvidia/parakeet-tdt-0.6b-v3",
             device=raw_config.get("model_device", "cuda"),
             language=raw_config.get("language", "auto"),
+            cpu_threads=raw_config.get("cpu_threads", 4),
         )
         return ParakeetAdapter, kwargs
+    if engine_name.startswith("sherpa"):
+        from nvoice.engines.sherpa_onnx import SherpaOnnxAdapter
+        # Map engine name to model type
+        if "cohere" in engine_name:
+            model_type = "cohere_transcribe"
+        elif "whisper" in engine_name or "turbo" in engine_name:
+            model_type = "whisper"
+        else:
+            model_type = "nemo_transducer"
+
+        # sherpa-onnx models require explicit language codes (not "auto")
+        lang = raw_config.get("language", "en")
+        if lang == "auto":
+            lang = "en"
+
+        kwargs = dict(
+            num_threads=raw_config.get("cpu_threads", 4),
+            model_type=model_type,
+            language=lang,
+        )
+        return SherpaOnnxAdapter, kwargs
 
     raise ValueError(f"Unknown engine: {engine_name}")
 

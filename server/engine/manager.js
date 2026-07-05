@@ -115,8 +115,8 @@ export class EngineManager {
       );
     }
 
-    // Unload old GPU engine if switching to a different GPU engine
-    if (oldWorker && oldWorker.engineName !== engineName && entry.gpu && oldWorker.entry.gpu) {
+    // Unload old engine when switching (always kill previous worker to free resources)
+    if (oldWorker && oldWorker.engineName !== engineName) {
       events.push({ stage: 'unload_start', engine: this.activeEngine });
       await oldWorker.kill();
       this.workers.delete(this.activeEngine);

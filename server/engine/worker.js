@@ -58,6 +58,23 @@ export class WorkerProcess {
       env.NVOICE_VENV_DIR = venvDir;
     }
 
+    // Restrict under-the-hood CPU threading (MKL, OpenMP, OpenBLAS) to configured CPU threads
+    // This stops severe thread thrashing and saves enormous CPU power (Phase 6/Hardware tuning)
+    const threads = String(config.raw.cpu_threads || 4);
+    env.OMP_NUM_THREADS = threads;
+    env.MKL_NUM_THREADS = threads;
+    env.OPENBLAS_NUM_THREADS = threads;
+    env.NUMEXPR_NUM_THREADS = threads;
+    env.VECLIB_MAXIMUM_THREADS = threads;
+
+    // CPU-only engines: hide GPU from ONNX Runtime to prevent CUDA auto-selection
+    if (this.entry.gpu === false) {
+      env.CUDA_VISIBLE_DEVICES = '-1';
+      env.NVOICE_GPU = '0';
+    } else {
+      env.NVOICE_GPU = '1';
+    }
+
     const args = ['-m', workerModule, '--engine', this.engineName, '--port', '0', '--host', '127.0.0.1'];
 
     logger.info('Spawning worker', { engine: this.engineName, python, args }, 'Worker', { console: true });

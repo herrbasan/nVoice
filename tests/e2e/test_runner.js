@@ -279,8 +279,7 @@ async function main() {
   });
 
   serverProcess.stderr.on('data', (data) => {
-    const text = data.toString().trim();
-    if (text && text.includes('ERROR')) console.error('  [server]', text);
+    console.error('  [server]', data.toString().trim());
   });
 
   // Wait for server to be ready

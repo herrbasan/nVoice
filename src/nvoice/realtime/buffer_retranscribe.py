@@ -129,7 +129,10 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
                 # Pre-inference speech check
                 # G7: Use shared Silero VAD if available, fall back to RMS
                 should_flush = False
-                rms = float(np.sqrt(np.mean(infer_view ** 2)))
+                try:
+                    rms = float(np.sqrt(np.mean(np.square(np.clip(infer_view, -1.0, 1.0)))))
+                except (RuntimeWarning, Exception):
+                    rms = 0.0
                 if self.vad:
                     try:
                         has_speech = self.vad.has_speech(infer_view, self.sample_rate)
@@ -188,9 +191,29 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
 
                 if not all_words:
                     if segments:
-                        silence_tail = available_sec - segments[-1].end
-                        if silence_tail > self.commit_silence_tail_sec or available_sec >= 30.0:
-                            advance_sec = segments[-1].end
+                        # No word timestamps (e.g. Parakeet via HF pipeline).
+                        # Use the segment text for provisional transcripts.
+                        # Commit when the pre-inference silence check said no speech
+                        # in the trailing portion, or when buffer hits 30s cap.
+                        text = " ".join(s.text for s in segments if s.text).strip()
+                        if text:
+                            # Check if there's silence at the end of the buffer
+                            # by looking at the last 1.5s of audio energy
+                            tail_samples = int(1.5 * self.sample_rate)
+                            if len(infer_view) > tail_samples:
+                                tail_rms = float(np.sqrt(np.mean(infer_view[-tail_samples:] ** 2)))
+                            else:
+                                tail_rms = rms
+
+                            if tail_rms < 0.005 or available_sec >= 30.0:
+                                # Silence at the end — commit
+                                padding = min(0.4, available_sec * 0.1)
+                                advance_sec = available_sec - padding
+                                self._send_transcript(text, is_final=True)
+                            else:
+                                # Active speech — send provisional, don't advance
+                                self._send_transcript(text, is_final=False)
+                                advance_sec = 0.0
                 else:
                     last_word = all_words[-1]
                     silence_tail = available_sec - last_word.end

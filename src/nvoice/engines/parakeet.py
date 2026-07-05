@@ -19,11 +19,12 @@ from nvoice.stt import STTAdapter, STTSegment, STTWord
 class ParakeetAdapter(STTAdapter):
 
     def __init__(self, model_name="nvidia/parakeet-tdt-0.6b-v3",
-                 device="cuda", language="auto"):
+                 device="cuda", language="auto", cpu_threads=1):
         super().__init__()
         self.model_name = model_name
         self.device = device
         self.language = language
+        self.cpu_threads = cpu_threads
         self.pipe = None
 
     # --- capability declaration ---
@@ -40,14 +41,55 @@ class ParakeetAdapter(STTAdapter):
         """Load the model via HuggingFace Transformers pipeline. Called on a background thread."""
         if self._loaded:
             return
+        import os
+        import sys
+        import ctypes
         import torch
         from transformers import pipeline
 
+        # Limit CPU threads for env mathematical libraries
+        os.environ["OMP_NUM_THREADS"] = str(self.cpu_threads)
+        os.environ["OMP_WAIT_POLICY"] = "PASSIVE"
+        os.environ["KMP_BLOCKTIME"] = "0"
+        os.environ["MKL_NUM_THREADS"] = str(self.cpu_threads)
+        os.environ["OPENBLAS_NUM_THREADS"] = str(self.cpu_threads)
+        os.environ["VECLIB_MAXIMUM_THREADS"] = str(self.cpu_threads)
+        os.environ["NUMEXPR_NUM_THREADS"] = str(self.cpu_threads)
+
+        # Set low-level CUDA primary context flag to BLOCKING SYNC using cuDevicePrimaryCtxSetFlags (0x04)
+        # By default, CUDA active spin-polls the CPU thread checking for GPU status, consuming massive CPU wattage.
+        # Blocking sync yields the thread to the OS scheduler, dropping PyTorch CUDA wait CPU usage to 0%.
+        try:
+            if sys.platform.startswith("win"):
+                cuda_lib = ctypes.CDLL("nvcuda.dll")
+            else:
+                cuda_lib = ctypes.CDLL("libcuda.so.1")
+            
+            if cuda_lib.cuInit(0) == 0:
+                # device_id=0, CU_CTX_SCHED_BLOCKING_SYNC=0x04
+                if cuda_lib.cuDevicePrimaryCtxSetFlags(0, 0x04) == 0:
+                    print("[Engine] Configured CUDA Driver to BLOCKING passive sync successfully.")
+        except Exception as e:
+            # Fall back silently if CUDA driver is unavailable or un-initializable
+            pass
+
+        # Limit PyTorch CPU thread pool to avoid severe CPU power consumption and thread thrashing on modern multicore CPUs
+        torch.set_num_threads(self.cpu_threads)
+        if hasattr(torch, "set_num_interop_threads"):
+            try:
+                torch.set_num_interop_threads(1)
+            except RuntimeError:
+                pass
+
         print(f"[Engine] Loading Parakeet-TDT ({self.model_name}) on {self.device}...")
+        kwargs = {}
+        if self.device == "cuda":
+            kwargs["torch_dtype"] = torch.float16
         self.pipe = pipeline(
             "automatic-speech-recognition",
             model=self.model_name,
             device=0 if self.device == "cuda" else -1,
+            **kwargs
         )
         self._torch = torch
         self._loaded = True
@@ -101,10 +143,11 @@ class ParakeetAdapter(STTAdapter):
                 audio_data,
                 return_timestamps="word",
                 chunk_length_s=30,
+                batch_size=4,
             )
         except Exception:
             # Fallback: no word timestamps
-            result = self.pipe(audio_data, chunk_length_s=30)
+            result = self.pipe(audio_data, chunk_length_s=30, batch_size=4)
 
         text = result.get("text", "").strip()
         chunks = result.get("chunks", [])

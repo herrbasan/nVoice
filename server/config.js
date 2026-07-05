@@ -57,8 +57,10 @@ const config = {
   // Engine venvs
   engineDirs: rawConfig.engine_dirs ?? {
     faster_whisper: 'venv/faster_whisper',
+    parakeet: 'venv/parakeet',
+    sherpa_onnx: 'venv/parakeet',
     qwen3_asr: 'venv/qwen3_asr',
-    sherpa_onnx: 'venv/sherpa_onnx',
+    sherpa_onnx_legacy: 'venv/sherpa_onnx',
   },
 
   // VAD policy (Tier 3 — Node owns config, edges execute)

@@ -34,5 +34,23 @@
     "gpu": true,
     "capabilities": ["batch", "align", "realtime"],
     "realtime_strategy": "native-streaming"
+  },
+  "sherpa_parakeet": {
+    "family": "sherpa_onnx",
+    "venv_python": "venv/sherpa_onnx/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": false,
+    "capabilities": ["batch", "align", "realtime"],
+    "realtime_strategy": "buffer-retranscribe"
+  },
+  "sherpa_whisper": {
+    "family": "sherpa_onnx",
+    "venv_python": "venv/sherpa_onnx/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": false,
+    "capabilities": ["batch", "align", "realtime"],
+    "realtime_strategy": "buffer-retranscribe"
   }
 }
