@@ -172,7 +172,6 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
                 infer_time = time.monotonic() - t0
 
                 rtf = infer_time / available_sec if available_sec > 0 else 0
-                logger.info(f"Inference: {len(segments)} segments, infer={infer_time:.2f}s, buf={available_sec:.1f}s, rtf={rtf:.2f}")
                 self._send_telemetry(
                     rtf, available_sec, "processing",
                     {"infer_time": round(infer_time, 3), "rms": rms,
