@@ -25,7 +25,8 @@ class ParakeetAdapter(STTAdapter):
         self.device = device
         self.language = language
         self.cpu_threads = cpu_threads
-        self.pipe = None
+        self.model = None
+        self.processor = None
 
     # --- capability declaration ---
 
@@ -38,7 +39,7 @@ class ParakeetAdapter(STTAdapter):
     # --- lifecycle ---
 
     def load(self):
-        """Load the model via HuggingFace Transformers pipeline. Called on a background thread."""
+        """Load the model via HuggingFace pipeline. Called on a background thread."""
         if self._loaded:
             return
         import os
@@ -82,25 +83,37 @@ class ParakeetAdapter(STTAdapter):
                 pass
 
         print(f"[Engine] Loading Parakeet-TDT ({self.model_name}) on {self.device}...")
-        kwargs = {}
-        if self.device == "cuda":
-            kwargs["torch_dtype"] = torch.float16
+        
+        # Use pipeline with explicit device placement
+        device_id = 0 if self.device == "cuda" else -1
+        
         self.pipe = pipeline(
             "automatic-speech-recognition",
             model=self.model_name,
-            device=0 if self.device == "cuda" else -1,
-            **kwargs
+            device=device_id,
+            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
         )
+        
         self._torch = torch
         self._loaded = True
-        print("[Engine] Parakeet-TDT loaded successfully.")
+        
+        # Diagnostic: verify model is actually on GPU
+        if self.device == "cuda" and torch.cuda.is_available():
+            # Check if pipeline model is on GPU
+            model_device = next(self.pipe.model.parameters()).device
+            print(f"[Engine] Parakeet-TDT loaded successfully. Model device: {model_device}", flush=True)
+            print(f"[Engine] CUDA device: {torch.cuda.get_device_name(0)}", flush=True)
+            print(f"[Engine] VRAM allocated: {torch.cuda.memory_allocated(0) / 1024**2:.1f} MB", flush=True)
+        else:
+            print("[Engine] Parakeet-TDT loaded successfully on CPU.", flush=True)
 
     def is_loaded(self):
         return self._loaded and self.pipe is not None
 
     def unload(self):
         """Free model resources."""
-        self.pipe = None
+        self.model = None
+        self.processor = None
         self._loaded = False
         gc.collect()
         try:
@@ -120,7 +133,7 @@ class ParakeetAdapter(STTAdapter):
     def transcribe(self, audio, sample_rate=16000, context_text=None,
                    task="transcribe", language=None, vad_filter=False):
         """
-        Transcribe audio file path or numpy array via HF pipeline.
+        Transcribe audio file path or numpy array using HuggingFace pipeline.
         Returns List[STTSegment] with word-level timestamps.
         """
         if not self._loaded:
@@ -128,29 +141,72 @@ class ParakeetAdapter(STTAdapter):
 
         import soundfile as sf
         import numpy as np
+        import torch
+        import time
+
+        print(f"[Engine] DEBUG: transcribe called with audio type={type(audio)}, sample_rate={sample_rate}", flush=True)
 
         # Load audio if path provided
         if isinstance(audio, str):
+            print(f"[Engine] DEBUG: Loading audio from file: {audio}", flush=True)
             audio_data, sr = sf.read(audio, dtype="float32")
             if audio_data.ndim > 1:
                 audio_data = audio_data[:, 0]  # mono
+            print(f"[Engine] DEBUG: Loaded audio_data type={type(audio_data)}, shape={audio_data.shape}, dtype={audio_data.dtype}", flush=True)
         else:
+            print(f"[Engine] DEBUG: Converting audio to numpy array", flush=True)
             audio_data = np.asarray(audio, dtype="float32")
+            print(f"[Engine] DEBUG: Converted audio_data type={type(audio_data)}, shape={audio_data.shape}, dtype={audio_data.dtype}", flush=True)
 
-        # Run pipeline
+        # Resample if needed
+        if sample_rate != 16000:
+            import librosa
+            audio_data = librosa.resample(audio_data, orig_sr=sample_rate, target_sr=16000)
+
+        # Use the pipeline for inference
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        
+        # Run pipeline inference (handles GPU/CPU automatically based on device parameter)
+        # Debug: check audio_data type
+        print(f"[Engine] DEBUG: audio_data type={type(audio_data)}, shape={audio_data.shape if hasattr(audio_data, 'shape') else 'N/A'}, dtype={audio_data.dtype if hasattr(audio_data, 'dtype') else 'N/A'}", flush=True)
+        
+        # Parakeet-TDT doesn't support return_timestamps like Whisper
+        print(f"[Engine] DEBUG: Calling pipeline with audio_data shape={audio_data.shape}", flush=True)
         try:
-            result = self.pipe(
-                audio_data,
-                return_timestamps="word",
-                chunk_length_s=30,
-                batch_size=4,
-            )
-        except Exception:
-            # Fallback: no word timestamps
-            result = self.pipe(audio_data, chunk_length_s=30, batch_size=4)
+            result = self.pipe(audio_data)
+            print(f"[Engine] DEBUG: Pipeline returned successfully", flush=True)
+        except Exception as e:
+            print(f"[Engine] DEBUG: Pipeline raised exception: {type(e).__name__}: {e}", flush=True)
+            raise
+        
+        torch.cuda.synchronize()
+        elapsed = time.perf_counter() - start
+        audio_duration = len(audio_data) / 16000
+        
+        # Get VRAM usage if on GPU
+        if self.device == "cuda" and torch.cuda.is_available():
+            vram_peak = torch.cuda.max_memory_allocated(0) / 1024**2
+            print(f"[Engine] Inference: {elapsed:.2f}s for {audio_duration:.1f}s audio, RTF={elapsed/audio_duration:.2f}, VRAM peak={vram_peak:.0f}MB", flush=True)
+        else:
+            print(f"[Engine] Inference: {elapsed:.2f}s for {audio_duration:.1f}s audio, RTF={elapsed/audio_duration:.2f}", flush=True)
 
-        text = result.get("text", "").strip()
-        chunks = result.get("chunks", [])
+        # Debug: check result type
+        print(f"[Engine] DEBUG: result type={type(result)}", flush=True)
+        
+        # Parakeet-TDT returns a string directly, not a dict like Whisper
+        if isinstance(result, str):
+            print(f"[Engine] DEBUG: result is a string: {result[:100]}", flush=True)
+            text = result.strip()
+            chunks = []
+        elif isinstance(result, dict):
+            print(f"[Engine] DEBUG: result keys={list(result.keys())}", flush=True)
+            text = result.get("text", "").strip()
+            chunks = result.get("chunks", [])
+        else:
+            print(f"[Engine] DEBUG: unexpected result type: {result}", flush=True)
+            text = str(result).strip()
+            chunks = []
 
         # Build word list from chunks (if available)
         words = []
