@@ -24,5 +24,28 @@ Thumbs.db
 *.onnx
 !sdk/silero_vad.onnx
 
+# VS Code workspace settings
+.vscode/
+
 # ORT WASM binaries (downloaded, not committed — 23MB+)
 sdk/ort-wasm*
+
+# NPU / parakeet test artifacts (scratch files from dev sessions)
+tests/npu_*
+tests/phase*
+tests/standalone_npu_test.py
+tests/debug_transcribe.py
+tests/decode_loop_test.py
+tests/direct_transcribe_test.py
+tests/inspect_models.py
+tests/inspect_sherpa*
+tests/compare_features.py
+tests/check_providers.py
+tests/librosa_test.py
+tests/sherpa_npu_hack.py
+
+# Root-level dev scratch scripts
+setup_npu.py
+test_npu.py
+start_server.ps1
+package-lock.json
