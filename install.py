@@ -122,6 +122,17 @@ def main():
         print(f"Warning: Could not generate TLS cert: {e}")
         print("The server will attempt to generate one on first run.")
 
+    print("\nDownloading client-side ONNX Runtime WASM files...")
+    sdk_dir = os.path.join(root_dir, "sdk")
+    wasm_bat = os.path.join(sdk_dir, "download-wasm.bat")
+    if os.path.isfile(wasm_bat):
+        try:
+            subprocess.check_call([wasm_bat], cwd=sdk_dir, shell=True)
+        except subprocess.CalledProcessError:
+            print("Warning: Failed to download WASM files. Run sdk/download-wasm.bat manually.")
+    else:
+        print("Warning: sdk/download-wasm.bat not found. Client-side VAD will not work.")
+
     print("\n--- Installation Complete ---")
     print("To start the server, run the following commands:")
     if os.name == 'nt':

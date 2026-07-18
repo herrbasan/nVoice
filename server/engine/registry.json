@@ -25,5 +25,14 @@
     "gpu": false,
     "capabilities": ["batch", "align", "realtime"],
     "realtime_strategy": "buffer-retranscribe"
+  },
+  "parakeet_npu": {
+    "family": "parakeet_npu",
+    "venv_python": "venv/parakeet_npu/env/Scripts/python.exe",
+    "fallback_python": "python",
+    "worker_module": "nvoice.worker_server",
+    "gpu": false,
+    "capabilities": ["batch", "align", "realtime"],
+    "realtime_strategy": "buffer-retranscribe"
   }
 }

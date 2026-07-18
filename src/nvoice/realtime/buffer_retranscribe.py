@@ -149,10 +149,16 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
                         should_flush = True
 
                 if should_flush:
-                    # No speech across the ENTIRE buffer — flush it all
-                    logger.info(f"Flush: no speech (rms={rms:.4f}, buf={available_sec:.1f}s)")
-                    self.audio_buffer = np.array([], dtype=np.float32)
-                    self.read_cursor_sec += available_sec
+                    # No speech in the buffer — flush, but KEEP the last 0.5s
+                    # as lead-in. A word onset can arrive in the same window
+                    # just before VAD triggers; flushing everything clips the
+                    # first word on wake-up. Mirrors the no-segments trim path.
+                    keep_sec = 0.5
+                    samples_to_keep = int(keep_sec * self.sample_rate)
+                    if len(self.audio_buffer) > samples_to_keep:
+                        self.read_cursor_sec += available_sec - keep_sec
+                        self.audio_buffer = self.audio_buffer[-samples_to_keep:]
+                    logger.info(f"Flush: no speech (rms={rms:.4f}, buf={available_sec:.1f}s, kept={keep_sec}s)")
                     self._send_telemetry(0.0, 0.0, "idle/silence", {"rms": rms})
                     await asyncio.sleep(0.05)
                     continue
@@ -191,21 +197,26 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
 
                 if not all_words:
                     if segments:
-                        # No word timestamps (e.g. Parakeet via HF pipeline).
+                        # No word timestamps (e.g. Parakeet).
                         # Use the segment text for provisional transcripts.
-                        # Commit when the pre-inference silence check said no speech
-                        # in the trailing portion, or when buffer hits 30s cap.
+                        # Commit when the trailing commit_silence_tail_sec of audio
+                        # contains no speech — same shared Silero VAD gate as the
+                        # pre-inference check (G7). This mirrors the word-timestamps
+                        # path's `silence_tail > commit_silence_tail_sec` semantics.
+                        # RMS is only a fallback when VAD is unavailable; a raw
+                        # tail_rms < 0.005 threshold never fires on real-world mic
+                        # noise floors and stalls the commit forever.
                         text = " ".join(s.text for s in segments if s.text).strip()
                         if text:
-                            # Check if there's silence at the end of the buffer
-                            # by looking at the last 1.5s of audio energy
-                            tail_samples = int(1.5 * self.sample_rate)
-                            if len(infer_view) > tail_samples:
-                                tail_rms = float(np.sqrt(np.mean(infer_view[-tail_samples:] ** 2)))
+                            tail_samples = int(self.commit_silence_tail_sec * self.sample_rate)
+                            tail_view = infer_view[-tail_samples:]
+                            if self.vad:
+                                tail_silent = not self.vad.has_speech(tail_view, self.sample_rate)
                             else:
-                                tail_rms = rms
+                                tail_rms = float(np.sqrt(np.mean(np.square(np.clip(tail_view, -1.0, 1.0)))))
+                                tail_silent = tail_rms < 0.005
 
-                            if tail_rms < 0.005 or available_sec >= 30.0:
+                            if tail_silent or available_sec >= 30.0:
                                 # Silence at the end — commit
                                 padding = min(0.4, available_sec * 0.1)
                                 advance_sec = available_sec - padding

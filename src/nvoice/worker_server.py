@@ -152,6 +152,15 @@ def parse_engine_args(engine_name):
         return FasterWhisperAdapter, kwargs
 
     if engine_name.startswith("parakeet"):
+        # parakeet_npu is the NPU variant — separate adapter, separate import
+        if "npu" in engine_name:
+            from nvoice.engines.parakeet_npu import ParakeetNPUAdapter
+            kwargs = dict(
+                num_threads=raw_config.get("cpu_threads", 4),
+                language=raw_config.get("language", "en"),
+            )
+            return ParakeetNPUAdapter, kwargs
+
         from nvoice.engines.parakeet import ParakeetAdapter
         kwargs = dict(
             model_name="nvidia/parakeet-tdt-0.6b-v3",
