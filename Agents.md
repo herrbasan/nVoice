@@ -20,6 +20,21 @@ Client → Node.js API Server (Fastify) → Per-engine Python HTTP Worker
 - **Node server** (`server/`): OpenAI-compatible API surface, engine worker manager, audio normalization (ffmpeg), cloud adapters.
 - **Python workers** (`src/nvoice/`): Engine-native HTTP endpoints, STT adapters, WebRTC realtime pipeline.
 
+### Multi-Venv Isolation (Self-Contained)
+Each engine family has its own isolated venv at `venv/<family>/env/`, including its own Python interpreter. The system Python is used **only** to bootstrap the venvs via `install.py` — at runtime, every worker uses its venv's own interpreter.
+
+This prevents dependency contamination. The classic failure: sherpa-onnx (CPU-only) sharing a venv with PyTorch picks up CUDA DLLs from `torch/lib/` and runs on GPU despite all env-var tricks. Isolated venvs eliminate this.
+
+```
+venv/
+├── faster_whisper/env/   ← faster-whisper (GPU, float16)
+├── parakeet/env/         ← PyTorch + NeMo / HF Transformers (GPU, FP16)
+├── sherpa_onnx/env/      ← sherpa-onnx (CPU only, no CUDA contamination)
+└── parakeet_npu/env/     ← OpenVINO + ONNX Runtime (Intel NPU)
+```
+
+**Device routing:** Node passes `NVOICE_GPU=0|1` env var to Python worker based on registry's `gpu` flag. Python worker overrides device to `"cpu"` and compute_type to `"int8"` when `NVOICE_GPU=0`. CPU-only engines also get `CUDA_VISIBLE_DEVICES=-1`.
+
 ### API Surface (OpenAI-compatible)
 - `POST /v1/audio/transcriptions` — batch STT (multipart in, JSON/text/SRT/VTT out)
 - `POST /v1/audio/translations` — speech-to-English
@@ -33,16 +48,26 @@ Client → Node.js API Server (Fastify) → Per-engine Python HTTP Worker
 - `GET  /health` — server health
 
 ### Directory Structure & Intent
-- `server/`: Node.js management layer (Fastify, engine manager, API routes, audio normalization).
-- `src/`: Python worker code (STT adapters, WebRTC, worker HTTP server, realtime strategies).
+- `server/`: Node.js management layer (Fastify, engine manager, API routes, audio normalization, cloud adapters).
+- `src/`: Python worker code — shared across all engine venvs via `PYTHONPATH`. Contains STT adapters, WebRTC, worker HTTP server, realtime strategies, and per-engine adapters.
+- `src/nvoice/engines/`: Per-engine adapters — `faster_whisper.py`, `parakeet.py`, `sherpa_onnx.py`, `parakeet_npu.py`.
 - `web/`: Vanilla HTML/JS dashboard (batch + realtime UI).
-- `sdk/`: Browser SDK (`nVoiceClient.js`) for WebRTC client.
-- `simulations/`: Standalone simulation scripts for backend benchmarking.
+- `sdk/`: Browser SDK (`nVoiceClient.js`) + ORT WASM for client-side Silero VAD.
 - `tests/`: E2E test suite (`tests/e2e/test_runner.js`).
-- `legacy_v1/`: Ignore entirely; retained only for structural archaeology.
+- `docs/`: API spec, dev plan, engine references, handover notes.
 
 ### Engine Adapter Contract (v3)
 Every adapter declares `capabilities()` (subset of batch/translate/align/realtime) and `realtime_strategy()` (buffer-retranscribe | native-streaming | None). Model loading is deferred to a background thread (`load()` / `is_loaded()`). See `src/nvoice/stt.py`.
+
+### Registered Engines (server/engine/registry.json)
+| Engine | Family | GPU | Venv | Capabilities |
+|--------|--------|-----|------|--------------|
+| `faster_whisper_large-v3` | faster_whisper | yes | `venv/faster_whisper/env/` | batch, translate, align, realtime |
+| `parakeet_tdt` | parakeet | yes | `venv/parakeet/env/` | batch, align, realtime |
+| `sherpa_parakeet` | sherpa_onnx | no | `venv/sherpa_onnx/env/` | batch, align, realtime |
+| `parakeet_npu` | parakeet_npu | no (NPU) | `venv/parakeet_npu/env/` | batch, align, realtime |
+
+GPU engines are mutually exclusive — loading one unloads the other (frees VRAM). CPU/NPU engines coexist.
 
 ### Realtime Strategy
 The v2 `AudioConsumer._daemon_loop` is extracted verbatim into `src/nvoice/realtime/buffer_retranscribe.py`. Its heuristics are load-bearing — do NOT simplify. The shared `vad.py` Silero stage replaces the old RMS gate.
