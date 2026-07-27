@@ -1,0 +1,13 @@
+# sherpa-onnx engine — CPU only, no CUDA contamination
+# This venv must NEVER contain torch/CUDA — the CUDA DLLs in torch/lib/ cause
+# sherpa-onnx's C++ runtime to auto-select GPU execution despite all env-var tricks.
+sherpa-onnx
+
+# Shared worker runtime (minimal — no torch, no CUDA packages)
+fastapi
+uvicorn
+aiortc
+av
+soundfile
+numpy
+requests

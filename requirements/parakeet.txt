@@ -1,17 +1,25 @@
-# Parakeet-TDT 0.6B v3 — NeMo ASR engine
-# Requires Python 3.10 or 3.11
+# Parakeet-TDT 0.6B v3 — HuggingFace Transformers (not NeMo — NeMo crashes on Windows)
+# Requires its own venv with transformers + torch+CUDA.
+# Python 3.10 or 3.11 recommended (transformers wheel compatibility).
+#
+# IMPORTANT: PyTorch must be installed with CUDA support. The default PyPI
+# wheel is CPU-only. Install torch FIRST from the CUDA index:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Then install the rest of this file with: pip install -r requirements/parakeet.txt
 
-# PyTorch with CUDA (install first, before nemo)
-# For CUDA 12.1:
-# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# PyTorch with CUDA (install first via --index-url, see above)
 torch
 torchvision
 torchaudio
 
-# NeMo ASR toolkit
-nemo_toolkit[asr]
+# HuggingFace Transformers — pipeline-based ASR
+transformers
+accelerate
 
-# Worker runtime (same as faster_whisper)
+# Audio feature extraction (required by ParakeetFeatureExtractor)
+librosa
+
+# Shared worker runtime
 fastapi
 uvicorn
 aiortc
@@ -19,7 +27,3 @@ av
 soundfile
 numpy
 requests
-
-# Windows GPU (uncomment if needed)
-# nvidia-cublas-cu12
-# nvidia-cudnn-cu12

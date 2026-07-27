@@ -36,6 +36,36 @@ if sys.version_info >= (3, 13):
         print("Warning: Could not find Python 3.10, 3.11, or 3.12. Proceeding with current version, but installation may fail or take a very long time.", flush=True)
 
 
+# ─── Engine definitions ─────────────────────────────────────────────────────
+# Each engine family gets its own self-contained venv with its own Python
+# interpreter. This prevents dependency contamination (e.g. sherpa-onnx CPU
+# picking up CUDA DLLs from a shared PyTorch venv).
+#
+# The system Python is used ONLY to bootstrap these venvs via venv.create().
+# At runtime, every worker uses its venv's own interpreter.
+
+ENGINES = [
+    {
+        "name": "faster_whisper",
+        "req_file": "requirements/faster_whisper.txt",
+        "venv_dir": "venv/faster_whisper/env",
+        "description": "faster-whisper large-v3 (GPU float16 / CPU int8)",
+    },
+    {
+        "name": "parakeet",
+        "req_file": "requirements/parakeet.txt",
+        "venv_dir": "venv/parakeet/env",
+        "description": "Parakeet-TDT 0.6B v3 via HF Transformers (GPU FP16)",
+    },
+    {
+        "name": "sherpa_onnx",
+        "req_file": "requirements/sherpa_onnx.txt",
+        "venv_dir": "venv/sherpa_onnx/env",
+        "description": "sherpa-onnx CPU engine (int8, no CUDA)",
+    },
+]
+
+
 def _generate_cert(root_dir):
     """Generate a self-signed TLS cert valid for 10 years into <root>/tls/."""
     from cryptography import x509
@@ -85,44 +115,88 @@ def _generate_cert(root_dir):
 
     print(f"  Generated self-signed cert at {tls_dir} (SAN IPs: 127.0.0.1, {local_ip})")
 
-def main():
-    root_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_dir = os.path.join(root_dir, "venv")
-    
-    print(f"Creating virtual environment in {venv_dir}...")
-    builder = venv.EnvBuilder(with_pip=True, clear=True)
-    builder.create(venv_dir)
-    
+
+def _create_engine_venv(root_dir, engine):
+    """Create a self-contained venv for one engine family and install its requirements."""
+    name = engine["name"]
+    venv_dir = os.path.join(root_dir, engine["venv_dir"])
+    req_file = os.path.join(root_dir, engine["req_file"])
+
+    if not os.path.isfile(req_file):
+        print(f"  [{name}] SKIP — requirements file not found: {req_file}")
+        return
+
     if os.name == "nt":
         python_exe = os.path.join(venv_dir, "Scripts", "python.exe")
     else:
         python_exe = os.path.join(venv_dir, "bin", "python")
-        
-    req_file = os.path.join(root_dir, "requirements.txt")
-    
-    print("Installing dependencies...")
+
+    # Skip if venv already exists and has packages installed
+    if os.path.isfile(python_exe):
+        print(f"  [{name}] venv exists, upgrading packages...")
+    else:
+        print(f"  [{name}] Creating venv at {venv_dir}...")
+        builder = venv.EnvBuilder(with_pip=True, clear=True)
+        builder.create(venv_dir)
+
+    print(f"  [{name}] Installing dependencies from {engine['req_file']}...")
+    env = os.environ.copy()
+    env["PYTHONNOUSERSITE"] = "1"
+
     try:
-        # Upgrade pip first to ensure compatibility
         subprocess.check_call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
-        
-        # Install requirements using the venv's python directly to guarantee isolation
-        # ignoring user-installed packages to avoid polluting the venv state
-        env = os.environ.copy()
-        env["PYTHONNOUSERSITE"] = "1"
-        
+
+        # Parakeet needs CUDA-enabled PyTorch from the PyTorch index URL.
+        # The default PyPI torch wheel is CPU-only and won't work for GPU inference.
+        # Install torch FIRST, then the rest of the requirements.
+        if name == "parakeet":
+            print(f"  [{name}] Installing CUDA-enabled PyTorch (this is a large download)...")
+            subprocess.check_call([
+                python_exe, "-m", "pip", "install",
+                "torch", "torchvision", "torchaudio",
+                "--index-url", "https://download.pytorch.org/whl/cu121"
+            ], env=env)
+
         subprocess.check_call([python_exe, "-m", "pip", "install", "-r", req_file], env=env)
     except subprocess.CalledProcessError as e:
-        print(f"Failed to install dependencies: {e}")
-        sys.exit(1)
-        
-    print("\nGenerating TLS certificate...")
+        print(f"  [{name}] FAILED to install dependencies: {e}")
+        return
+
+    print(f"  [{name}] Done — {engine['description']}")
+
+
+def main():
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+
+    print("=" * 60)
+    print("nVoice v3 — Multi-Venv Installer")
+    print("=" * 60)
+    print(f"\nSystem Python: {sys.executable}")
+    print(f"Project root: {root_dir}\n")
+
+    # ── 1. Create per-engine venvs ──────────────────────────────────────────
+    print("--- Creating per-engine venvs ---")
+    print(f"Each engine gets its own self-contained venv with its own Python interpreter.")
+    print(f"This prevents dependency contamination between GPU/CPU/NPU engines.\n")
+    for engine in ENGINES:
+        print(f"\n[{engine['name']}] {engine['description']}")
+        _create_engine_venv(root_dir, engine)
+
+    # ── 2. Generate TLS certificate ─────────────────────────────────────────
+    # Use the faster_whisper venv's Python (has cryptography installed)
+    print("\n--- Generating TLS certificate ---")
+    fw_python = os.path.join(root_dir, "venv", "faster_whisper", "env",
+                             "Scripts" if os.name == "nt" else "bin", "python.exe" if os.name == "nt" else "python")
+    if not os.path.isfile(fw_python):
+        fw_python = sys.executable  # fallback to system python
     try:
-        _generate_cert(root_dir)
-    except Exception as e:
+        subprocess.check_call([fw_python, __file__, "--gen-cert", root_dir])
+    except subprocess.CalledProcessError as e:
         print(f"Warning: Could not generate TLS cert: {e}")
         print("The server will attempt to generate one on first run.")
 
-    print("\nDownloading client-side ONNX Runtime WASM files...")
+    # ── 3. Download ORT WASM for client-side VAD ────────────────────────────
+    print("\n--- Downloading client-side ONNX Runtime WASM files ---")
     sdk_dir = os.path.join(root_dir, "sdk")
     wasm_bat = os.path.join(sdk_dir, "download-wasm.bat")
     if os.path.isfile(wasm_bat):
@@ -133,13 +207,26 @@ def main():
     else:
         print("Warning: sdk/download-wasm.bat not found. Client-side VAD will not work.")
 
-    print("\n--- Installation Complete ---")
-    print("To start the server, run the following commands:")
+    # ── 4. Remind about Node.js dependencies ────────────────────────────────
+    print("\n--- Next steps ---")
+    print("1. Install Node.js dependencies:")
+    print("   cd server && npm install")
+    print("2. Copy config:")
     if os.name == 'nt':
-        print(f"  .\\venv\\Scripts\\Activate.ps1")
+        print("   copy config.example.json config.json")
     else:
-        print(f"  source venv/bin/activate")
-    print("  python run.py")
+        print("   cp config.example.json config.json")
+    print("3. Start the server:")
+    if os.name == 'nt':
+        print("   start.bat")
+    else:
+        print("   cd server && node index.js")
+
+    print("\n--- Installation Complete ---")
 
 if __name__ == "__main__":
-    main()
+    # Subcommand: generate TLS cert using this venv's cryptography
+    if len(sys.argv) >= 3 and sys.argv[1] == "--gen-cert":
+        _generate_cert(sys.argv[2])
+    else:
+        main()

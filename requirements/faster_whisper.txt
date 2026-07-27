@@ -1,0 +1,16 @@
+# faster-whisper engine — GPU (float16) or CPU (int8)
+# Shared worker runtime
+fastapi
+uvicorn
+aiortc
+av
+soundfile
+numpy
+requests
+
+# STT engine
+faster-whisper
+
+# GPU acceleration (CUDA 12) — installed via pip, wheels include the CUDA runtime DLLs
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

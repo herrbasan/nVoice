@@ -4,11 +4,11 @@
 :: Run this after cloning, or after upgrading onnxruntime-web version.
 
 setlocal
-set "ROOT=%~dp0"
-if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+:: %~dp0 already points to the sdk/ directory (this script lives in sdk/)
+set "SDK_DIR=%~dp0"
+if "%SDK_DIR:~-1%"=="\" set "SDK_DIR=%SDK_DIR:~0,-1%"
 
 set "ORT_VER=1.21.0"
-set "SDK_DIR=%ROOT%sdk"
 set "BASE=https://cdn.jsdelivr.net/npm/onnxruntime-web@%ORT_VER%/dist"
 
 echo Downloading ONNX Runtime Web %ORT_VER% files...
