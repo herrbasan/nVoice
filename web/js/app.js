@@ -181,6 +181,165 @@ transcribeBtn.addEventListener('click', async () => {
     }
 });
 
+// --- Archival Transcription ---
+
+const archiveFile = document.getElementById('archiveFile');
+const archiveSpeakers = document.getElementById('archiveSpeakers');
+const archiveBtn = document.getElementById('archiveBtn');
+const archiveProgress = document.getElementById('archiveProgress');
+const archiveStage = document.getElementById('archiveStage');
+const archiveBarFill = document.getElementById('archiveBarFill');
+const archiveDetail = document.getElementById('archiveDetail');
+const archiveResult = document.getElementById('archiveResult');
+const archiveActions = document.getElementById('archiveActions');
+const archiveDownload = document.getElementById('archiveDownload');
+const archiveDownloadJson = document.getElementById('archiveDownloadJson');
+
+let archiveFullText = '';
+let archiveFullJson = null;
+
+archiveFile.addEventListener('change', () => {
+    archiveBtn.disabled = !archiveFile.files.length;
+});
+
+archiveBtn.addEventListener('click', async () => {
+    if (!archiveFile.files.length) return;
+    archiveBtn.disabled = true;
+
+    archiveProgress.style.display = 'block';
+    archiveResult.style.display = 'none';
+    archiveActions.style.display = 'none';
+    archiveResult.textContent = '';
+    archiveBarFill.style.width = '0%';
+    archiveStage.textContent = 'Uploading...';
+    archiveDetail.textContent = '';
+
+    const formData = new FormData();
+    formData.append('file', archiveFile.files[0]);
+    formData.append('model', engineSelect.value || activeEngine || 'faster_whisper_large-v3');
+    formData.append('language', 'de');
+    formData.append('diarize', 'true');
+    if (archiveSpeakers.value) {
+        formData.append('num_speakers', archiveSpeakers.value);
+    }
+
+    try {
+        const resp = await fetch('/v1/audio/transcribe-archive', {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            archiveStage.textContent = `Error: ${err.error?.message || resp.statusText}`;
+            return;
+        }
+
+        // Read SSE stream
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEvent = null;
+        let totalChunks = 0;
+        let chunkCount = 0;
+        const transcriptParts = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith('event: ')) {
+                    currentEvent = line.slice(7);
+                } else if (line.startsWith('data: ') && currentEvent) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+
+                        if (currentEvent === 'status') {
+                            if (data.stage === 'diarizing') {
+                                archiveStage.textContent = 'Diarizing speakers...';
+                                archiveBarFill.style.width = '5%';
+                            } else if (data.stage === 'loading_diarizer') {
+                                archiveStage.textContent = 'Loading diarization model...';
+                            } else if (data.stage === 'diarized') {
+                                archiveStage.textContent = `Found ${data.num_speakers} speakers (${data.turns} turns)`;
+                                archiveBarFill.style.width = '10%';
+                            } else if (data.stage === 'transcribing') {
+                                chunkCount = data.chunk;
+                                totalChunks = data.total_chunks;
+                                const pct = 10 + Math.round((chunkCount / totalChunks) * 80);
+                                archiveBarFill.style.width = pct + '%';
+                                archiveStage.textContent = `Transcribing chunk ${chunkCount}/${totalChunks}`;
+                                archiveDetail.textContent = `[${data.start.toFixed(0)}s - ${data.end.toFixed(0)}s]`;
+                            } else if (data.stage === 'merged') {
+                                archiveStage.textContent = 'Merging speakers...';
+                                archiveBarFill.style.width = '95%';
+                            }
+                        } else if (currentEvent === 'chunk') {
+                            // Live transcript display
+                            const segs = data.segments || [];
+                            for (const seg of segs) {
+                                const spk = seg.speaker !== undefined ? seg.speaker : '?';
+                                const text = seg.text || '';
+                                transcriptParts.push(`[Sprecher ${spk}] ${text}`);
+                            }
+                            archiveResult.style.display = 'block';
+                            archiveResult.textContent = transcriptParts.join('\n');
+                            archiveResult.scrollTop = archiveResult.scrollHeight;
+                        } else if (currentEvent === 'done') {
+                            archiveBarFill.style.width = '100%';
+                            archiveStage.textContent = 'Complete!';
+                            archiveDetail.textContent = `${data.segments?.length || 0} segments, ${data.duration?.toFixed(1)}s audio`;
+
+                            archiveFullText = data.text_raw || '';
+                            archiveFullJson = data;
+
+                            // Show final result
+                            archiveResult.style.display = 'block';
+                            archiveResult.textContent = archiveFullText;
+                            archiveResult.scrollTop = 0;
+                            archiveActions.style.display = 'block';
+                        } else if (currentEvent === 'error') {
+                            archiveStage.textContent = `Error: ${data.message}`;
+                        }
+                    } catch {}
+                }
+            }
+        }
+    } catch (e) {
+        archiveStage.textContent = `Error: ${e.message}`;
+    } finally {
+        archiveBtn.disabled = false;
+    }
+});
+
+// Download handlers
+archiveDownload.addEventListener('click', () => {
+    if (!archiveFullText) return;
+    const blob = new Blob([archiveFullText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = archiveFile.files[0]?.name?.replace(/\.[^.]+$/, '') + '_transcript.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+archiveDownloadJson.addEventListener('click', () => {
+    if (!archiveFullJson) return;
+    const blob = new Blob([JSON.stringify(archiveFullJson, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = archiveFile.files[0]?.name?.replace(/\.[^.]+$/, '') + '_transcript.json';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
 function initClient() {
     if (client) return;
     

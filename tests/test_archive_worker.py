@@ -20,12 +20,14 @@ _src_dir = os.path.join(_project_root, "src")
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
-# Config
+# Config — override via command line: python test_archive_worker.py <audio_path> [num_speakers]
 ENGINE = "faster_whisper_large-v3"
-AUDIO_FILE = os.path.join(
+DEFAULT_AUDIO = os.path.join(
     _project_root, "models", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
     "test_wavs", "de.wav"
 )
+AUDIO_FILE = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_AUDIO
+NUM_SPEAKERS = int(sys.argv[2]) if len(sys.argv) > 2 else None
 PORT = 9911  # test port, unlikely to conflict
 
 
@@ -74,9 +76,9 @@ def main():
         "audio_path": AUDIO_FILE,
         "language": "de",
         "diarize": True,
-        "num_speakers": 1,
+        "num_speakers": NUM_SPEAKERS,
         "start_time": 0,
-        "chunk_seconds": 30,
+        "chunk_seconds": 300,
     }
 
     t0 = time.time()
@@ -120,6 +122,21 @@ def main():
                 print(f"  Speakers: {data.get('speakers')}", flush=True)
                 raw = data.get("text_raw", "")
                 print(f"  Raw text ({len(raw)} chars): {raw[:200]}...", flush=True)
+
+                # Save full output to files for review
+                base = os.path.splitext(os.path.basename(AUDIO_FILE))[0]
+                out_dir = os.path.join(_project_root, "output")
+                os.makedirs(out_dir, exist_ok=True)
+
+                raw_path = os.path.join(out_dir, f"{base}_raw.txt")
+                with open(raw_path, "w", encoding="utf-8") as f:
+                    f.write(raw)
+                print(f"  Saved raw: {raw_path}", flush=True)
+
+                json_path = os.path.join(out_dir, f"{base}_segments.json")
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                print(f"  Saved json: {json_path}", flush=True)
             elif current_event == "error":
                 print(f"  ERROR: {data}", flush=True)
 

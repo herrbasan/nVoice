@@ -20,6 +20,8 @@
         input[type="file"] { margin: 10px 0; }
         select { padding: 5px; font-size: 14px; min-width: 250px; }
         #batchResult { background: #f9f9f9; border: 1px solid #ddd; padding: 10px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; }
+        #archiveBar { background: #ddd; }
+        #archiveBarFill { background: #4a9eff; }
 
         @media (prefers-color-scheme: dark) {
             body { background-color: #1e1e1e; color: #e0e0e0; }
@@ -28,6 +30,9 @@
             .btn:hover:not(:disabled) { background-color: #4a4a4a; }
             #telemetry { color: #aaa; }
             #batchResult { background: #2d2d2d; border-color: #444; color: #e0e0e0; }
+            #archiveResult { background: #2d2d2d; border-color: #444; color: #e0e0e0; }
+            #archiveBar { background: #444; }
+            #archiveBarFill { background: #4a9eff; }
             h2 { border-color: #444; }
         }
     </style>
@@ -60,6 +65,26 @@
         </select>
         <button id="transcribeBtn" class="btn" disabled>Transcribe</button>
         <div id="batchResult"></div>
+    </div>
+
+    <h2>Archival Transcription</h2>
+    <div class="section">
+        <label for="archiveFile">Audio file:</label>
+        <input type="file" id="archiveFile" accept="audio/*">
+        <input type="number" id="archiveSpeakers" placeholder="speakers (auto)" min="1" max="10" style="width:130px" title="Number of speakers (leave empty for auto)">
+        <button id="archiveBtn" class="btn" disabled>Transcribe + Diarize</button>
+        <div id="archiveProgress" style="margin-top:10px; font-size:13px; color:#888; display:none;">
+            <div id="archiveStage" style="font-weight:bold; margin-bottom:4px;"></div>
+            <div id="archiveBar" style="width:100%; height:8px; background:#ddd; border-radius:4px; overflow:hidden;">
+                <div id="archiveBarFill" style="height:100%; width:0%; background:#4a9eff; transition:width 0.3s;"></div>
+            </div>
+            <div id="archiveDetail" style="margin-top:4px; font-size:12px;"></div>
+        </div>
+        <div id="archiveResult" style="background:#f9f9f9; border:1px solid #ddd; padding:10px; margin-top:10px; white-space:pre-wrap; font-family:monospace; font-size:13px; max-height:400px; overflow-y:auto; display:none;"></div>
+        <div id="archiveActions" style="margin-top:5px; display:none;">
+            <button id="archiveDownload" class="btn" style="font-size:13px; padding:5px 12px;">Download .txt</button>
+            <button id="archiveDownloadJson" class="btn" style="font-size:13px; padding:5px 12px;">Download .json</button>
+        </div>
     </div>
 
     <h2>Real-time Streaming</h2>
