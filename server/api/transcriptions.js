@@ -307,6 +307,112 @@ export function registerAlignRoute(app, engineManager) {
   });
 }
 
+/**
+ * POST /v1/audio/transcribe-archive
+ * nVoice extension — archival transcription with speaker diarization.
+ *
+ * Returns an SSE stream (text/event-stream) with progress events.
+ * Mirrors the SSE pattern in server/api/admin.js.
+ *
+ * Pipeline (in worker): diarize whole file → chunked transcription → merge.
+ * Node just normalizes the audio and relays the worker's SSE stream.
+ */
+export function registerArchiveRoute(app, engineManager) {
+  app.post('/v1/audio/transcribe-archive', async (request, reply) => {
+    const fields = {};
+    let fileBuffer = null;
+    let fileName = null;
+
+    for await (const part of request.parts()) {
+      if (part.type === 'file') {
+        fileBuffer = await part.toBuffer();
+        fileName = part.filename;
+      } else if (part.type === 'field') {
+        fields[part.fieldname] = part.value;
+      }
+    }
+
+    if (!fileBuffer) {
+      return sendError(reply, 400, 'Missing file in request body', 'invalid_request_error', 'file');
+    }
+
+    const model = fields.model || engineManager.activeEngine;
+    const language = fields.language || 'de';
+    const diarize = fields.diarize !== 'false';
+    const numSpeakers = fields.num_speakers ? parseInt(fields.num_speakers, 10) : undefined;
+    const startTime = fields.start_time ? parseFloat(fields.start_time) : 0;
+    const chunkSeconds = fields.chunk_seconds ? parseFloat(fields.chunk_seconds) : 300;
+
+    logger.debug('Archive transcription request',
+      { model, language, diarize, numSpeakers, startTime, fileName }, 'API');
+
+    // Normalize audio (G6) — NO seek here. Worker seeks per chunk because
+    // diarization needs the whole file.
+    let tempPath;
+    try {
+      tempPath = await normalizeAudio(fileBuffer);
+    } catch (e) {
+      return sendError(reply, 400,
+        `Audio normalization failed: ${e.message}`, 'invalid_request_error', 'file');
+    }
+
+    try {
+      const worker = await engineManager.getWorker(model);
+
+      const workerBody = {
+        audio_path: tempPath,
+        language,
+        diarize,
+        num_speakers: numSpeakers,
+        start_time: startTime,
+        chunk_seconds: chunkSeconds,
+      };
+
+      const workerResp = await worker.fetch('/v1/audio/transcribe-archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workerBody),
+      });
+
+      if (!workerResp.ok) {
+        const errBody = await workerResp.json().catch(() => ({}));
+        return sendError(reply, workerResp.status,
+          errBody.error?.message || 'Worker error',
+          errBody.error?.type || 'engine_error');
+      }
+
+      // Relay the worker's SSE stream straight to the client.
+      // Same pattern as server/api/admin.js engine switch.
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+
+      // Pipe worker SSE body → client response
+      const reader = workerResp.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          reply.raw.write(value);
+        }
+      } finally {
+        reply.raw.end();
+      }
+
+    } catch (e) {
+      if (e instanceof EngineError) {
+        return sendError(reply, 400, e.message, 'invalid_request_error', e.code);
+      }
+      logger.error('Archive transcription failed', e, { model }, 'API', { console: true });
+      return sendError(reply, 500, e.message, 'engine_error');
+    } finally {
+      cleanupTemp(tempPath);
+    }
+  });
+}
+
 function sendError(reply, status, message, type, param) {
   return reply.code(status).send({
     error: {

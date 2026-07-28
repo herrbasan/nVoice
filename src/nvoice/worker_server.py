@@ -199,10 +199,27 @@ def create_app(engine_name):
     adapter_cls, kwargs = parse_engine_args(engine_name)
     adapter = adapter_cls(**kwargs)
 
+    # Initialize diarizer for faster_whisper GPU workers (archival transcription).
+    # Lazy-loaded: the model downloads on first archive request, not at startup.
+    diarizer = None
+    if engine_name.startswith("faster_whisper"):
+        hf_token = os.environ.get("HF_TOKEN", "")
+        if hf_token:
+            try:
+                from nvoice.diarization import Diarizer
+                gpu_enabled = os.environ.get("NVOICE_GPU", "1") == "1"
+                diarizer = Diarizer(hf_token=hf_token,
+                                    device="cuda" if gpu_enabled else "cpu")
+                logger.info("Diarizer initialized (lazy load on first archive request)")
+            except Exception as e:
+                logger.warning(f"Diarizer init failed (archive endpoint disabled): {e}")
+        else:
+            logger.info("No HF_TOKEN set — diarization disabled")
+
     # Import routes and wire the adapter
     from nvoice.worker_routes import build_routes
     app = FastAPI(title=f"nVoice worker — {engine_name}")
-    build_routes(app, adapter, engine_name)
+    build_routes(app, adapter, engine_name, diarizer=diarizer)
 
     # Start model loading on a background thread (G3)
     def _load():

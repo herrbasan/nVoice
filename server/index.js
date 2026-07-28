@@ -18,7 +18,7 @@ import { execSync } from 'node:child_process';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { EngineManager } from './engine/manager.js';
-import { registerTranscriptionRoutes, registerAlignRoute } from './api/transcriptions.js';
+import { registerTranscriptionRoutes, registerAlignRoute, registerArchiveRoute } from './api/transcriptions.js';
 import { registerAdminRoutes } from './api/admin.js';
 import { registerRealtimeRoutes } from './api/realtime.js';
 import { listCloudEngines } from './cloud/registry.js';
@@ -64,6 +64,7 @@ function createApp(httpsOptions) {
   // --- API routes ---
   registerTranscriptionRoutes(app, engineManager);
   registerAlignRoute(app, engineManager);
+  registerArchiveRoute(app, engineManager);
   registerAdminRoutes(app, engineManager);
   registerRealtimeRoutes(app, engineManager);
 

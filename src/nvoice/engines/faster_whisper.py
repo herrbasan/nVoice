@@ -94,18 +94,22 @@ class FasterWhisperAdapter(STTAdapter):
     # --- batch ---
 
     def transcribe(self, audio, sample_rate=16000, context_text=None,
-                   task="transcribe", language=None, vad_filter=False):
+                   task="transcribe", language=None, vad_filter=False,
+                   condition_on_previous_text=True):
         """
         Runs STT on a raw 1D numpy array or audio file path.
         Returns List[STTSegment].
 
         vad_filter defaults to False — the shared vad.py is the single VAD
         authority (G7). Callers can override for batch-only use.
+        condition_on_previous_text defaults to True (correct for realtime/short).
+        Archival mode passes False — True causes hallucination loops on long
+        noisy audio (music sections, non-verbal sounds).
         """
         kwargs = {
             "word_timestamps": True,
             "vad_filter": vad_filter,
-            "condition_on_previous_text": True,
+            "condition_on_previous_text": condition_on_previous_text,
             "no_speech_threshold": self.no_speech_threshold,
             "log_prob_threshold": self.log_prob_threshold,
             "compression_ratio_threshold": self.compression_ratio_threshold,
