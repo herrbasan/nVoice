@@ -2,8 +2,13 @@
 Speaker-Turn Merge Logic
 
 Aligns faster-whisper transcription segments with pyannote speaker turns
-by timestamp overlap. Each whisper segment gets assigned the speaker who
-has the most overlapping speech time.
+by timestamp overlap.
+
+IMPORTANT: The merge operates at WORD level, not segment level. Whisper
+segments can be very long (30-90s) and span multiple speakers. If we assign
+a speaker per segment, the dominant speaker always wins. Instead, each WORD
+gets assigned to a speaker individually based on its timestamp, then
+consecutive same-speaker words are grouped into speaker-attributed segments.
 
 This runs AFTER both transcription and diarization are complete. The
 diarization turns cover the whole file (global clustering), so speaker
@@ -12,22 +17,44 @@ chunked for progress events.
 """
 
 
+def _assign_speaker_at_timestamp(t, speaker_turns_sorted):
+    """
+    Find the speaker with the most overlap at timestamp t.
+    Uses the sorted turns list for efficiency.
+    """
+    best_speaker = None
+    best_overlap = 0
+    for turn in speaker_turns_sorted:
+        if turn["start"] > t:
+            break  # turns are sorted; no more can contain t
+        if turn["end"] >= t:
+            # This turn contains t. Use its duration as weight
+            # (longer turns are more confident).
+            overlap = turn["end"] - turn["start"]
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = turn["speaker"]
+    return best_speaker
+
+
 def merge_segments(whisper_segments, speaker_turns):
     """
-    Assign a speaker to each whisper segment based on timestamp overlap
-    with pyannote speaker turns.
+    Assign speakers to whisper segments using WORD-LEVEL timestamps.
+
+    Each word in each segment is assigned to the speaker whose turn
+    contains that word's midpoint. Then the segment is split whenever
+    the speaker changes, producing speaker-attributed sub-segments.
 
     Args:
-        whisper_segments: list of dicts with "start" and "end" keys (seconds).
-                          Typically STTSegment.to_dict() output. Modified in-place
-                          by adding a "speaker" key.
+        whisper_segments: list of dicts with "start", "end", "text", "words"
+                          keys. "words" should be a list of
+                          {"word", "start", "end"} dicts.
         speaker_turns: list of dicts with "start", "end", "speaker" keys.
-                       Output of Diarizer.diarize().
 
     Returns:
-        The same list of segment dicts, each now with a "speaker" key (int).
-        Segments with no overlapping speaker turn inherit the previous
-        segment's speaker (or 0 if it's the first segment).
+        List of segment dicts, each with a "speaker" key (int). Segments
+        are split at speaker boundaries, so a single whisper segment that
+        spans two speakers becomes two output segments.
     """
     if not whisper_segments:
         return whisper_segments
@@ -36,41 +63,54 @@ def merge_segments(whisper_segments, speaker_turns):
             seg["speaker"] = 0
         return whisper_segments
 
-    # Sort turns by start time for efficient scanning
     sorted_turns = sorted(speaker_turns, key=lambda t: t["start"])
 
     merged = []
     for seg in whisper_segments:
-        seg_start = seg["start"]
-        seg_end = seg["end"]
-        speaker_scores = {}  # speaker_id → overlap_seconds
+        words = seg.get("words", [])
 
-        for turn in sorted_turns:
-            # Turns are sorted by start; once we're past the segment, stop.
-            if turn["start"] >= seg_end:
-                break
-            # Skip turns that end before this segment starts.
-            if turn["end"] <= seg_start:
-                continue
+        if not words:
+            # No word timestamps — fall back to segment-level assignment
+            mid = (seg["start"] + seg["end"]) / 2
+            spk = _assign_speaker_at_timestamp(mid, sorted_turns)
+            if spk is None:
+                spk = merged[-1]["speaker"] if merged else 0
+            seg["speaker"] = spk
+            merged.append(seg)
+            continue
 
-            # Compute overlap duration
-            overlap_start = max(seg_start, turn["start"])
-            overlap_end = min(seg_end, turn["end"])
-            overlap = overlap_end - overlap_start
-            if overlap > 0:
-                spk = turn["speaker"]
-                speaker_scores[spk] = speaker_scores.get(spk, 0) + overlap
+        # Assign each word to a speaker based on its midpoint
+        word_speakers = []
+        for w in words:
+            mid = (w["start"] + w["end"]) / 2
+            spk = _assign_speaker_at_timestamp(mid, sorted_turns)
+            if spk is None:
+                # No turn covers this word — inherit from previous word
+                spk = word_speakers[-1] if word_speakers else 0
+            word_speakers.append(spk)
 
-        if speaker_scores:
-            best_speaker = max(speaker_scores, key=speaker_scores.get)
-        else:
-            # No overlap — inherit from previous segment's speaker.
-            # For archival audio with gaps (music, silence), this keeps
-            # continuity rather than defaulting everyone to speaker 0.
-            best_speaker = merged[-1]["speaker"] if merged else 0
+        # Group consecutive words by speaker → split segment
+        groups = []  # list of (speaker, [word_indices])
+        for i, spk in enumerate(word_speakers):
+            if groups and groups[-1][0] == spk:
+                groups[-1][1].append(i)
+            else:
+                groups.append((spk, [i]))
 
-        seg["speaker"] = best_speaker
-        merged.append(seg)
+        # Create one output segment per speaker group
+        for spk, indices in groups:
+            group_words = [words[i] for i in indices]
+            new_seg = {
+                "text": "".join(
+                    w["word"] if "word" in w else f" {w.get('word', '')}"
+                    for w in group_words
+                ).strip(),
+                "start": group_words[0]["start"],
+                "end": group_words[-1]["end"],
+                "speaker": spk,
+                "words": group_words,
+            }
+            merged.append(new_seg)
 
     return merged
 
