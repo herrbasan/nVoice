@@ -38,8 +38,10 @@ function createApp(httpsOptions) {
   });
 
   // --- Multipart plugin ---
+  // No file size limit — archival transcription handles large files.
+  // The archive route streams to disk instead of buffering in memory.
   app.register(fastifyMultipart, {
-    limits: { fileSize: 100 * 1024 * 1024 },
+    limits: { fileSize: 1024 * 1024 * 1024 },  // 1GB ceiling
   });
 
   // --- Static file mounts ---

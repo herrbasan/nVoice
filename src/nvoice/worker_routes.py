@@ -201,7 +201,7 @@ def build_routes(app, adapter, engine_name, diarizer=None):
                 "error": {"message": "Diarization not available (check HF_TOKEN)", "type": "service_unavailable"}
             })
 
-        from nvoice.audio_window import get_audio_duration, load_audio_mono, extract_audio_window
+        from nvoice.audio_window import get_audio_duration, load_audio_for_diarization, extract_audio_window
         from nvoice.merge import merge_segments, compute_speaker_stats
 
         def sse(event, data):
@@ -218,7 +218,8 @@ def build_routes(app, adapter, engine_name, diarizer=None):
                         yield sse("status", {"stage": "loading_diarizer"})
                         diarizer.load()
 
-                    audio_full, sr_full = load_audio_mono(req.audio_path)
+                    # Use int16 for diarization — half the memory of float32
+                    audio_full, sr_full = load_audio_for_diarization(req.audio_path)
                     speaker_turns = diarizer.diarize(
                         audio_full,
                         sample_rate=sr_full,

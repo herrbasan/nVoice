@@ -15,19 +15,25 @@ import { logger } from '../logger.js';
 
 /**
  * Normalize an uploaded audio file to WAV 16kHz mono float32.
- * @param {Buffer} inputBuffer — raw audio bytes from the upload
+ * @param {Buffer|string} input — raw audio bytes OR path to an existing file
  * @returns {Promise<string>} — path to the normalized temp WAV file
  */
-export function normalizeAudio(inputBuffer) {
+export function normalizeAudio(input) {
   return new Promise((resolve, reject) => {
     const tempDir = os.tmpdir();
     const id = crypto.randomBytes(8).toString('hex');
-    const inputPath = path.join(tempDir, `nvoice-input-${id}`);
     const outputPath = path.join(tempDir, `nvoice-${id}.wav`);
 
-    // Write input buffer to a temp file first — ffmpeg is more reliable
-    // reading from a file than from a stdin pipe on Windows.
-    fs.writeFileSync(inputPath, inputBuffer);
+    let inputPath;
+    if (typeof input === 'string') {
+      // Already a file path — skip the write step
+      inputPath = input;
+    } else {
+      // Buffer — write to temp file first (ffmpeg is more reliable
+      // reading from a file than from a stdin pipe on Windows)
+      inputPath = path.join(tempDir, `nvoice-input-${id}`);
+      fs.writeFileSync(inputPath, input);
+    }
 
     // ffmpeg: read from file, output WAV 16kHz mono float32
     const args = [
@@ -51,8 +57,10 @@ export function normalizeAudio(inputBuffer) {
     });
 
     ff.on('close', (code) => {
-      // Clean up input temp file
-      try { fs.unlinkSync(inputPath); } catch {}
+      // Clean up input temp file (only if we created it from a Buffer)
+      if (typeof input !== 'string') {
+        try { fs.unlinkSync(inputPath); } catch {}
+      }
 
       if (code !== 0) {
         logger.error('ffmpeg failed', { code, stderr: stderrData.slice(-500) });
@@ -64,7 +72,9 @@ export function normalizeAudio(inputBuffer) {
     });
 
     ff.on('error', (e) => {
-      try { fs.unlinkSync(inputPath); } catch {}
+      if (typeof input !== 'string') {
+        try { fs.unlinkSync(inputPath); } catch {}
+      }
       reject(new Error(`ffmpeg spawn error: ${e.message}`));
     });
   });

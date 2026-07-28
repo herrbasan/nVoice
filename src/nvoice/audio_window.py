@@ -43,12 +43,31 @@ def load_audio_mono(audio_path):
 
     Uses soundfile, which handles the normalized WAV from Node's G6 step.
     If the file is stereo, downmixes to mono by averaging channels.
+
+    ⚠️ Memory: for a 72-min 16kHz file this is ~660MB float32.
+    For very large files, prefer load_audio_mono_chunked() instead.
     """
     import soundfile
 
     audio, sr = soundfile.read(audio_path, dtype="float32")
     if audio.ndim == 2:
         audio = audio.mean(axis=1)
+    return audio, sr
+
+
+def load_audio_for_diarization(audio_path):
+    """
+    Load audio optimized for pyannote diarization.
+
+    Returns int16 (half the memory of float32) — pyannote accepts any
+    numeric dtype for the waveform tensor. For a 72-min file this is
+    ~330MB instead of ~660MB.
+    """
+    import soundfile
+
+    audio, sr = soundfile.read(audio_path, dtype="int16")
+    if audio.ndim == 2:
+        audio = audio.mean(axis=1).astype("int16")
     return audio, sr
 
 

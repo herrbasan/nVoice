@@ -320,19 +320,30 @@ export function registerAlignRoute(app, engineManager) {
 export function registerArchiveRoute(app, engineManager) {
   app.post('/v1/audio/transcribe-archive', async (request, reply) => {
     const fields = {};
-    let fileBuffer = null;
     let fileName = null;
+    let inputPath = null;
+
+    // Stream upload to disk instead of buffering in memory.
+    // Archival files can be hundreds of MB — no reason to hold them in RAM.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const os = await import('node:os');
+    const crypto = await import('node:crypto');
 
     for await (const part of request.parts()) {
       if (part.type === 'file') {
-        fileBuffer = await part.toBuffer();
         fileName = part.filename;
+        const id = crypto.randomBytes(8).toString('hex');
+        inputPath = path.join(os.tmpdir(), `nvoice-upload-${id}`);
+        const { pipeline } = await import('node:stream/promises');
+        const writeStream = fs.createWriteStream(inputPath);
+        await pipeline(part.file, writeStream);
       } else if (part.type === 'field') {
         fields[part.fieldname] = part.value;
       }
     }
 
-    if (!fileBuffer) {
+    if (!inputPath) {
       return sendError(reply, 400, 'Missing file in request body', 'invalid_request_error', 'file');
     }
 
@@ -347,13 +358,16 @@ export function registerArchiveRoute(app, engineManager) {
       { model, language, diarize, numSpeakers, startTime, fileName }, 'API');
 
     // Normalize audio (G6) — NO seek here. Worker seeks per chunk because
-    // diarization needs the whole file.
+    // diarization needs the whole file. normalizeAudio now accepts a file path.
     let tempPath;
     try {
-      tempPath = await normalizeAudio(fileBuffer);
+      tempPath = await normalizeAudio(inputPath);
     } catch (e) {
       return sendError(reply, 400,
         `Audio normalization failed: ${e.message}`, 'invalid_request_error', 'file');
+    } finally {
+      // Clean up the upload temp file (input) — the normalized file is separate
+      try { fs.unlinkSync(inputPath); } catch {}
     }
 
     try {

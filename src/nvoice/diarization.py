@@ -106,7 +106,14 @@ class Diarizer:
 
         # Hand pyannote a preloaded waveform dict.
         # This bypasses torchcodec (broken DLL on Windows) — we load audio ourselves.
-        waveform = torch.from_numpy(np.ascontiguousarray(audio_np)).float().unsqueeze(0)
+        # Accepts float32 or int16 — pyannote converts internally.
+        audio_cont = np.ascontiguousarray(audio_np)
+        if audio_cont.dtype == np.int16:
+            # Convert int16 to float32 normalized to [-1, 1]
+            waveform = torch.from_numpy(audio_cont).float() / 32768.0
+        else:
+            waveform = torch.from_numpy(audio_cont).float()
+        waveform = waveform.unsqueeze(0)  # (1, samples)
         file_dict = {"waveform": waveform, "sample_rate": sample_rate}
 
         kwargs = {}
