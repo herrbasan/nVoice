@@ -1,8 +1,10 @@
 /**
- * Audio normalization — converts any uploaded audio to WAV 16kHz mono float32.
+ * Audio normalization — converts any uploaded audio to WAV 16kHz mono int16.
  *
- * Guardrail G6: Node normalizes to WAV 16kHz mono float32 (pcm_f32le) and
+ * Guardrail G6: Node normalizes to WAV 16kHz mono int16 (pcm_s16le) and
  * passes the file PATH to the worker. Workers always receive normalized audio.
+ * int16 avoids float32→int16 clipping when pyannote reads the file for
+ * diarization; faster-whisper converts internally either way.
  *
  * Uses system ffmpeg via child_process. No Node ffmpeg binding dependency.
  */
@@ -35,12 +37,14 @@ export function normalizeAudio(input) {
       fs.writeFileSync(inputPath, input);
     }
 
-    // ffmpeg: read from file, output WAV 16kHz mono float32
+    // ffmpeg: read from file, output WAV 16kHz mono int16
+    // int16 avoids float32→int16 clipping when pyannote reads the file.
+    // faster-whisper accepts int16 natively (converts internally).
     const args = [
       '-i', inputPath,           // read from file
       '-ar', '16000',            // 16 kHz
       '-ac', '1',                // mono
-      '-c:a', 'pcm_f32le',      // float32 little-endian PCM codec
+      '-c:a', 'pcm_s16le',      // int16 little-endian PCM codec
       '-f', 'wav',               // WAV container
       '-y',                      // overwrite
       outputPath,
