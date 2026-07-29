@@ -1,10 +1,113 @@
 # Plan: Archival Transcription with Speaker Diarization in nVoice
 
 > **Created:** 2026-07-28  
-> **Status:** Planning — awaiting implementation  
+> **Status:** Implemented (Phases 1-5, 7). Phase 6 (LLM rewrite) intentionally OUT OF SCOPE — see below.  
 > **Origin:** Migrated from abandoned nScribe project (D:\DEV\nScribe) after cloud evaluation showed no single service combines good German ASR with speaker diarization.
 
 ---
+
+## Multi-File / Folder Input (added 2026-07-29)
+
+MiniDisc auto-splits one continuous session into multiple files at pauses. The
+archive endpoint now accepts **multiple files in one request** and treats them
+as a single continuous recording.
+
+**Design: concatenate first, then run the existing pipeline unchanged.**
+- **Frontend** (`web/index.html`, `web/js/app.js`): the file input is `multiple`,
+  plus a "Browse Folder" button (`webkitdirectory`). Picked files are filtered
+  to audio extensions and **natural-sorted by filename** (`localeCompare` with
+  `numeric: true` — MiniDisc splits are track-numbered `001-…`, `002-…`, so
+  filename order IS recording order). All files are sent as repeated multipart
+  `file` fields in one request. A file list line shows the resolved order.
+- **Node** (`server/api/transcriptions.js`): collects every `file` part to a
+  temp path, sorts by filename, and calls `concatAudio()` when more than one
+  file is present.
+- **Concat** (`server/audio/normalize.js` → `concatAudio()`): ffmpeg concat
+  demuxer with re-encode to WAV 16kHz mono `pcm_s16le` (identical params to
+  `normalizeAudio`). Gapless join on a continuous timeline; differing source
+  formats never break the join. Output is one temp WAV handed to the worker.
+- **Worker**: untouched. Diarization clusters the whole concatenated session
+  globally → consistent speaker IDs across all original files.
+
+**Why concat over per-file diarization:** per-file diarization would re-map
+"SPEAKER_00" per file (labels not guaranteed consistent across files). Concat
+gives whole-session clustering for free with zero new pipeline logic.
+
+**Example folder:** `H:\# Audio Archive\# MiniDisc Archive\# Jam's\Electro_Jam_+Schwätz_24.12.99`
+— 18 FLAC files (`001-…` through `018-…`), ~276MB total.
+
+---
+
+## Video Input (added 2026-07-29)
+
+Transcribe the audio track of a video (e.g. Famcam mp4). The video is uploaded,
+its audio extracted, the video discarded, and only the extracted audio is kept
+for transcription.
+
+**Key finding: the backend needed no pipeline change.** `normalizeAudio()` runs
+`ffmpeg -i <input> -ar 16000 -ac 1 -c:a pcm_s16le -f wav` — ffmpeg ignores the
+video stream and extracts/decodes the audio track in the same single pass.
+Verified on `Superschwätz_29.10.2017.mp4` (4.7GB, h264+aac, 57.8min): produced a
+105.8MB 16kHz mono int16 WAV, duration exact, 21.5s, temp cleaned up.
+
+**Changes:**
+- **Frontend** (`web/index.html`, `web/js/app.js`): a "Select Video" button
+  (`accept="video/*,.mkv,…"`). A video is a single file that bypasses the
+  audio-extension filter (any container; ffmpeg decodes or fails loud) and goes
+  through the normal single-file `normalizeAudio` path — no concat.
+- **Node** (`server/index.js`): multipart `fileSize` limit raised 1GB → **16GB**
+  to admit multi-GB video. (Comment previously claimed "no limit" but code
+  imposed 1GB.) The archive route streams uploads to disk, so a large video
+  never sits in RAM.
+
+**File lifecycle (verified — nothing is kept):**
+1. Upload temp (`nvoice-upload-<id>`) — deleted immediately after extract.
+2. Extracted WAV (`nvoice-<id>.wav`) — deleted in the route's `finally` after the
+   transcription SSE relay finishes (success or error).
+The video itself is the upload temp — it is deleted as soon as audio extraction
+completes, before transcription starts. Only the extracted audio lives for the
+duration of the transcription, then it too is deleted.
+
+---
+
+## Generic `processing` Progress Events (added 2026-07-29)
+
+Server-side prep (audio extraction, folder merge, normalization) happens BEFORE
+the worker starts and can take tens of seconds for multi-GB video. Previously
+the SSE stream only opened when the worker relay began, so the client sat on a
+silent connection during prep.
+
+**Design:** a generic `processing` SSE event with an `activity` string — one
+event type covers any prep work, future-proof.
+
+```
+event: processing  data: {"activity":"extracting audio","file":"foo.mp4"}
+event: processing  data: {"activity":"merging","files":18}
+event: processing  data: {"activity":"normalizing","file":"bar.flac"}
+event: processing  data: {"activity":"done"}
+```
+
+**Implementation change (`server/api/transcriptions.js`):** the archive route
+now opens the SSE stream (`writeHead 200`) immediately after parsing the upload,
+BEFORE prep. It emits `processing` events around `concatAudio()` /
+`normalizeAudio()`, then relays the worker's SSE events through the same
+already-open stream unchanged.
+
+**Consequences:**
+- Prep errors (bad file, ffmpeg failure, worker error) can no longer be returned
+  as JSON HTTP errors — the stream is already 200. They are now emitted as
+  `event: error` SSE events, which the client already renders. The old
+  `sendError()`/`EngineError` JSON branches were removed from this route
+  (the import stays — other routes in the file still use them).
+- **Frontend** (`web/js/app.js`): handles `processing` — shows the activity
+  label (capitalized) in the stage line and the file/count in the detail line;
+  `done` switches to "Audio ready — starting transcription...". Single video vs
+  audio is distinguished by extension (non-audio extension = video →
+  "extracting audio", else "normalizing").
+
+---
+
+
 
 ## Goals
 
@@ -484,15 +587,19 @@ const workerResp = await fetch(`${workerUrl}/v1/audio/transcribe-archive`, {
 workerResp.body.pipe(reply.raw);
 ```
 
-### Phase 6: LLM Post-Processing (Local Gateway) — DEFERRED, DO LAST
+### Phase 6: LLM Post-Processing (Local Gateway) — OUT OF SCOPE (decided 2026-07-29)
 
-> **Sequencing (2026-07-28):** Get transcription + diarization (Phases 1-5) working FIRST.
-> The raw merged transcript is the deliverable. The LLM rewrite is polish — fine-tune it
-> after the deterministic pipeline is verified on the Manfred file. The local Gateway model
-> (`badkid-llama-chat` = Gemma 4 4B) is ALWAYS loaded on this machine, so there is no GPU
-> loading contention — the rewrite is a plain HTTP call to an already-warm model.
+> **Decision (2026-07-29): NOT building this.** The user's actual workflow is to take
+> the raw merged transcript and clean it up **manually with an LLM in a chat**, where
+> they can clarify ambiguous passages interactively. An automated in-pipeline rewrite
+> can't ask clarifying questions, so the interactive loop is strictly better for
+> archival accuracy. The raw merged transcript (`text_raw` / `transcript_raw.txt`)
+> is the final deliverable of this service — cleanup happens downstream, by hand.
+>
+> The notes below are kept as a reference sketch only, in case an automated rewrite
+> is ever revisited. Do not treat them as a TODO.
 
-**New file:** `src/nvoice/llm_rewrite.py`
+**New file (reference only, not implemented):** `src/nvoice/llm_rewrite.py`
 
 The local Gateway model is always available. It takes the merged raw transcript (dialogue format with speaker labels) and produces a clean readable version. The raw transcript is ALWAYS preserved as a separate file — the LLM output is a reading copy, not a replacement.
 

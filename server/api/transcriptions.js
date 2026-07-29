@@ -8,7 +8,7 @@
  * Guardrail G6: Node normalizes audio to WAV 16kHz mono float32, passes path.
  * Guardrail G5: /align never passes text as initial_prompt (handled in worker).
  */
-import { normalizeAudio, cleanupTemp } from '../audio/normalize.js';
+import { normalizeAudio, concatAudio, cleanupTemp } from '../audio/normalize.js';
 import { formatResponse } from '../audio/format.js';
 import { EngineError } from '../engine/manager.js';
 import { lookupCloudAdapter, loadCloudAdapter } from '../cloud/registry.js';
@@ -320,10 +320,9 @@ export function registerAlignRoute(app, engineManager) {
 export function registerArchiveRoute(app, engineManager) {
   app.post('/v1/audio/transcribe-archive', async (request, reply) => {
     const fields = {};
-    let fileName = null;
-    let inputPath = null;
+    const uploaded = []; // [{ name, path }] in multipart arrival order
 
-    // Stream upload to disk instead of buffering in memory.
+    // Stream uploads to disk instead of buffering in memory.
     // Archival files can be hundreds of MB — no reason to hold them in RAM.
     const fs = await import('node:fs');
     const path = await import('node:path');
@@ -332,21 +331,28 @@ export function registerArchiveRoute(app, engineManager) {
 
     for await (const part of request.parts()) {
       if (part.type === 'file') {
-        fileName = part.filename;
         const id = crypto.randomBytes(8).toString('hex');
-        inputPath = path.join(os.tmpdir(), `nvoice-upload-${id}`);
+        const uploadPath = path.join(os.tmpdir(), `nvoice-upload-${id}`);
         const { pipeline } = await import('node:stream/promises');
-        const writeStream = fs.createWriteStream(inputPath);
+        const writeStream = fs.createWriteStream(uploadPath);
         await pipeline(part.file, writeStream);
+        uploaded.push({ name: part.filename || id, path: uploadPath });
       } else if (part.type === 'field') {
         fields[part.fieldname] = part.value;
       }
     }
 
-    if (!inputPath) {
+    if (uploaded.length === 0) {
       return sendError(reply, 400, 'Missing file in request body', 'invalid_request_error', 'file');
     }
 
+    // Natural-sort by filename — MiniDisc auto-splits are track-numbered
+    // (e.g. "..._01.flac", "..._02.flac"), so filename order IS recording order.
+    // Numeric-aware compare so track 2 sorts before track 10.
+    uploaded.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const fileNames = uploaded.map(u => u.name);
     const model = fields.model || engineManager.activeEngine;
     const language = fields.language || 'de';
     const diarize = fields.diarize !== 'false';
@@ -355,19 +361,52 @@ export function registerArchiveRoute(app, engineManager) {
     const chunkSeconds = fields.chunk_seconds ? parseFloat(fields.chunk_seconds) : 300;
 
     logger.debug('Archive transcription request',
-      { model, language, diarize, numSpeakers, startTime, fileName }, 'API');
+      { model, language, diarize, numSpeakers, startTime, files: fileNames }, 'API');
 
-    // Normalize audio (G6) — NO seek here. Worker seeks per chunk because
-    // diarization needs the whole file. normalizeAudio now accepts a file path.
+    // Open the SSE stream NOW, before any prep work, so the client sees
+    // progress during audio extraction / merging (which can take tens of
+    // seconds for multi-GB video) instead of staring at a silent connection.
+    // Worker SSE events are relayed through this same stream afterwards.
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    const sse = (event, data) => {
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const sseError = (message) => {
+      sse('error', { message });
+      reply.raw.end();
+    };
+
+    // Build the single audio path the worker sees. With multiple files we
+    // ffmpeg-concat them into one continuous normalized WAV (gapless join,
+    // continuous timeline → whole-session diarization clustering). With one
+    // file we just normalize (which also extracts audio from a video — ffmpeg
+    // ignores the video stream). No seek here — worker seeks per chunk.
+    const isVideo = uploaded.length === 1 && !/\.(flac|wav|mp3|m4a|ogg|opus|aac|wma|aiff?|ape)$/i.test(uploaded[0].name);
     let tempPath;
     try {
-      tempPath = await normalizeAudio(inputPath);
+      if (uploaded.length > 1) {
+        sse('processing', { activity: 'merging', files: uploaded.length });
+        tempPath = await concatAudio(uploaded.map(u => u.path));
+      } else if (isVideo) {
+        sse('processing', { activity: 'extracting audio', file: uploaded[0].name });
+        tempPath = await normalizeAudio(uploaded[0].path);
+      } else {
+        sse('processing', { activity: 'normalizing', file: uploaded[0].name });
+        tempPath = await normalizeAudio(uploaded[0].path);
+      }
+      sse('processing', { activity: 'done' });
     } catch (e) {
-      return sendError(reply, 400,
-        `Audio normalization failed: ${e.message}`, 'invalid_request_error', 'file');
+      sseError(`Audio normalization failed: ${e.message}`);
+      return;
     } finally {
-      // Clean up the upload temp file (input) — the normalized file is separate
-      try { fs.unlinkSync(inputPath); } catch {}
+      // Clean up the upload temp files (inputs) — the normalized file is separate
+      for (const u of uploaded) {
+        try { fs.unlinkSync(u.path); } catch {}
+      }
     }
 
     try {
@@ -390,19 +429,11 @@ export function registerArchiveRoute(app, engineManager) {
 
       if (!workerResp.ok) {
         const errBody = await workerResp.json().catch(() => ({}));
-        return sendError(reply, workerResp.status,
-          errBody.error?.message || 'Worker error',
-          errBody.error?.type || 'engine_error');
+        sseError(errBody.error?.message || 'Worker error');
+        return;
       }
 
-      // Relay the worker's SSE stream straight to the client.
-      // Same pattern as server/api/admin.js engine switch.
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      });
-
+      // Relay the worker's SSE stream through the already-open stream.
       // Pipe worker SSE body → client response
       const reader = workerResp.body.getReader();
       try {
@@ -416,11 +447,9 @@ export function registerArchiveRoute(app, engineManager) {
       }
 
     } catch (e) {
-      if (e instanceof EngineError) {
-        return sendError(reply, 400, e.message, 'invalid_request_error', e.code);
-      }
       logger.error('Archive transcription failed', e, { model }, 'API', { console: true });
-      return sendError(reply, 500, e.message, 'engine_error');
+      // Stream is already open — report through it, not via a JSON error.
+      sseError(e.message);
     } finally {
       cleanupTemp(tempPath);
     }

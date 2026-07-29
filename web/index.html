@@ -73,10 +73,15 @@
 
     <h2>Archival Transcription</h2>
     <div class="section">
-        <label for="archiveFile">Audio file:</label>
-        <input type="file" id="archiveFile" accept="audio/*">
+        <label for="archiveFile">Audio file(s):</label>
+        <input type="file" id="archiveFile" accept="audio/*" multiple>
+        <button id="archiveFolderBtn" class="btn" style="font-size:13px; padding:4px 10px;">Browse Folder</button>
+        <input type="file" id="archiveFolder" webkitdirectory style="display:none">
+        <button id="archiveVideoBtn" class="btn" style="font-size:13px; padding:4px 10px;">Select Video</button>
+        <input type="file" id="archiveVideo" accept="video/*,.mkv,.mpg,.mpeg,.ts,.vob" style="display:none">
         <input type="number" id="archiveSpeakers" placeholder="speakers (auto)" min="1" max="10" style="width:130px" title="Number of speakers (leave empty for auto)">
         <button id="archiveBtn" class="btn" disabled>Transcribe + Diarize</button>
+        <div id="archiveFileList" style="margin-top:6px; font-size:12px; color:#666;"></div>
         <div id="archiveProgress">
             <div id="archiveStage"></div>
             <div id="archiveBar">

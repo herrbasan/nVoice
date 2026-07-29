@@ -38,10 +38,12 @@ function createApp(httpsOptions) {
   });
 
   // --- Multipart plugin ---
-  // No file size limit — archival transcription handles large files.
-  // The archive route streams to disk instead of buffering in memory.
+  // Generous ceiling for archival video uploads (multi-GB mp4). The archive
+  // route streams uploads to disk instead of buffering in memory, so large
+  // files don't touch RAM — the limit is only an abuse guard, not a capacity
+  // constraint.
   app.register(fastifyMultipart, {
-    limits: { fileSize: 1024 * 1024 * 1024 },  // 1GB ceiling
+    limits: { fileSize: 16 * 1024 * 1024 * 1024 },  // 16GB ceiling (video)
   });
 
   // --- Static file mounts ---

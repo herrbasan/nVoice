@@ -21,9 +21,9 @@ start.bat          # Windows
 
 The server starts dual HTTP+HTTPS:
 - **HTTP** `http://localhost:2244` — API endpoints
-- **HTTPS** `https://localhost:2244` — browser UI and WebRTC (mic access requires secure context)
+- **HTTPS** `https://localhost:2245` — browser UI and WebRTC (mic access requires secure context)
 
-Open `https://localhost:2244` in a browser for the dashboard (batch transcription + realtime).
+Open `https://localhost:2245` in a browser for the dashboard (batch + archival transcription + realtime).
 
 ## Requirements
 
@@ -40,6 +40,7 @@ Open `https://localhost:2244` in a browser for the dashboard (batch transcriptio
 | `/v1/audio/transcriptions` | POST | Batch STT (multipart in, JSON/text/SRT/VTT out) |
 | `/v1/audio/translations` | POST | Speech-to-English |
 | `/v1/audio/align` | POST | Word-level timestamps for known text |
+| `/v1/audio/transcribe-archive` | POST | Long-audio STT + speaker diarization (SSE stream). Accepts a file, a **folder** (auto-concat), or a **video** (audio extracted) |
 | `/v1/realtime/sessions` | GET | Create WebRTC realtime session |
 | `/v1/realtime/sessions/{id}/offer` | POST | SDP relay to worker |
 | `/v1/models` | GET | List registered engines |
@@ -81,7 +82,7 @@ Client → Node.js (Fastify) → Per-engine Python HTTP Worker
 
 **Multi-venv isolation:** Each engine family has its own venv at `venv/<family>/env/` to prevent dependency contamination. The classic failure: sherpa-onnx (CPU-only) sharing a venv with PyTorch picks up CUDA DLLs from `torch/lib/` and runs on GPU despite all env-var tricks. Isolated venvs eliminate this.
 
-See [Agents.md](Agents.md) for the full LLM briefing, and [docs/NVoice_API_PLAN.md](docs/NVoice_API_PLAN.md) for the API specification.
+See [Agents.md](Agents.md) for the full LLM briefing. **Reference documentation lives in [`documentation/`](documentation/):** [nVoice_SPEC.md](documentation/nVoice_SPEC.md) (architecture/system) and [nVoice_API.md](documentation/nVoice_API.md) (endpoint reference). Working docs (plans, handovers) live in [`docs/`](docs/).
 
 ## Configuration
 
@@ -114,7 +115,7 @@ Zero-dependency WebRTC client with optional client-side Silero VAD for wake-on-v
 <script src="/sdk/ort.js"></script>
 <script src="/sdk/nVoiceClient.js"></script>
 <script>
-  const client = new nVoiceClient('https://localhost:2244');
+  const client = new nVoiceClient('https://localhost:2245');
   client.on('transcript', msg => {
     console.log(msg.is_final ? 'FINAL' : 'PROV', msg.text);
   });
@@ -138,6 +139,7 @@ src/nvoice/         Python worker code (shared across all engine venvs)
 sdk/                Browser SDK (nVoiceClient.js) + ORT WASM for client-side VAD
 web/                Dashboard (vanilla HTML/JS)
 tests/              E2E test suite
-docs/               API spec, dev plan, engine references
+docs/               Working docs (dev plans, handover, engine references)
+documentation/      Stable reference (nVoice_SPEC.md, nVoice_API.md)
 config.json         Runtime configuration (gitignored)
 ```

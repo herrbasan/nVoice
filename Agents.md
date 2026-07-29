@@ -39,6 +39,7 @@ venv/
 - `POST /v1/audio/transcriptions` — batch STT (multipart in, JSON/text/SRT/VTT out)
 - `POST /v1/audio/translations` — speech-to-English
 - `POST /v1/audio/align` — word timestamps for known text
+- `POST /v1/audio/transcribe-archive` — long-audio STT + speaker diarization (SSE). File, **folder** (auto-concat), or **video** (audio extracted)
 - `GET  /v1/realtime/sessions` — create WebRTC session
 - `POST /v1/realtime/sessions/{id}/offer` — SDP relay to worker
 - `GET  /v1/models` — list engines
@@ -47,6 +48,8 @@ venv/
 - `GET  /v1/admin/status` — worker manager status
 - `GET  /health` — server health
 
+> **Reference documentation:** [`documentation/nVoice_SPEC.md`](documentation/nVoice_SPEC.md) (architecture/system) and [`documentation/nVoice_API.md`](documentation/nVoice_API.md) (endpoint reference). **Keep these two files up to date whenever behavior, endpoints, or configuration change.** Working docs (plans, handovers) live in `docs/`.
+
 ### Directory Structure & Intent
 - `server/`: Node.js management layer (Fastify, engine manager, API routes, audio normalization, cloud adapters).
 - `src/`: Python worker code — shared across all engine venvs via `PYTHONPATH`. Contains STT adapters, WebRTC, worker HTTP server, realtime strategies, and per-engine adapters.
@@ -54,7 +57,8 @@ venv/
 - `web/`: Vanilla HTML/JS dashboard (batch + realtime UI).
 - `sdk/`: Browser SDK (`nVoiceClient.js`) + ORT WASM for client-side Silero VAD.
 - `tests/`: E2E test suite (`tests/e2e/test_runner.js`).
-- `docs/`: API spec, dev plan, engine references, handover notes.
+- `docs/`: working docs — dev plans, handover notes, engine references.
+- `documentation/`: stable reference — `nVoice_SPEC.md` + `nVoice_API.md`. Keep current.
 
 ### Engine Adapter Contract (v3)
 Every adapter declares `capabilities()` (subset of batch/translate/align/realtime) and `realtime_strategy()` (buffer-retranscribe | native-streaming | None). Model loading is deferred to a background thread (`load()` / `is_loaded()`). See `src/nvoice/stt.py`.
@@ -78,7 +82,8 @@ The v2 `AudioConsumer._daemon_loop` is extracted verbatim into `src/nvoice/realt
 ### Environment Reference
 - **Active Engine:** Configured in `config.json` (`default_engine`). Default: `faster_whisper_large-v3`.
 - **Engine Documentation:** ALWAYS refer to [docs/faster_whisper_api_reference.md](docs/faster_whisper_api_reference.md) for faster-whisper implementation details.
-- **Plans:** [docs/NVoice_API_PLAN.md](docs/NVoice_API_PLAN.md) (API spec) and [docs/NVoice_API_DEV_PLAN.md](docs/NVoice_API_DEV_PLAN.md) (development plan).
+- **Reference docs (keep current):** [documentation/nVoice_SPEC.md](documentation/nVoice_SPEC.md) (system) and [documentation/nVoice_API.md](documentation/nVoice_API.md) (endpoints).
+- **Plans:** [docs/NVoice_API_PLAN.md](docs/NVoice_API_PLAN.md) (original API spec) and [docs/NVoice_API_DEV_PLAN.md](docs/NVoice_API_DEV_PLAN.md) (development plan).
 
 ### Batch `/align` Endpoint
 - `/v1/audio/align` is used by `LLM Chat Arena Slides` for TTS word highlighting, but faster-whisper does not provide true forced alignment here.

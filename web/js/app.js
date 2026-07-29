@@ -184,6 +184,11 @@ transcribeBtn.addEventListener('click', async () => {
 // --- Archival Transcription ---
 
 const archiveFile = document.getElementById('archiveFile');
+const archiveFolder = document.getElementById('archiveFolder');
+const archiveFolderBtn = document.getElementById('archiveFolderBtn');
+const archiveVideo = document.getElementById('archiveVideo');
+const archiveVideoBtn = document.getElementById('archiveVideoBtn');
+const archiveFileList = document.getElementById('archiveFileList');
 const archiveSpeakers = document.getElementById('archiveSpeakers');
 const archiveBtn = document.getElementById('archiveBtn');
 const archiveProgress = document.getElementById('archiveProgress');
@@ -198,12 +203,49 @@ const archiveDownloadJson = document.getElementById('archiveDownloadJson');
 let archiveFullText = '';
 let archiveFullJson = null;
 
-archiveFile.addEventListener('change', () => {
-    archiveBtn.disabled = !archiveFile.files.length;
+// The ordered set of files to transcribe as one continuous recording.
+// Populated either by the multi-file input or the folder picker.
+let archivePickedFiles = [];
+
+const ARCHIVE_AUDIO_RE = /\.(flac|wav|mp3|m4a|ogg|opus|aac|wma|aiff?|ape)$/i;
+
+function setArchiveFiles(fileArray) {
+    // Natural-sort by filename — MiniDisc auto-splits are track-numbered,
+    // so filename order IS recording order. Numeric-aware so 2 < 10.
+    archivePickedFiles = [...fileArray]
+        .filter(f => ARCHIVE_AUDIO_RE.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    archiveBtn.disabled = archivePickedFiles.length === 0;
+
+    if (archivePickedFiles.length === 0) {
+        archiveFileList.textContent = 'No audio files selected.';
+        return;
+    }
+    archiveFileList.textContent = archivePickedFiles.length === 1
+        ? `1 file: ${archivePickedFiles[0].name}`
+        : `${archivePickedFiles.length} files (in order): ` +
+          archivePickedFiles.map(f => f.name).join('  \u2192  ');
+}
+
+archiveFile.addEventListener('change', () => setArchiveFiles(archiveFile.files));
+archiveFolder.addEventListener('change', () => setArchiveFiles(archiveFolder.files));
+archiveFolderBtn.addEventListener('click', () => archiveFolder.click());
+
+// Video: a single file whose audio track gets extracted server-side by ffmpeg
+// (video stream ignored). Bypasses the audio-extension filter — we take whatever
+// container the user picks; ffmpeg either decodes it or the server fails loud.
+archiveVideo.addEventListener('change', () => {
+    const f = archiveVideo.files[0];
+    if (!f) { archivePickedFiles = []; archiveBtn.disabled = true; return; }
+    archivePickedFiles = [f];
+    archiveBtn.disabled = false;
+    const mb = (f.size / 1048576).toFixed(0);
+    archiveFileList.textContent = `Video: ${f.name} (${mb} MB — audio extracted on server)`;
 });
+archiveVideoBtn.addEventListener('click', () => archiveVideo.click());
 
 archiveBtn.addEventListener('click', async () => {
-    if (!archiveFile.files.length) return;
+    if (archivePickedFiles.length === 0) return;
     archiveBtn.disabled = true;
 
     archiveProgress.style.display = 'block';
@@ -211,11 +253,15 @@ archiveBtn.addEventListener('click', async () => {
     archiveActions.style.display = 'none';
     archiveResult.textContent = '';
     archiveBarFill.style.width = '0%';
-    archiveStage.textContent = 'Uploading...';
+    archiveStage.textContent = archivePickedFiles.length > 1
+        ? `Uploading ${archivePickedFiles.length} files (concat on server)...`
+        : 'Uploading...';
     archiveDetail.textContent = '';
 
     const formData = new FormData();
-    formData.append('file', archiveFile.files[0]);
+    for (const f of archivePickedFiles) {
+        formData.append('file', f, f.name);
+    }
     formData.append('model', engineSelect.value || activeEngine || 'faster_whisper_large-v3');
     formData.append('language', 'de');
     formData.append('diarize', 'true');
@@ -279,6 +325,19 @@ archiveBtn.addEventListener('click', async () => {
                                 archiveStage.textContent = 'Merging speakers...';
                                 archiveBarFill.style.width = '95%';
                             }
+                        } else if (currentEvent === 'processing') {
+                            // Server-side prep before the worker starts: audio
+                            // extraction (video), merging (folder), normalizing.
+                            if (data.activity === 'done') {
+                                archiveStage.textContent = 'Audio ready — starting transcription...';
+                                archiveDetail.textContent = '';
+                            } else {
+                                const label = data.activity.charAt(0).toUpperCase() + data.activity.slice(1);
+                                archiveStage.textContent = `${label}...`;
+                                archiveDetail.textContent = data.files
+                                    ? `${data.files} files`
+                                    : (data.file || '');
+                            }
                         } else if (currentEvent === 'chunk') {
                             // Live transcript display
                             const segs = data.segments || [];
@@ -324,7 +383,7 @@ archiveDownload.addEventListener('click', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = archiveFile.files[0]?.name?.replace(/\.[^.]+$/, '') + '_transcript.txt';
+    a.download = (archivePickedFiles[0]?.name || 'archive').replace(/\.[^.]+$/, '') + '_transcript.txt';
     a.click();
     URL.revokeObjectURL(url);
 });
@@ -335,7 +394,7 @@ archiveDownloadJson.addEventListener('click', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = archiveFile.files[0]?.name?.replace(/\.[^.]+$/, '') + '_transcript.json';
+    a.download = (archivePickedFiles[0]?.name || 'archive').replace(/\.[^.]+$/, '') + '_transcript.json';
     a.click();
     URL.revokeObjectURL(url);
 });

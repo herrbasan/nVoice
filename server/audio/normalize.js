@@ -85,6 +85,74 @@ export function normalizeAudio(input) {
 }
 
 /**
+ * Concatenate multiple audio files into one normalized WAV 16kHz mono int16.
+ * Files are decoded in the order given and joined gaplessly on a continuous
+ * timeline — designed for MiniDisc-style auto-split recordings that are one
+ * continuous session across multiple files.
+ *
+ * Uses ffmpeg's concat demuxer with re-encode to pcm_s16le so differing
+ * source formats/codecs/sample rates never break the join.
+ *
+ * @param {string[]} inputPaths — ordered list of audio file paths
+ * @returns {Promise<string>} — path to the concatenated temp WAV file
+ */
+export function concatAudio(inputPaths) {
+  return new Promise((resolve, reject) => {
+    if (!Array.isArray(inputPaths) || inputPaths.length === 0) {
+      reject(new Error('concatAudio: inputPaths must be a non-empty array'));
+      return;
+    }
+
+    const tempDir = os.tmpdir();
+    const id = crypto.randomBytes(8).toString('hex');
+    const outputPath = path.join(tempDir, `nvoice-concat-${id}.wav`);
+    const listPath = path.join(tempDir, `nvoice-concat-${id}.txt`);
+
+    // concat demuxer list file. Paths are single-quoted; escape any single
+    // quotes in filenames the ffmpeg way ('\'').
+    const listContent = inputPaths
+      .map(p => `file '${p.replace(/'/g, "'\\''")}'`)
+      .join('\n');
+    fs.writeFileSync(listPath, listContent);
+
+    const args = [
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', listPath,
+      '-ar', '16000',
+      '-ac', '1',
+      '-c:a', 'pcm_s16le',
+      '-f', 'wav',
+      '-y',
+      outputPath,
+    ];
+
+    logger.debug('Concatenating audio', { files: inputPaths.length, outputPath });
+
+    const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    let stderrData = '';
+    ff.stderr.on('data', (data) => { stderrData += data.toString(); });
+
+    ff.on('close', (code) => {
+      try { fs.unlinkSync(listPath); } catch {}
+      if (code !== 0) {
+        logger.error('ffmpeg concat failed', { code, stderr: stderrData.slice(-500) });
+        reject(new Error(`ffmpeg concat exited with code ${code}`));
+        try { fs.unlinkSync(outputPath); } catch {}
+        return;
+      }
+      resolve(outputPath);
+    });
+
+    ff.on('error', (e) => {
+      try { fs.unlinkSync(listPath); } catch {}
+      reject(new Error(`ffmpeg spawn error: ${e.message}`));
+    });
+  });
+}
+
+/**
  * Delete a temp file, ignoring errors.
  */
 export function cleanupTemp(filePath) {
