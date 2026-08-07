@@ -32,6 +32,16 @@ Client → Node.js API Server (Fastify) → Per-engine Python HTTP Worker
 `pcm_s16le` via ffmpeg → Node passes the temp file *path* to the worker as JSON → worker
 transcribes → Node formats the worker's segments into the OpenAI response shape.
 
+**ffmpeg is vendored, not assumed on PATH.** The binary comes from the `server/vendor/ffmpeg`
+git submodule (our own [ffmpeg-build](https://github.com/herrbasan/ffmpeg-build)), resolved
+and verified once at startup by `server/audio/ffmpeg-bin.js`. Because the server may be
+launched by a process manager/service whose PATH differs from an interactive shell, a
+missing ffmpeg is a **startup crash with a clear message**, not a mid-transcription ENOENT.
+Resolution order: vendored submodule → `ffmpeg_path`/`ffprobe_path` in `config.json` →
+`NVOICE_FFMPEG`/`FFMPEG_PATH` env → PATH → common install locations. The vendored binaries
+are not fully static, so their `dist/` dir is prepended to the spawn `PATH` for DLL
+resolution (libx264, libfdk-aac, zlib1, …).
+
 **Data flow (realtime):** browser negotiates WebRTC **directly with the Python worker** —
 Node only relays the SDP offer/answer byte-for-byte (Guardrail G1). Audio frames never
 touch Node.
@@ -164,6 +174,7 @@ frame-level VAD (it's not in the media path).
 | `model_device` / `compute_type` | `cuda` / `float16` | faster-whisper device + precision |
 | `language` | `auto` | default language (archive endpoint overrides to `de`) |
 | `engine_dirs` | — | map of engine family → venv dir |
+| `ffmpeg_path` / `ffprobe_path` | vendored | optional explicit ffmpeg/ffprobe override (falls back to vendored submodule) |
 | `vad.*` | — | client gate + backend stage thresholds, silence tail |
 | `beam_size`, `best_of`, `temperature`, `no_speech_threshold`, … | — | faster-whisper decode params |
 
@@ -183,7 +194,8 @@ requires the HTTPS (secure-context) origin.
 ```
 server/             Node.js management layer (Fastify)
   api/              Route handlers: transcriptions (+archive, align), admin, realtime
-  audio/            ffmpeg normalize + concat (normalize.js)
+  audio/            ffmpeg normalize + concat (normalize.js) + resolver (ffmpeg-bin.js)
+  vendor/ffmpeg/    git submodule — vendored ffmpeg/ffprobe binaries (ffmpeg-build)
   engine/           Worker manager, registry, process lifecycle
   cloud/            Cloud STT adapters (ElevenLabs) + registry
 src/nvoice/         Python worker code (shared across engine venvs via PYTHONPATH)

@@ -10,12 +10,19 @@ The worker receives a normalized WAV (16kHz mono float32) from Node's G6
 normalization. These helpers read that file using soundfile (no torchcodec
 dependency — that DLL is broken on Windows).
 """
+import os
 import subprocess
 import numpy as np
 
 from nvoice.logger import get_logger
 
 logger = get_logger("audio_window")
+
+# ffmpeg/ffprobe binaries. Node resolves these (vendored submodule first) and
+# passes them via env vars so the worker never depends on its own PATH — the
+# worker may be spawned by a process manager/service with a minimal PATH.
+FFMPEG = os.environ.get("NVOICE_FFMPEG", "ffmpeg")
+FFPROBE = os.environ.get("NVOICE_FFPROBE", "ffprobe")
 
 
 def get_audio_duration(audio_path):
@@ -25,7 +32,7 @@ def get_audio_duration(audio_path):
     """
     result = subprocess.run(
         [
-            "ffprobe", "-v", "quiet",
+            FFPROBE, "-v", "quiet",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             audio_path,
@@ -100,7 +107,7 @@ def extract_audio_window(audio_path, t0, t1):
 
     duration = t1 - t0
     args = [
-        "ffmpeg",
+        FFMPEG,
         "-ss", str(t0),           # seek to start (before -i for fast seek)
         "-i", audio_path,
         "-t", str(duration),       # extract duration seconds

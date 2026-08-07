@@ -8,13 +8,16 @@ OpenAI-compatible Speech-to-Text server with multi-engine support, WebRTC realti
 # 1. Install Python engine venvs + TLS cert + ORT WASM
 python install.py
 
-# 2. Install Node.js dependencies
+# 2. Fetch git submodules (nLogger + vendored ffmpeg)
+git submodule update --init --recursive
+
+# 3. Install Node.js dependencies
 cd server && npm install
 
-# 3. Copy and edit config
+# 4. Copy and edit config
 copy config.example.json config.json
 
-# 4. Start the server
+# 5. Start the server
 start.bat          # Windows
 # or: cd server && node index.js
 ```
@@ -31,7 +34,7 @@ Open `https://localhost:2245` in a browser for the dashboard (batch + archival t
 - **Node.js 18+** — for the management layer and dashboard.
 - **NVIDIA GPU** (optional) — CUDA 12 for `faster_whisper_large-v3` and `parakeet_tdt`. CPU-only engines (`sherpa_parakeet`) need no GPU.
 - **Intel NPU** (optional) — for `parakeet_npu` on Lunar Lake+ hardware.
-- **ffmpeg** — for audio normalization (must be on PATH).
+- **ffmpeg** — for audio normalization. **Vendored as a git submodule** at `server/vendor/ffmpeg` (our own [ffmpeg-build](https://github.com/herrbasan/ffmpeg-build)); no separate install needed. Fallbacks: `ffmpeg_path` in `config.json`, `NVOICE_FFMPEG` env, then PATH. Resolved and verified at startup — missing ffmpeg is a startup crash, not a mid-transcription error.
 
 ## API Surface (OpenAI-compatible)
 

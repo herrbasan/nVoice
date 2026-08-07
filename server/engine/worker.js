@@ -18,6 +18,12 @@ import path from 'node:path';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
 import { resolvePython, resolveVenvDir, getEngine } from './registry.js';
+import { resolveFfmpeg } from '../audio/ffmpeg-bin.js';
+
+// Resolve ffmpeg once at module load (same source as Node's own normalization).
+// The worker shells out to ffmpeg/ffprobe for archive audio windowing — pass the
+// resolved absolute paths so it never depends on the child process PATH.
+const { ffmpeg: FFMPEG, ffprobe: FFPROBE } = resolveFfmpeg(config.raw);
 
 const PORT_FILE_POLL_MS = 200;
 const PORT_FILE_TIMEOUT_MS = 30000;
@@ -57,6 +63,11 @@ export class WorkerProcess {
     if (venvDir) {
       env.NVOICE_VENV_DIR = venvDir;
     }
+
+    // Resolved ffmpeg/ffprobe for the worker's own subprocess calls (archive
+    // audio windowing). Absolute paths — independent of the child PATH.
+    env.NVOICE_FFMPEG = FFMPEG;
+    env.NVOICE_FFPROBE = FFPROBE;
 
     // Restrict under-the-hood CPU threading (MKL, OpenMP, OpenBLAS) to configured CPU threads
     // This stops severe thread thrashing and saves enormous CPU power (Phase 6/Hardware tuning)

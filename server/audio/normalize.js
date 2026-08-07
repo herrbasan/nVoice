@@ -6,7 +6,10 @@
  * int16 avoids float32→int16 clipping when pyannote reads the file for
  * diarization; faster-whisper converts internally either way.
  *
- * Uses system ffmpeg via child_process. No Node ffmpeg binding dependency.
+ * Uses the vendored ffmpeg (server/vendor/ffmpeg — our own ffmpeg-build) when
+ * present, else PATH/config/env. Resolved once at startup; missing ffmpeg is a
+ * startup crash, not a mid-transcription surprise. The vendored binaries are not
+ * fully static, so their dist dir is prepended to PATH for DLL resolution.
  */
 import { spawn } from 'node:child_process';
 import os from 'node:os';
@@ -14,6 +17,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { logger } from '../logger.js';
+import { config } from '../config.js';
+import { resolveFfmpeg } from './ffmpeg-bin.js';
+
+// Resolve + verify once. Throws loud at module load if ffmpeg can't be found/run.
+const { ffmpeg: FFMPEG, ffprobe: FFPROBE, ffmpegDir: FFMPEG_DIR } = resolveFfmpeg(config.raw);
+
+// Spawn env: prepend the binary's dir so its dependent DLLs (libx264, ...) resolve.
+const SPAWN_ENV = {
+  ...process.env,
+  PATH: `${FFMPEG_DIR}${path.delimiter}${process.env.PATH || ''}`,
+};
+
+export { FFMPEG, FFPROBE };
 
 /**
  * Normalize an uploaded audio file to WAV 16kHz mono float32.
@@ -52,7 +68,7 @@ export function normalizeAudio(input) {
 
     logger.debug('Normalizing audio', { inputPath, outputPath });
 
-    const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const ff = spawn(FFMPEG, args, { stdio: ['pipe', 'pipe', 'pipe'], env: SPAWN_ENV });
 
     let stderrData = '';
 
@@ -129,7 +145,7 @@ export function concatAudio(inputPaths) {
 
     logger.debug('Concatenating audio', { files: inputPaths.length, outputPath });
 
-    const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const ff = spawn(FFMPEG, args, { stdio: ['pipe', 'pipe', 'pipe'], env: SPAWN_ENV });
 
     let stderrData = '';
     ff.stderr.on('data', (data) => { stderrData += data.toString(); });
