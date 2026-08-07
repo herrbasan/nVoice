@@ -7,6 +7,7 @@ const systemInfoDiv = document.getElementById('systemInfo');
 const micSelect = document.getElementById('micSelect');
 const wakeWordToggle = document.getElementById('wakeWordToggle');
 const rawAudioToggle = document.getElementById('rawAudioToggle');
+const recordDebugToggle = document.getElementById('recordDebugToggle');
 const sleepBtn = document.getElementById('sleepBtn');
 
 // Engine management
@@ -401,10 +402,11 @@ archiveDownloadJson.addEventListener('click', () => {
 
 function initClient() {
     if (client) return;
-    
-    // Pass empty URL, it defaults to same domain '/offer'
+
+    // Pass empty URL — the SDK derives the WebSocket URL from the page origin.
     client = new window.nVoiceClient({ serverUrl: '' });
-    
+    window.__client = client;  // debug handle for introspection
+
     client.on('connected', () => {
         if (client.wakeWordEnabled && !client.isAwake) {
             statusDiv.textContent = "Connected [ASLEEP - Waiting for Voice]";
@@ -419,11 +421,15 @@ function initClient() {
 
     client.on('asleep', () => {
         statusDiv.textContent = "Connected [ASLEEP - Waiting for Voice]";
+        // Session is still live — keep Stop available as an escape hatch.
+        stopBtn.disabled = false;
+        startBtn.disabled = true;
         sleepBtn.disabled = true;
     });
 
     client.on('wakeWordDetected', () => {
         statusDiv.textContent = "Connected [AWAKE - Listening]";
+        stopBtn.disabled = false;
         sleepBtn.disabled = false;
     });
 
@@ -496,7 +502,7 @@ startBtn.addEventListener('click', async () => {
     const selectedEngine = engineSelect.value || activeEngine;
     const isCloudEngine = availableEngines.find(e => e.name === selectedEngine)?.cloud;
 
-    // Browser VAD wake/sleep only works for local engines (WebRTC track hot-swap).
+    // Browser VAD wake/sleep only applies to local engines (client-side frame gating).
     // Cloud engines have their own server-side VAD — always send audio directly.
     if (isCloudEngine) {
         client.wakeWordEnabled = false;
@@ -517,13 +523,17 @@ startBtn.addEventListener('click', async () => {
 
     client.setAudioDevice(micSelect.value);
     client.rawAudio = rawAudioToggle.checked;
+    client.recordDebug = recordDebugToggle.checked;
     client.engine = selectedEngine;
     client.start().catch(e => console.error(e));
 });
 
 stopBtn.addEventListener('click', () => {
     if (client) {
-        client.stop();
+        // Stop = full teardown: close the socket and reset state. (A WebSocket
+        // reconnect on next Start is cheap, so there is no value in a half-alive
+        // "standby" state — that stale state was a source of bugs.)
+        client.disconnect();
     }
 });
 

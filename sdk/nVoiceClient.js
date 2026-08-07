@@ -4,11 +4,12 @@ class nVoiceClient {
         this.audioDeviceId = config.audioDeviceId || null;
         this.rawAudio = config.rawAudio || false;
         this.engine = config.engine || null;
+        this.recordDebug = config.recordDebug || false;  // worker captures engine-received audio
 
-        this.pc = null;
-        this.dc = null;
+        this.ws = null;             // local realtime WebSocket (browser → Node → worker)
         this.audioStream = null;
-        this.dummyTrack = null;
+        this._streamNode = null;    // AudioWorkletNode feeding PCM frames to this.ws
+        this._streamContext = null; // AudioContext for _streamNode
 
         // VAD state (Silero V4 legacy model from vad-web)
         // Model inputs:  input[1,N], sr[int64], h[2,1,64], c[2,1,64]
@@ -30,7 +31,73 @@ class nVoiceClient {
         this._silenceFramesToSleep = 31;
         this._silenceThreshold = 0.3;
 
+        // Wake-on-voice: require SUSTAINED speech to wake (rejects fan/ambient noise)
+        this._wakeThreshold = 0.5;   // per-frame Silero prob to count toward wake
+        this._wakeFrames = 3;        // consecutive frames needed to wake (~96ms)
+        this._wakeCount = 0;
+
+        // Endpointing (hang-up): close the gate after sustained non-speech so the
+        // backend goes idle. Per industry research (Pipecat turn-stop strategy):
+        // the countdown resets ONLY on confident speech (prob >= reset threshold),
+        // so a noise burst's decay tail (mid prob) counts toward hang-up instead of
+        // resetting it. Window ~2s (research's 1.5–3.0s dictation guidance).
+        this._hangupResetProb = 0.5;  // prob >= this = confident speech → reset countdown
+        this._hangupFrames = 20;      // ~20 × 96ms ≈ 2s of non-confident-speech → close
+        this._hangupCount = 0;
+
+        // Recording: capture the exact 16kHz frames the pipeline sends (post-worklet)
+        this._recording = false;
+        this._recordedChunks = [];
+
         this.listeners = {};
+    }
+
+    /**
+     * Start/stop capturing the pipeline's 16kHz mono frames into a buffer.
+     * These are the SAME frames sent to the backend — post-worklet, post any
+     * browser processing — so a recording reflects exactly what the STT hears.
+     */
+    startRecording() {
+        this._recordedChunks = [];
+        this._recording = true;
+    }
+
+    stopRecording() {
+        this._recording = false;
+    }
+
+    get isRecording() { return this._recording; }
+
+    /**
+     * Build a WAV (16kHz mono PCM16) blob from the recorded frames.
+     */
+    recordingToWavBlob() {
+        const chunks = this._recordedChunks;
+        const total = chunks.reduce((n, c) => n + c.length, 0);
+        const pcm = new Float32Array(total);
+        let off = 0;
+        for (const c of chunks) { pcm.set(c, off); off += c.length; }
+
+        // float32 [-1,1] → int16 PCM
+        const pcm16 = new Int16Array(total);
+        for (let i = 0; i < total; i++) {
+            const s = Math.max(-1, Math.min(1, pcm[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        const sampleRate = 16000, numCh = 1, bytesPerSample = 2;
+        const dataLen = pcm16.length * bytesPerSample;
+        const buf = new ArrayBuffer(44 + dataLen);
+        const v = new DataView(buf);
+        const wstr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+        wstr(0, 'RIFF'); v.setUint32(4, 36 + dataLen, true); wstr(8, 'WAVE');
+        wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+        v.setUint16(22, numCh, true); v.setUint32(24, sampleRate, true);
+        v.setUint32(28, sampleRate * numCh * bytesPerSample, true);
+        v.setUint16(32, numCh * bytesPerSample, true); v.setUint16(34, 16, true);
+        wstr(36, 'data'); v.setUint32(40, dataLen, true);
+        new Int16Array(buf, 44).set(pcm16);
+        return new Blob([buf], { type: 'audio/wav' });
     }
 
     on(event, callback) {
@@ -87,10 +154,83 @@ class nVoiceClient {
         this.emit('telemetry', { state: 'ONNX model loaded', rtf: 0, backlog_sec: 0 });
     }
 
-    _createDummyTrack() {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const dest = ctx.createMediaStreamDestination();
-        return dest.stream.getAudioTracks()[0];
+    /**
+     * Build an AudioWorklet that downsamples the mic to 16kHz mono float32
+     * frames and forwards each frame to the realtime WebSocket. Gated by
+     * isAwake — when asleep (wake-word mode), frames are produced but dropped,
+     * so no audio leaves the browser until the wake word fires.
+     */
+    async _setupStreamingWorklet() {
+        this._streamContext = new (window.AudioContext || window.webkitAudioContext)();
+        const nativeSr = this._streamContext.sampleRate;
+        const targetSr = 16000;
+        const frameSize = 512; // 32ms @ 16kHz
+        const source = this._streamContext.createMediaStreamSource(this.audioStream);
+
+        const workletCode = `
+        class StreamProcessor extends AudioWorkletProcessor {
+            constructor() {
+                super();
+                this.nativeSr = ${nativeSr};
+                this.targetSr = ${targetSr};
+                this.frameSize = ${frameSize};
+                this.inputBuffer = [];
+            }
+            _hasEnoughData() {
+                return (this.inputBuffer.length * this.targetSr) / this.nativeSr >= this.frameSize;
+            }
+            _generateFrame() {
+                const frame = new Float32Array(this.frameSize);
+                let outIdx = 0, inIdx = 0;
+                while (outIdx < this.frameSize) {
+                    let sum = 0, num = 0;
+                    const boundary = ((outIdx + 1) * this.nativeSr) / this.targetSr;
+                    const limit = Math.min(this.inputBuffer.length, boundary);
+                    while (inIdx < limit) {
+                        const val = this.inputBuffer[inIdx];
+                        if (val !== undefined) { sum += val; num++; }
+                        inIdx++;
+                    }
+                    frame[outIdx] = sum / num;
+                    outIdx++;
+                }
+                this.inputBuffer = this.inputBuffer.slice(inIdx);
+                return frame;
+            }
+            process(inputs) {
+                const input = inputs[0];
+                if (!input || input.length === 0) return true;
+                const channelData = input[0];
+                if (!channelData || channelData.length === 0) return true;
+                for (let i = 0; i < channelData.length; i++) {
+                    this.inputBuffer.push(channelData[i]);
+                    while (this._hasEnoughData()) {
+                        const frame = this._generateFrame();
+                        this.port.postMessage({ audio: frame.buffer }, [frame.buffer]);
+                    }
+                }
+                return true;
+            }
+        }
+        registerProcessor('stream-processor', StreamProcessor);
+        `;
+
+        const blob = new Blob([workletCode], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(blob);
+        await this._streamContext.audioWorklet.addModule(workletUrl);
+
+        this._streamNode = new AudioWorkletNode(this._streamContext, 'stream-processor');
+        this._streamNode.port.onmessage = (event) => {
+            if (!this.isAwake) return;                       // asleep: drop frames
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+            this.ws.send(event.data.audio);                  // ArrayBuffer of float32
+        };
+
+        source.connect(this._streamNode);
+        const silentGain = this._streamContext.createGain();
+        silentGain.gain.value = 0;
+        this._streamNode.connect(silentGain);
+        silentGain.connect(this._streamContext.destination);
     }
 
     async _setupAudioWorklet() {
@@ -216,24 +356,52 @@ class nVoiceClient {
 
             const prob = results.output.data[0];
 
+            // Throttled diagnostic: log VAD liveness + prob every ~3s so we can
+            // tell "VAD dead" apart from "VAD alive but prob never crosses threshold".
+            this._vadDiagCount = (this._vadDiagCount || 0) + 1;
+            if (this._vadDiagCount % 32 === 0) {
+                console.log(`[VAD] alive=${this.isAwake ? 'awake' : 'asleep'} prob=${prob.toFixed(3)} fc=${fc}`);
+            }
+
             if (!this.isAwake) {
-                // ASLEEP: listening for wake word
-                if (prob > 0.5) {
-                    console.log('[VAD] WAKE (prob=' + prob.toFixed(3) + ')');
-                    this.wake();
+                // ASLEEP: require SUSTAINED speech to wake. A single frame above
+                // threshold is too easy to trip on amplified fan/ambient noise
+                // (AGC-free mics still push broadband noise over 0.5 on isolated
+                // frames). Speech sustains high prob across consecutive frames;
+                // noise is spiky. 3 frames ≈ 96ms of sustained speech — responsive
+                // to voice, immune to transient noise.
+                if (prob > this._wakeThreshold) {
+                    this._wakeCount = (this._wakeCount || 0) + 1;
+                    if (this._wakeCount >= this._wakeFrames) {
+                        console.log('[VAD] WAKE (sustained prob=' + prob.toFixed(3) + ', frames=' + this._wakeCount + ')');
+                        this.wake();
+                    }
+                } else {
+                    this._wakeCount = 0;
                 }
             } else {
-                // AWAKE: tracking silence after final transcript for auto-sleep
-                if (prob > this._silenceThreshold) {
-                    this._silenceCount = 0;
-                } else if (this._finalReceived) {
-                    this._silenceCount++;
-                    if (this._silenceCount >= this._silenceFramesToSleep) {
-                        console.log('[VAD] AUTO-SLEEP after ' + this._silenceCount + ' silent frames');
+                // AWAKE: hang up on sustained non-speech (endpointing).
+                // Design per industry VAD/turn-stop research (Pipecat et al.):
+                // the countdown resets ONLY on CONFIDENT speech (prob >= wake
+                // threshold), NOT on the mid-prob decay tail of a noise burst.
+                // A scrape peaks ~0.5s then decays 0.47→0.04 — only that brief
+                // peak counts as speech; the whole decay tail counts toward hang-up.
+                // A real conversational pause ends with confident resumed speech,
+                // which resets the timer. ~20 frames × 96ms ≈ 2s (research's
+                // 1.5–3.0s guidance for dictation pause tolerance).
+                if (prob >= this._hangupResetProb) {
+                    this._hangupCount = 0;
+                } else {
+                    this._hangupCount = (this._hangupCount || 0) + 1;
+                    if (this._hangupCount >= this._hangupFrames) {
+                        console.log('[VAD] HANG-UP (sustained non-speech, frames=' + this._hangupCount + ')');
                         this.sleep();
                     }
                 }
             }
+            // Note: endpointing (sentence-final commit) is the BACKEND strategy's
+            // job (commit_silence_tail_sec). This browser hang-up only decides when
+            // to STOP SENDING audio so the backend goes idle. Two separate concerns.
         } catch (e) {
             console.error('[VAD] Inference error:', e);
         }
@@ -245,15 +413,9 @@ class nVoiceClient {
         this.isAwake = true;
         this._finalReceived = false;
         this._silenceCount = 0;
+        this._hangupCount = 0;   // fresh endpointing window on wake
         this.emit('wakeWordDetected');
-
-        if (this.pc) {
-            const audioTrack = this.audioStream.getAudioTracks()[0];
-            const sender = this.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (sender) {
-                sender.replaceTrack(audioTrack);
-            }
-        }
+        // Frames now flow to the WebSocket (gated on isAwake in the worklet).
     }
 
     sleep() {
@@ -262,17 +424,13 @@ class nVoiceClient {
         this.isAwake = false;
         this._finalReceived = false;
         this._silenceCount = 0;
+        this._wakeCount = 0;   // reset sustained-wake counter for next listen cycle
+        this._hangupCount = 0; // reset endpointing counter
 
         this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
         this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
 
-        if (this.pc && this.dummyTrack) {
-            const sender = this.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (sender) {
-                sender.replaceTrack(this.dummyTrack);
-            }
-        }
-
+        // Frames stop flowing to the WebSocket while asleep.
         this.emit('asleep');
     }
 
@@ -302,73 +460,19 @@ class nVoiceClient {
 
             this.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-            let streamToSend = this.audioStream;
-
             if (this.wakeWordEnabled) {
                 this.isAwake = false;
                 this._finalReceived = false;
                 this._silenceCount = 0;
                 this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
                 this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
-
-                this.dummyTrack = this._createDummyTrack();
-                streamToSend = new MediaStream([this.dummyTrack]);
                 await this._setupAudioWorklet();
-                this.emit('asleep');
+            } else {
+                this.isAwake = true;
             }
 
-            if (this.pc) {
-                const audioTrack = streamToSend.getAudioTracks()[0];
-                const sender = this.pc.getSenders().find(s => !s.track || s.track.kind === 'audio');
-                if (sender) {
-                    await sender.replaceTrack(audioTrack);
-                } else {
-                    this.pc.addTrack(audioTrack, streamToSend);
-                }
-                this.emit('connected');
-                return;
-            }
-
-            this.pc = new RTCPeerConnection();
-            console.log('[nVoice] RTCPeerConnection created');
-
-            this.dc = this.pc.createDataChannel('stt-events');
-            console.log('[nVoice] DataChannel "stt-events" created');
-
-            this.dc.onopen = () => {
-                console.log('[nVoice] DataChannel opened');
-                this.emit('connected');
-            };
-
-            this.dc.onclose = () => {
-                console.log('[nVoice] DataChannel closed');
-                this.emit('disconnected');
-            };
-
-            this.dc.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'transcript') {
-                        if (this.wakeWordEnabled && data.is_final) {
-                            this._finalReceived = true;
-                        }
-                        this.emit('transcript', data);
-                    } else if (data.type === 'telemetry') {
-                        this.emit('telemetry', data);
-                    }
-                } catch (e) {
-                    this.emit('error', new Error('Failed to parse DataChannel message: ' + e.message));
-                }
-            };
-
-            streamToSend.getTracks().forEach(track => {
-                this.pc.addTrack(track, streamToSend);
-            });
-
-            const offer = await this.pc.createOffer();
-            await this.pc.setLocalDescription(offer);
-
-            // v3: create a realtime session, then relay SDP to the session offer endpoint
+            // Local engines: realtime audio over WebSocket (browser → Node → worker).
+            // Cloud engines: handled separately via their own WebSocket flow below.
             console.log('[nVoice] Creating realtime session... (engine=' + (this.engine || 'default') + ')');
             const base = this.serverUrl || '';
             const sessionUrl = this.engine
@@ -382,33 +486,61 @@ class nVoiceClient {
             this._sessionId = session.id;
             console.log('[nVoice] Session created: ' + session.id);
 
-            // Cloud engines use WebSocket directly — no WebRTC
+            // Cloud engines use WebSocket directly to the provider — no local worker
             if (session.cloud) {
                 console.log('[nVoice] Cloud engine detected (' + session.provider + '), using WebSocket flow');
-                await this._startCloudRealtime(session, streamToSend);
+                await this._startCloudRealtime(session, this.audioStream);
                 return;
             }
 
-            // Local engines use WebRTC peer-to-peer to the Python worker
-            const endpoint = `${base}${session.offer_endpoint}`;
-            console.log('[nVoice] Sending SDP offer to ' + endpoint + ' (sdp length=' + this.pc.localDescription.sdp.length + ')');
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sdp: this.pc.localDescription.sdp,
-                    type: this.pc.localDescription.type
-                })
-            });
+            // Build the streaming worklet that feeds PCM frames to the socket.
+            await this._setupStreamingWorklet();
 
-            if (!response.ok) {
-                throw new Error('Server returned ' + response.status + ': ' + response.statusText);
+            // Open the realtime WebSocket (ws on http, wss on https).
+            // recordDebug → worker captures engine-received audio to a WAV (output/).
+            const proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+            let wsUrl = `${proto}//${window.location.host}${session.ws_endpoint}`;
+            if (this.recordDebug) {
+                wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'record=1';
             }
+            console.log('[nVoice] Connecting realtime WebSocket: ' + wsUrl);
+            this.ws = new WebSocket(wsUrl);
 
-            const answer = await response.json();
-            console.log('[nVoice] SDP answer received (length=' + (answer.sdp?.length || 0) + ')');
-            await this.pc.setRemoteDescription(answer);
-            console.log('[nVoice] Remote description set, WebRTC connection should be establishing...');
+            this.ws.onopen = () => {
+                console.log('[nVoice] Realtime WebSocket open');
+                // The socket is connected regardless of wake/sleep state.
+                // Emit 'connected' (enables Stop), then signal asleep if wake-word is armed.
+                this.emit('connected');
+                if (this.wakeWordEnabled && !this.isAwake) {
+                    this.emit('asleep');
+                }
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'transcript') {
+                        if (this.wakeWordEnabled && data.is_final) {
+                            this._finalReceived = true;
+                        }
+                        this.emit('transcript', data);
+                    } else if (data.type === 'telemetry') {
+                        this.emit('telemetry', data);
+                    }
+                } catch (e) {
+                    this.emit('error', new Error('Failed to parse realtime message: ' + e.message));
+                }
+            };
+
+            this.ws.onerror = (err) => {
+                console.error('[nVoice] Realtime WebSocket error', err);
+                this.emit('error', new Error('Realtime WebSocket error'));
+            };
+
+            this.ws.onclose = () => {
+                console.log('[nVoice] Realtime WebSocket closed');
+                this.emit('disconnected');
+            };
 
         } catch (error) {
             this.emit('error', error);
@@ -577,18 +709,18 @@ class nVoiceClient {
         // Clean up cloud realtime if active
         this._stopCloudRealtime();
 
+        // Stop the streaming worklet (mic → WebSocket)
+        if (this._streamNode) {
+            this._streamNode.disconnect();
+            this._streamNode = null;
+        }
+        if (this._streamContext) {
+            this._streamContext.close();
+            this._streamContext = null;
+        }
+
         if (this.audioStream) {
             this.audioStream.getTracks().forEach(track => track.stop());
-
-            if (this.pc) {
-                const dummy = this._createDummyTrack();
-                const senders = this.pc.getSenders();
-                senders.forEach(sender => {
-                    if (sender.track && sender.track.kind === 'audio') {
-                        sender.replaceTrack(dummy);
-                    }
-                });
-            }
             this.audioStream = null;
         }
 
@@ -603,14 +735,11 @@ class nVoiceClient {
     disconnect() {
         this.stop();
 
-        if (this.dc) {
-            this.dc.close();
-            this.dc = null;
-        }
-
-        if (this.pc) {
-            this.pc.close();
-            this.pc = null;
+        if (this.ws) {
+            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+                this.ws.close();
+            }
+            this.ws = null;
         }
 
         this.emit('disconnected');

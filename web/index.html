@@ -101,10 +101,12 @@
     <div style="margin-bottom: 10px;">
         <label for="micSelect">Input Source:</label>
         <select id="micSelect"></select>
-        <input type="checkbox" id="wakeWordToggle" style="margin-left: 15px;">
+        <input type="checkbox" id="wakeWordToggle" style="margin-left: 15px;" checked>
         <label for="wakeWordToggle">Enable Wake-on-Voice (WASM)</label>
         <input type="checkbox" id="rawAudioToggle" style="margin-left: 15px;">
         <label for="rawAudioToggle">Raw Audio (disable AGC/noise suppression)</label>
+        <input type="checkbox" id="recordDebugToggle" style="margin-left: 15px;">
+        <label for="recordDebugToggle">Record (debug — saves engine-received WAV to server output/)</label>
     </div>
     <div>
         <button id="startBtn" class="btn">Start Audio</button>

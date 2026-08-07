@@ -2,8 +2,7 @@
 # Shared worker runtime
 fastapi
 uvicorn
-aiortc
-av
+websockets
 soundfile
 numpy
 requests

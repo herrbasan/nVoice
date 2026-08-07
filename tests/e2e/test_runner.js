@@ -205,9 +205,8 @@ async function testRealtimeSessionCreate() {
   const resp = await fetch(`${BASE_URL}/v1/realtime/sessions`);
   const data = await resp.json();
   if (!data.id) throw new Error('Missing session id');
-  if (!data.offer_endpoint) throw new Error('Missing offer_endpoint');
-  if (!data.offer_endpoint.includes(data.id)) throw new Error('offer_endpoint does not contain session id');
-  if (!data.ice_servers || !Array.isArray(data.ice_servers)) throw new Error('Missing ice_servers');
+  if (!data.ws_endpoint) throw new Error('Missing ws_endpoint');
+  if (!data.ws_endpoint.startsWith('/v1/realtime/ws')) throw new Error('ws_endpoint has wrong path');
 }
 
 async function testCloudEngineListed() {

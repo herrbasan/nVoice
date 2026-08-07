@@ -47,11 +47,6 @@ if not _is_cpu_only:
                     if hasattr(os, "add_dll_directory"):
                         os.add_dll_directory(_bin)
 
-# 2. asyncio policy (aiortc UDP crash / WinError 10054)
-if sys.platform == "win32":
-    import asyncio
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 # --- Low-level CUDA and threading efficiency optimizations (Phase 6/Hardware tuning) ---
 # Only initialize CUDA driver for GPU engines — CPU-only engines (sherpa-onnx) need
 # the GPU completely hidden so ONNX Runtime doesn't auto-select CUDA provider.

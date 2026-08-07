@@ -5,7 +5,8 @@
 > **Keep this file and `nVoice_SPEC.md` up to date when behavior changes.**
 
 Base URL: `http://localhost:2244` (HTTP) or `https://localhost:2245` (HTTPS). HTTPS is
-`config.port + 1`. The browser dashboard and WebRTC require the HTTPS origin.
+`config.port + 1`. The browser dashboard and realtime WebSocket require the HTTPS origin
+(mic access needs a secure context; WS becomes WSS).
 
 OpenAI-compatible where applicable. Local-engine responses are JSON; multipart in, JSON out
 (Guardrail G11). Errors use the OpenAI error envelope:
@@ -100,16 +101,25 @@ event: done        data: { …full payload… }
 
 ---
 
-## Realtime (WebRTC)
+## Realtime (WebSocket)
 
 ### `GET /v1/realtime/sessions?model=<id>`
-Create a session. Local engine → `{ id, model, ice_servers, offer_endpoint }`.
-Cloud engine → `{ id, model, cloud:true, provider, token_endpoint }`.
+Create a session. Local engine → `{ id, model, ws_endpoint }` (e.g.
+`/v1/realtime/ws?model=<id>`). Cloud engine → `{ id, model, cloud:true, provider,
+token_endpoint }`.
 
-### `POST /v1/realtime/sessions/{id}/offer?model=<id>`
-Relay the SDP offer to the worker byte-for-byte (Guardrail G1 — Node is not in the media
-path). Body: `{ "sdp", "type" }`. Returns the worker's SDP answer. The browser then opens
-UDP media + DataChannel **directly to the worker**.
+### `WS /v1/realtime/ws?model=<id>`
+Live STT over WebSocket. Node relays the connection to the resolved Python worker
+(piping bytes only — it never decodes audio).
+
+- **Client → server:** binary frames of float32 PCM, 16kHz mono (little-endian).
+- **Server → client:** JSON text frames — `{ "type":"transcript", "text", "is_final" }`
+  or `{ "type":"telemetry", "rtf", "backlog_sec", "state", … }`.
+- Close codes: `4000` engine has no realtime capability; `4503` engine still warming.
+
+Cloud engines do **not** use this endpoint — the browser connects directly to the
+provider (ElevenLabs) using a single-use token from
+`GET /v1/realtime/sessions/{id}/token?model=<id>`.
 
 ---
 

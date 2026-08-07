@@ -127,13 +127,19 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
                 infer_view = self.audio_buffer[:int(30.0 * self.sample_rate)]
 
                 # Pre-inference speech check
-                # G7: Use shared Silero VAD if available, fall back to RMS
+                # G7: Use shared Silero VAD if available, fall back to RMS.
+                # Cheap RMS gate first: if the buffer is near-silent, skip the neural
+                # VAD entirely — running ONNX on known-silence every cycle is the
+                # dominant idle-CPU cost. RMS uses a subsample (every 16th sample) so
+                # it stays cheap even on a 30s buffer.
                 should_flush = False
                 try:
-                    rms = float(np.sqrt(np.mean(np.square(np.clip(infer_view, -1.0, 1.0)))))
+                    sub = infer_view[::16]
+                    rms = float(np.sqrt(np.mean(np.square(np.clip(sub, -1.0, 1.0)))))
                 except (RuntimeWarning, Exception):
                     rms = 0.0
-                if self.vad:
+                if self.vad and rms >= 0.005:
+                    # RMS heard something — confirm with the neural VAD.
                     try:
                         has_speech = self.vad.has_speech(infer_view, self.sample_rate)
                         if not has_speech:
@@ -142,11 +148,9 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
                         # VAD failed — disable it permanently and fall back to RMS
                         logger.warning(f"VAD failed ({vad_err}), disabling — falling back to RMS")
                         self.vad = None
-                        if rms < 0.005:
-                            should_flush = True
-                else:
-                    if rms < 0.005:
                         should_flush = True
+                elif rms < 0.005:
+                    should_flush = True
 
                 if should_flush:
                     # No speech in the buffer — flush, but KEEP the last 0.5s
@@ -160,7 +164,11 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
                         self.audio_buffer = self.audio_buffer[-samples_to_keep:]
                     logger.info(f"Flush: no speech (rms={rms:.4f}, buf={available_sec:.1f}s, kept={keep_sec}s)")
                     self._send_telemetry(0.0, 0.0, "idle/silence", {"rms": rms})
-                    await asyncio.sleep(0.05)
+                    # Back off in silence — after the flush the buffer holds only the
+                    # 0.5s lead-in, so there is nothing new to evaluate for a while.
+                    # 0.3s is still well under the commit_silence_tail granularity, so
+                    # speech onset latency is unaffected. This is the idle-CPU fix.
+                    await asyncio.sleep(0.3)
                     continue
 
                 t0 = time.monotonic()

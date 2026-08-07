@@ -10,18 +10,49 @@ Endpoints:
   POST /v1/audio/transcriptions         — batch STT
   POST /v1/audio/align                  — word timestamps for known text
   POST /v1/audio/transcribe-archive     — archival STT + diarization (SSE stream)
-  POST /v1/realtime/sessions/{id}/offer — WebRTC SDP relay (Phase 4)
+  WS   /v1/realtime/ws                  — realtime STT (WebSocket, PCM in / JSON events out)
 """
 import os
 import json
+import asyncio
+import contextlib
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from nvoice.logger import get_logger
 
 logger = get_logger("worker_routes")
+
+# Project root → config.json (worker_routes.py is at src/nvoice/worker_routes.py)
+_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "config.json",
+)
+
+
+def _load_config():
+    """Load the project config.json. Fail loud if unreadable — the realtime
+    strategy tuning (buffer_min_sec, commit_silence_tail_sec, vad) lives here."""
+    with open(_CONFIG_PATH) as f:
+        return json.load(f)
+
+
+def _write_capture_wav(chunks, engine_name):
+    """Write captured float32 16kHz frames to output/realtime_capture_<engine>_<ts>.wav
+    as int16 PCM. chunks is a list of 1D float32 arrays (frames as received by the
+    engine)."""
+    import time
+    import soundfile as sf
+    audio = np.concatenate(chunks) if chunks else np.array([], dtype=np.float32)
+    pcm16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+    out_dir = os.path.join(os.path.dirname(_CONFIG_PATH), "output")
+    os.makedirs(out_dir, exist_ok=True)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    path = os.path.join(out_dir, f"realtime_capture_{engine_name}_{ts}.wav")
+    sf.write(path, pcm16, 16000, subtype="PCM_16")
+    logger.info(f"Realtime capture written: {path} ({len(audio)/16000:.1f}s)")
 
 
 class TranscriptionRequest(BaseModel):
@@ -49,11 +80,6 @@ class ArchiveTranscriptionRequest(BaseModel):
     max_speakers: int = None
     start_time: float = 0.0
     chunk_seconds: float = 300.0
-
-
-class OfferRequest(BaseModel):
-    sdp: str
-    type: str
 
 
 def segments_to_json(segments):
@@ -309,38 +335,64 @@ def build_routes(app, adapter, engine_name, diarizer=None):
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @app.post("/v1/realtime/sessions/{session_id}/offer")
-    async def realtime_offer(session_id: str, req: OfferRequest):
+    @app.websocket("/v1/realtime/ws")
+    async def realtime_ws(ws: WebSocket):
+        """
+        Realtime STT over WebSocket. Replaces the WebRTC SDP/offer path.
+
+        Inbound:  binary frames of float32 PCM, 16kHz mono (from the browser).
+        Outbound: JSON text frames — {type:"transcript"|"telemetry", ...}.
+
+        The strategy layer (buffer-retranscribe) is transport-agnostic: we feed
+        it on_audio(np_frames) and drain poll() events back to the socket.
+        """
         if "realtime" not in caps:
-            return JSONResponse(status_code=400, content={
-                "error": {"message": f"Engine {engine_name} does not support realtime", "type": "invalid_request_error"}
-            })
-
+            await ws.close(code=4000)
+            return
         if not adapter.is_loaded():
-            return JSONResponse(status_code=503, content={
-                "error": {"message": "Engine is still warming up", "type": "service_unavailable"}
-            })
+            await ws.close(code=4503)  # service unavailable / warming
+            return
 
-        # Create WebRTC manager lazily (it needs the adapter)
-        if not hasattr(app.state, 'webrtc_manager') or app.state.webrtc_manager is None:
-            from nvoice.webrtc import WebRTCManager
-            import json as _json
-            import os as _os
-            _cfg = {}
-            _cfg_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__)))), "config.json")
-            if _os.path.exists(_cfg_path):
-                with open(_cfg_path) as _f:
-                    _cfg = _json.load(_f)
-            app.state.webrtc_manager = WebRTCManager(adapter, _cfg)
+        await ws.accept()
+        logger.info("Realtime WS connected")
 
+        from nvoice.realtime import create_strategy  # strategy factory (transport-agnostic)
+        strategy = create_strategy(adapter, _load_config())
+        strategy.start()
+
+        # Optional debug capture: ?record=1 writes every frame the ENGINE receives
+        # to output/realtime_capture_<engine>_<ts>.wav. This records at the exact
+        # point audio enters the strategy — authoritative proof of what the STT
+        # engine ingests, after browser→Node→worker transit. float32 → int16 WAV.
+        record = ws.query_params.get("record") == "1"
+        capture = [] if record else None
+
+        async def _pump_events():
+            # Drain strategy events → JSON text frames. Mirrors the old
+            # DataChannel poll loop in webrtc.RealtimeSession._poll_loop.
+            while True:
+                for event in strategy.poll():
+                    await ws.send_text(json.dumps(event))
+                await asyncio.sleep(0.05)
+
+        pump = asyncio.create_task(_pump_events())
         try:
-            answer = await app.state.webrtc_manager.process_offer(req.sdp, req.type)
-            return answer
-        except Exception as e:
-            logger.error(f"WebRTC offer failed: {e}")
-            return JSONResponse(status_code=500, content={
-                "error": {"message": str(e), "type": "engine_error"}
-            })
+            while True:
+                data = await ws.receive_bytes()
+                frames = np.frombuffer(data, dtype=np.float32)
+                if capture is not None:
+                    capture.append(frames)
+                strategy.on_audio(frames)
+        except WebSocketDisconnect:
+            logger.info("Realtime WS disconnected")
+        finally:
+            pump.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump
+            strategy.stop()
+            if capture is not None and capture:
+                _write_capture_wav(capture, engine_name)
+            logger.info("Realtime WS session stopped")
 
     # Store metadata on app for the manager to query
     app.state.engine_name = engine_name

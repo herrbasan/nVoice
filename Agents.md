@@ -11,14 +11,14 @@
 ## Architecture (nVoice v3)
 
 ### Two-Tier Architecture
-nVoice v3 uses a Node.js management layer that spawns, kills, and switches between per-engine Python workers at runtime. Node is a thin translation layer — it never runs inference and is never in the real-time media path.
+nVoice v3 uses a Node.js management layer that spawns, kills, and switches between per-engine Python workers at runtime. Node is a thin translation layer — it never runs inference. In the realtime path it relays WebSocket frames but never decodes audio.
 
 ```
 Client → Node.js API Server (Fastify) → Per-engine Python HTTP Worker
 ```
 
-- **Node server** (`server/`): OpenAI-compatible API surface, engine worker manager, audio normalization (ffmpeg), cloud adapters.
-- **Python workers** (`src/nvoice/`): Engine-native HTTP endpoints, STT adapters, WebRTC realtime pipeline.
+- **Node server** (`server/`): OpenAI-compatible API surface, engine worker manager, audio normalization (ffmpeg), cloud adapters, realtime WebSocket relay.
+- **Python workers** (`src/nvoice/`): Engine-native HTTP endpoints, STT adapters, WebSocket realtime pipeline.
 
 ### Multi-Venv Isolation (Self-Contained)
 Each engine family has its own isolated venv at `venv/<family>/env/`, including its own Python interpreter. The system Python is used **only** to bootstrap the venvs via `install.py` — at runtime, every worker uses its venv's own interpreter.
@@ -40,8 +40,8 @@ venv/
 - `POST /v1/audio/translations` — speech-to-English
 - `POST /v1/audio/align` — word timestamps for known text
 - `POST /v1/audio/transcribe-archive` — long-audio STT + speaker diarization (SSE). File, **folder** (auto-concat), or **video** (audio extracted)
-- `GET  /v1/realtime/sessions` — create WebRTC session
-- `POST /v1/realtime/sessions/{id}/offer` — SDP relay to worker
+- `GET  /v1/realtime/sessions` — create realtime session (returns `ws_endpoint`)
+- `WS   /v1/realtime/ws?model=<id>` — realtime STT (binary float32 PCM in, JSON events out). Node relays to the worker, piping bytes only.
 - `GET  /v1/models` — list engines
 - `POST /v1/admin/engine` — switch engine (SSE progress)
 - `GET  /v1/admin/engines` — registered engines
@@ -52,7 +52,7 @@ venv/
 
 ### Directory Structure & Intent
 - `server/`: Node.js management layer (Fastify, engine manager, API routes, audio normalization, cloud adapters).
-- `src/`: Python worker code — shared across all engine venvs via `PYTHONPATH`. Contains STT adapters, WebRTC, worker HTTP server, realtime strategies, and per-engine adapters.
+- `src/`: Python worker code — shared across all engine venvs via `PYTHONPATH`. Contains STT adapters, realtime WebSocket endpoint, worker HTTP server, realtime strategies, and per-engine adapters.
 - `src/nvoice/engines/`: Per-engine adapters — `faster_whisper.py`, `parakeet.py`, `sherpa_onnx.py`, `parakeet_npu.py`.
 - `web/`: Vanilla HTML/JS dashboard (batch + realtime UI).
 - `sdk/`: Browser SDK (`nVoiceClient.js`) + ORT WASM for client-side Silero VAD.
@@ -73,11 +73,29 @@ Every adapter declares `capabilities()` (subset of batch/translate/align/realtim
 
 GPU engines are mutually exclusive — loading one unloads the other (frees VRAM). CPU/NPU engines coexist.
 
-### Realtime Strategy
+### Realtime Transport — WebSocket (replaced WebRTC on 2026-08-07)
+Realtime audio flows **browser → WebSocket → Node → WebSocket → Python worker**. Node relays frames both directions, piping bytes only (never decoding audio). Wire format: binary float32 PCM 16kHz mono client→worker; JSON transcript/telemetry events worker→client.
+
+**Why WebSocket, not WebRTC:** the old WebRTC design (browser→worker direct UDP, G1) was never reachable cross-machine (Windows Firewall blocks inbound UDP to the venv `python.exe` interpreters) and **cannot** traverse the nPort/Caddy reverse-proxy edge, which is TCP-only (`reverse_proxy` handles WS upgrades natively). WebRTC's low-latency/loss-tolerance bought nothing: STT inference latency (hundreds of ms) dwarfs transport latency, and the buffer-retranscribe strategy already tolerates backlog. WebSocket is the only transport that works both on the LAN and over the internet via nPort. Cloud engines (ElevenLabs) never used WebRTC — they connect browser→provider directly over WS.
+
 The v2 `AudioConsumer._daemon_loop` is extracted verbatim into `src/nvoice/realtime/buffer_retranscribe.py`. Its heuristics are load-bearing — do NOT simplify. The shared `vad.py` Silero stage replaces the old RMS gate.
 
+### Realtime Client/SDK Behavior (nVoiceClient.js)
+- **Audio capture:** `getUserMedia` applies echo-cancellation/noise-suppression/AGC at capture time (browser pipeline), independent of transport. On desktop `useProcessing=false` unless "Raw Audio" toggle overrides; on mobile processing is on.
+- **Streaming worklet:** `_setupStreamingWorklet()` (AudioWorklet) downsamples mic → 16kHz mono, emits 512-sample (32ms) Float32 frames, sends each to the WS when `isAwake`. This is the *only* path audio takes to the server.
+- **Two VADs, separate jobs:**
+  - **Client WASM Silero VAD** (`enableWakeWord`, `_setupAudioWorklet`) — decides **when to send audio** (wake-on-voice). Cheap, always-on. Requires **sustained** speech to wake: 3 consecutive frames with prob > 0.5 (`_wakeFrames`/`_wakeThreshold`) — a single frame is too easy to trip on amplified fan/ambient noise.
+  - **Backend Silero VAD** (`vad.py`, used by the strategy) — decides **when to transcribe**. Gates inference during silence so an open-but-quiet stream costs ~nothing.
+- **No auto-sleep.** Removed 2026-08-07: a 3s auto-sleep thrashed on normal conversational pauses (slept mid-sentence, dropped audio, flickered state, ate words). Now once awake the stream stays open and keeps sending; the backend VAD idles inference during silence. Sleep only via explicit manual "Go to Sleep" click.
+- **Events:** `connected` (WS open — always emitted, enables Stop), `asleep`/`wakeWordDetected` (VAD state), `standby` (after Stop, socket kept), `disconnected`, `transcript`, `telemetry`, `error`.
+
+### Realtime Power/CPU Behavior (measured on Badkid, RTX 4090)
+The dominant idle-CPU cost was the strategy's silence loop running the neural VAD + full-buffer RMS every 50ms forever. Fixed (2026-08-07): RMS-first gate on a subsampled buffer (skip ONNX when RMS < 0.005) + 0.3s silence back-off after a flush. Verified: silent baseline now matches no-nVoice. Active transcription on parakeet ≈ 80–95W CPU / 35W GPU. Do NOT "optimize" the silence path further by removing the back-off — that reintroduces the hot idle loop.
+
+**Measurement caveat:** when tracking nVoice's power draw, remember VS Code itself burns ~15W on Badkid on its own. Subtract that (and the OS/other-service floor) before attributing wattage to nVoice.
+
 ### Guardrails
-13 implementation guardrails (G1–G13) are documented in `docs/NVoice_API_DEV_PLAN.md` §13. Read them before touching any phase.
+13 implementation guardrails (G1–G13) are documented in `docs/NVoice_API_DEV_PLAN.md` §13. Read them before touching any phase. **Note:** G1 ("Node is NEVER in the real-time media path") was amended 2026-08-07 — Node relays WebSocket frames but never decodes audio; the original direct-UDP-to-worker design was abandoned (see Realtime Transport above).
 
 ### Environment Reference
 - **Active Engine:** Configured in `config.json` (`default_engine`). Default: `faster_whisper_large-v3`.

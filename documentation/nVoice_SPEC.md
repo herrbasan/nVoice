@@ -7,7 +7,7 @@
 
 nVoice is an OpenAI-compatible Speech-to-Text server. A thin Node.js management layer
 spawns, kills, and switches between per-engine Python workers at runtime. Node never runs
-inference and is never in the real-time media path.
+inference; in the realtime path it only relays WebSocket frames (never decoding audio).
 
 ---
 
@@ -19,14 +19,14 @@ Client → Node.js API Server (Fastify) → Per-engine Python HTTP Worker
          ├── Engine manager            ├── parakeet_tdt    (GPU, FP16)
          ├── Audio normalize (ffmpeg)  ├── sherpa_parakeet (CPU, int8)
          ├── Cloud adapters            └── parakeet_npu    (Intel NPU)
-         └── WebRTC SDP relay
+         └── Realtime WebSocket relay
 ```
 
 - **Node server (`server/`)** — OpenAI-compatible API, engine worker manager, audio
-  normalization (ffmpeg), cloud adapters, WebRTC SDP relay. Pure translation layer.
-- **Python workers (`src/nvoice/`)** — engine-native HTTP endpoints, STT adapters, WebRTC
-  realtime pipeline, diarization. One process per active engine, spawned with that engine
-  family's venv interpreter.
+  normalization (ffmpeg), cloud adapters, realtime WebSocket relay. Pure translation layer.
+- **Python workers (`src/nvoice/`)** — engine-native HTTP endpoints, STT adapters,
+  realtime WebSocket pipeline, diarization. One process per active engine, spawned with
+  that engine family's venv interpreter.
 
 **Data flow (batch):** client uploads multipart → Node normalizes audio to WAV 16kHz mono
 `pcm_s16le` via ffmpeg → Node passes the temp file *path* to the worker as JSON → worker
@@ -42,9 +42,13 @@ Resolution order: vendored submodule → `ffmpeg_path`/`ffprobe_path` in `config
 are not fully static, so their `dist/` dir is prepended to the spawn `PATH` for DLL
 resolution (libx264, libfdk-aac, zlib1, …).
 
-**Data flow (realtime):** browser negotiates WebRTC **directly with the Python worker** —
-Node only relays the SDP offer/answer byte-for-byte (Guardrail G1). Audio frames never
-touch Node.
+**Data flow (realtime):** the browser opens a WebSocket to Node
+(`WS /v1/realtime/ws?model=<id>`); Node opens a matching WebSocket to the resolved worker
+and pipes frames in both directions, never decoding audio. Client → worker frames are
+binary float32 PCM (16kHz mono); worker → client frames are JSON transcript/telemetry
+events. WebSocket replaces the earlier WebRTC design because WebRTC's browser→worker UDP
+media path cannot traverse the nPort/Caddy reverse-proxy edge (TCP-only) and was never
+reachable cross-machine.
 
 ---
 
@@ -158,8 +162,8 @@ clarified. The raw merged transcript is the final deliverable.
 Buffer-retranscribe strategy (`src/nvoice/realtime/buffer_retranscribe.py`): the worker
 buffers incoming PCM, runs VAD, transcribes the buffer, and commits final segments after a
 silence tail. The heuristics there are load-bearing — do not simplify. VAD is split across
-client (Silero WASM gate) and worker (backend stage); Node owns only the *policy*, never
-frame-level VAD (it's not in the media path).
+client (Silero WASM gate) and worker (backend stage); Node owns only the *policy* and the
+WebSocket relay — it performs no frame-level VAD and no audio decode.
 
 ---
 
@@ -184,8 +188,8 @@ Secrets live in `.env` (loaded into `config.env`): `HF_TOKEN` (pyannote), cloud 
 **Multipart limit:** 16 GB (`server/index.js`) to admit multi-GB video. Uploads are streamed
 to disk, never buffered in RAM — the limit is an abuse guard, not a capacity constraint.
 
-**Ports:** HTTP `2244`, HTTPS `2245` (`config.port` + 1). Dashboard at both. WebRTC mic
-requires the HTTPS (secure-context) origin.
+**Ports:** HTTP `2244`, HTTPS `2245` (`config.port` + 1). Dashboard at both. Realtime mic
+requires the HTTPS (secure-context) origin; the WebSocket upgrades to WSS accordingly.
 
 ---
 

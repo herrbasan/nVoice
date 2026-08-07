@@ -1,6 +1,6 @@
-# nVoice WebRTC JavaScript SDK
+# nVoice Realtime JavaScript SDK
 
-Zero-dependency vanilla JS client for real-time STT via WebRTC. Includes client-side Silero VAD for wake-on-voice.
+Zero-dependency vanilla JS client for real-time STT over WebSocket. Includes client-side Silero VAD for wake-on-voice.
 
 ## Usage
 
@@ -38,7 +38,7 @@ client.disconnect(); // Full teardown
 
 | Method | Description |
 |--------|-------------|
-| `start()` | Get mic, establish WebRTC, start audio. If wake word enabled, starts asleep. |
+| `start()` | Get mic, open the realtime WebSocket, start audio. If wake word enabled, starts asleep. |
 | `stop()` | Mute mic (silent dummy track), keep connection alive. |
 | `disconnect()` | Full teardown: close PeerConnection, DataChannel, AudioContext. |
 | `setAudioDevice(id)` | Set mic device ID for next `start()`. |
@@ -50,7 +50,7 @@ client.disconnect(); // Full teardown
 
 | Event | Description |
 |-------|-------------|
-| `connected` | WebRTC + DataChannel open. |
+| `connected` | Realtime WebSocket open. |
 | `disconnected` | Connection closed. |
 | `standby` | Mic muted, connection kept alive (`stop()`). |
 | `transcript` | `{ text, is_final }` from backend. |

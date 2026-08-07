@@ -1,6 +1,6 @@
 # nVoice v3
 
-OpenAI-compatible Speech-to-Text server with multi-engine support, WebRTC realtime streaming, and per-engine isolated Python environments. A thin Node.js management layer spawns and switches between Python workers at runtime — each engine runs in its own self-contained venv to prevent dependency contamination.
+OpenAI-compatible Speech-to-Text server with multi-engine support, WebSocket realtime streaming, and per-engine isolated Python environments. A thin Node.js management layer spawns and switches between Python workers at runtime — each engine runs in its own self-contained venv to prevent dependency contamination.
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ start.bat          # Windows
 
 The server starts dual HTTP+HTTPS:
 - **HTTP** `http://localhost:2244` — API endpoints
-- **HTTPS** `https://localhost:2245` — browser UI and WebRTC (mic access requires secure context)
+- **HTTPS** `https://localhost:2245` — browser UI and realtime WebSocket (mic access requires secure context)
 
 Open `https://localhost:2245` in a browser for the dashboard (batch + archival transcription + realtime).
 
@@ -44,8 +44,8 @@ Open `https://localhost:2245` in a browser for the dashboard (batch + archival t
 | `/v1/audio/translations` | POST | Speech-to-English |
 | `/v1/audio/align` | POST | Word-level timestamps for known text |
 | `/v1/audio/transcribe-archive` | POST | Long-audio STT + speaker diarization (SSE stream). Accepts a file, a **folder** (auto-concat), or a **video** (audio extracted) |
-| `/v1/realtime/sessions` | GET | Create WebRTC realtime session |
-| `/v1/realtime/sessions/{id}/offer` | POST | SDP relay to worker |
+| `/v1/realtime/sessions` | GET | Create realtime session (returns `ws_endpoint`) |
+| `/v1/realtime/ws?model=<id>` | WS | Realtime STT — binary float32 PCM in, JSON transcript/telemetry out |
 | `/v1/models` | GET | List registered engines |
 | `/v1/admin/engine` | POST | Switch active engine (SSE progress) |
 | `/v1/admin/engines` | GET | List all engines + capabilities |
@@ -78,7 +78,7 @@ Client → Node.js (Fastify) → Per-engine Python HTTP Worker
          ├── Engine manager   ├── parakeet_tdt    (GPU, FP16)
          ├── Audio normalize  ├── sherpa_parakeet (CPU, int8)
          ├── Cloud adapters   └── parakeet_npu    (Intel NPU)
-         └── WebRTC relay
+         └── Realtime WS relay
 ```
 
 **Two-tier design:** Node is a thin translation layer — it never runs inference and is never in the real-time media path. Each Python worker is an isolated process with its own venv, loaded lazily on first request and killed when switched away (GPU engines) or at shutdown.
@@ -112,7 +112,7 @@ Copy `config.example.json` to `config.json` and edit:
 
 ## JavaScript SDK
 
-Zero-dependency WebRTC client with optional client-side Silero VAD for wake-on-voice:
+Zero-dependency WebSocket client with optional client-side Silero VAD for wake-on-voice:
 
 ```html
 <script src="/sdk/ort.js"></script>

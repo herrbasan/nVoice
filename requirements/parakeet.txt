@@ -22,8 +22,9 @@ librosa
 # Shared worker runtime
 fastapi
 uvicorn
-aiortc
-av
+websockets
 soundfile
 numpy
+onnxruntime  # shared Silero VAD backend (vad.py) — without it the realtime
+             # strategy falls back to RMS-only gating and transcribes noise
 requests

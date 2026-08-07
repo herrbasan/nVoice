@@ -20,7 +20,7 @@ import { logger } from './logger.js';
 import { EngineManager } from './engine/manager.js';
 import { registerTranscriptionRoutes, registerAlignRoute, registerArchiveRoute } from './api/transcriptions.js';
 import { registerAdminRoutes } from './api/admin.js';
-import { registerRealtimeRoutes } from './api/realtime.js';
+import { registerRealtimeRoutes, attachRealtimeWebSocket } from './api/realtime.js';
 import { listCloudEngines } from './cloud/registry.js';
 
 // Engine manager — singleton for the server lifetime
@@ -161,6 +161,7 @@ const httpsPort = config.port + 1;
 const httpApp = createApp();
 apps.push(httpApp);
 await httpApp.listen({ host, port: httpPort });
+attachRealtimeWebSocket(httpApp, engineManager);
 logger.info('nVoice v3 HTTP listening', { host, port: httpPort }, 'Server', { console: true });
 logger.info('Dashboard (HTTP)', { url: `http://127.0.0.1:${httpPort}/` }, 'Server', { console: true });
 
@@ -171,6 +172,7 @@ if (tlsCreds) {
   apps.push(httpsApp);
   try {
     await httpsApp.listen({ host, port: httpsPort });
+    attachRealtimeWebSocket(httpsApp, engineManager);
     logger.info('nVoice v3 HTTPS listening', { host, port: httpsPort }, 'Server', { console: true });
     logger.info('Dashboard (HTTPS)', { url: `https://127.0.0.1:${httpsPort}/` }, 'Server', { console: true });
     const localIP = getLocalIP();
