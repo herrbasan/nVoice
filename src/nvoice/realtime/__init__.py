@@ -70,19 +70,17 @@ def create_strategy(adapter, config=None):
         )
 
     if strategy_name == "native-streaming":
-        # For engines that declare native-streaming but don't have a dedicated
-        # streaming strategy driver yet, fall back to buffer-retranscribe.
-        # This works well for fast engines like Parakeet (RTF ~0.1) where
-        # re-transcribing the growing buffer is cheap.
-        # TODO: implement realtime/parakeet_streaming.py for true chunked inference
-        from nvoice.realtime.buffer_retranscribe import BufferRetranscribeStrategy
-        logger.info("native-streaming: falling back to buffer-retranscribe (no dedicated strategy yet)")
-        return BufferRetranscribeStrategy(
+        # Transducer engines (Parakeet-TDT) designed for chunked/local-attention
+        # inference: transcribe each speech chunk ONCE at a silence boundary instead
+        # of re-transcribing a growing buffer. This is where the realtime CPU win is.
+        from nvoice.realtime.chunked_streaming import ChunkedStreamingStrategy
+        return ChunkedStreamingStrategy(
             stt_engine=adapter,
             sample_rate=16000,
             vad=vad,
-            buffer_min_sec=cfg.get('buffer_min_sec', 0.3),
-            commit_silence_tail_sec=cfg.get('commit_silence_tail_sec', 1.0),
+            commit_silence_sec=cfg.get('commit_silence_tail_sec', 0.6),
+            left_context_sec=2.0,
+            max_chunk_sec=30.0,
         )
 
     raise ValueError(f"Unknown realtime strategy: {strategy_name}")
