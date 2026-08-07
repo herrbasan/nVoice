@@ -1,3 +1,6 @@
 [submodule "server/nLogger"]
 	path = server/nLogger
 	url = https://github.com/herrbasan/nLogger.git
+[submodule "server/vendor/ffmpeg"]
+	path = server/vendor/ffmpeg
+	url = https://github.com/herrbasan/ffmpeg-build.git
