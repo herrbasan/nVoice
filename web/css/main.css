@@ -1,0 +1,138 @@
+/* nVoice dashboard styles — own-element CSS only, theme variables only */
+
+/* Form layout — vertical stacking (nSpeech pattern). Input groups are
+   full-width blocks; checkboxes/options cluster horizontally below them;
+   action buttons go in nui-button-container at the bottom. */
+.nv-form-stack > * + * {
+    margin-top: var(--nui-space);
+}
+
+.nv-form-stack nui-input-group {
+    display: block;
+}
+
+.nv-form-stack nui-input-group > label {
+    display: block;
+    margin-bottom: var(--nui-space-quarter);
+    font-size: var(--font-size-small);
+    color: var(--text-color-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Horizontal cluster for checkboxes / small options */
+.nv-options-row {
+    display: flex;
+    gap: var(--nui-space-double);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.nv-actions {
+    margin-top: var(--nui-space-double);
+}
+
+/* Section spacing inside cards */
+.nv-section + .nv-section {
+    margin-top: var(--nui-space-double);
+    padding-top: var(--nui-space-double);
+    border-top: 1px solid var(--border-shade1);
+}
+
+/* Transcript / log surfaces (not a NUI component — our own element) */
+.nv-log {
+    font-family: monospace;
+    font-size: 0.85em;
+    background: var(--color-shade2);
+    border: 1px solid var(--border-shade1);
+    border-radius: var(--border-radius1);
+    padding: var(--nui-space);
+    overflow-y: auto;
+    white-space: pre-wrap;
+    margin-top: var(--nui-space);
+}
+
+.nv-log-tall  { max-height: 24rem; }
+.nv-log-short { max-height: 18rem; }
+
+.nv-dim { color: var(--text-color-dim); }
+
+/* Realtime transcript: provisional (in-flight) text renders dimmed */
+.nv-transcript { min-height: 16rem; height: 22rem; }
+.nv-transcript .provisional { color: var(--text-color-dim); }
+
+/* Status line under realtime controls */
+.nv-status-line {
+    font-weight: bold;
+    margin-bottom: var(--nui-space);
+}
+
+/* File picker row — keep hidden native inputs out of layout */
+.nv-hidden { display: none; }
+
+/* Engine type indicator — colored dot + label, used in home grid */
+.nv-engine-type {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--nui-space-quarter);
+    font-size: 0.85em;
+}
+
+.nv-engine-type::before {
+    content: '';
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.nv-engine-type-gpu   { color: var(--color-highlight); }
+.nv-engine-type-cpu   { color: var(--text-color-dim); }
+.nv-engine-type-cloud { color: var(--color-success, #2e8b57); }
+
+/* Colored type dots inside the header engine switcher dropdown rows.
+   app.js tags each option with data-type="gpu|cpu|cloud"; the select clones
+   rows as .nui-select-option carrying the same data-type. */
+.nv-engine-select .nui-select-option::before {
+    content: '';
+    align-self: center;
+    width: 0.55em;
+    height: 0.55em;
+    border-radius: 50%;
+    margin-right: var(--nui-space-quarter);
+    background: var(--text-color-dim);
+    flex: none;
+}
+
+.nv-engine-select .nui-select-option[data-type="gpu"]::before   { background: var(--color-highlight); }
+.nv-engine-select .nui-select-option[data-type="cloud"]::before { background: var(--color-success, #2e8b57); }
+
+/* Engine grid cards on the home page */
+.nv-engine-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: var(--nui-space);
+}
+
+.nv-engine-card {
+    padding: var(--nui-space-half);
+    border-radius: var(--border-radius1);
+    border: 1px solid var(--border-shade1);
+}
+
+.nv-engine-card.is-active {
+    border-color: var(--color-highlight);
+}
+
+.nv-engine-card-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--nui-space-half);
+}
+
+.nv-engine-card-caps {
+    color: var(--text-color-dim);
+    font-size: 0.8em;
+    margin-top: var(--nui-space-quarter);
+}

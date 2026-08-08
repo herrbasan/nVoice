@@ -53,6 +53,7 @@ const config = {
   projectRoot: PROJECT_ROOT,
   webDir: path.join(PROJECT_ROOT, 'web'),
   sdkDir: path.join(PROJECT_ROOT, 'sdk'),
+  nuiDir: path.join(PROJECT_ROOT, 'lib', 'nui_wc2', 'NUI'),
 
   // Engine venvs
   engineDirs: rawConfig.engine_dirs ?? {

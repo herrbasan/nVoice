@@ -1,0 +1,263 @@
+<div class="page-realtime">
+    <header style="margin-bottom: var(--nui-space-double)">
+        <h1>Real-time Streaming</h1>
+        <p class="lead">Live microphone transcription over WebSocket with client-side wake-on-voice.</p>
+    </header>
+
+    <nui-card>
+        <div class="nv-section">
+            <div style="display: flex; align-items: center; gap: var(--nui-space); margin-bottom: var(--nui-space);">
+                <nui-badge id="rt-status-badge">Disconnected</nui-badge>
+                <span id="telemetry" class="nv-dim" style="font-family: monospace; font-size: 0.8em;"></span>
+            </div>
+
+            <div class="nv-form-stack">
+                <nui-input-group>
+                    <label for="mic-select">Input source</label>
+                    <nui-select id="mic-select-wrap">
+                        <select id="mic-select"></select>
+                    </nui-select>
+                </nui-input-group>
+
+                <div class="nv-options-row">
+                    <nui-checkbox>
+                        <input type="checkbox" id="wake-word-toggle" checked>
+                        <label for="wake-word-toggle">Wake-on-Voice (WASM)</label>
+                    </nui-checkbox>
+
+                    <nui-checkbox>
+                        <input type="checkbox" id="raw-audio-toggle">
+                        <label for="raw-audio-toggle">Raw audio (disable AGC/noise suppression)</label>
+                    </nui-checkbox>
+
+                    <nui-checkbox>
+                        <input type="checkbox" id="record-debug-toggle">
+                        <label for="record-debug-toggle">Record debug WAV to server output/</label>
+                    </nui-checkbox>
+                </div>
+            </div>
+
+            <nui-button-container class="nv-actions" gap="medium">
+                <nui-button variant="primary" id="btn-start">
+                    <button type="button">Start Audio</button>
+                </nui-button>
+                <nui-button variant="danger" id="btn-stop">
+                    <button type="button" disabled>Stop Audio</button>
+                </nui-button>
+                <nui-button id="btn-sleep">
+                    <button type="button" disabled>Go to Sleep</button>
+                </nui-button>
+            </nui-button-container>
+        </div>
+
+        <div class="nv-section">
+            <div id="transcription" class="nv-log nv-transcript" style="margin-top: 0;"></div>
+        </div>
+    </nui-card>
+</div>
+
+<script type="nui/page">
+function init(element, params, nui) {
+    const startBtn = element.querySelector('#btn-start');
+    const stopBtn = element.querySelector('#btn-stop');
+    const sleepBtn = element.querySelector('#btn-sleep');
+    const startInnerBtn = startBtn.querySelector('button');
+    const stopInnerBtn = stopBtn.querySelector('button');
+    const sleepInnerBtn = sleepBtn.querySelector('button');
+    const statusBadge = element.querySelector('#rt-status-badge');
+    const transcriptionDiv = element.querySelector('#transcription');
+    const telemetryDiv = element.querySelector('#telemetry');
+    const micSelect = element.querySelector('#mic-select');
+    const micSelectWrap = element.querySelector('#mic-select-wrap');
+    const wakeWordToggle = element.querySelector('#wake-word-toggle');
+    const rawAudioToggle = element.querySelector('#raw-audio-toggle');
+    const recordDebugToggle = element.querySelector('#record-debug-toggle');
+
+    let client = null;
+
+    // Populate the mic select via its data API (setItems) so the rendered
+    // dropdown rows rebuild. Mutating the inner <select> directly leaves the
+    // custom select's rendered options stale on cached fragments.
+    async function loadInputSources() {
+        try {
+            // Ask for permission gracefully just to get device labels
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputDevices = devices.filter(d => d.kind === 'audioinput');
+
+            const items = audioInputDevices.map((device, i) => ({
+                value: device.deviceId,
+                label: device.label || `Microphone ${i + 1}`,
+            }));
+
+            if (items.length === 0) {
+                micSelectWrap.setItems([{ value: '', label: 'No microphones found' }]);
+                return;
+            }
+            micSelectWrap.setItems(items);
+            // Default to the system default device
+            micSelectWrap.setValue?.(items[0].value);
+        } catch (err) {
+            micSelectWrap.setItems([{ value: '', label: 'Microphone permission denied' }]);
+        }
+    }
+
+    // Router show/hide lifecycle — re-enumerate devices every time the page
+    // becomes visible (fragment is cached, init only runs once). Also load
+    // immediately so first render works even when the router's rAF-driven
+    // show() callback is throttled (backgrounded tabs, headless).
+    element.show = () => { loadInputSources(); };
+    loadInputSources();
+
+    function setMicEnabled(enabled) {
+        micSelect.disabled = !enabled;
+        wakeWordToggle.disabled = !enabled;
+    }
+
+    function setStatus(text, variant) {
+        statusBadge.textContent = text;
+        if (variant) statusBadge.setAttribute('variant', variant);
+        else statusBadge.removeAttribute('variant');
+    }
+
+    function initClient() {
+        if (client) return;
+
+        // Pass empty URL — the SDK derives the WebSocket URL from the page origin.
+        client = new window.nVoiceClient({ serverUrl: '' });
+
+        client.on('connected', () => {
+            if (client.wakeWordEnabled && !client.isAwake) {
+                setStatus('Asleep', 'warning');
+            } else {
+                setStatus('Connected', 'success');
+            }
+            stopInnerBtn.disabled = false;
+            startInnerBtn.disabled = true;
+            setMicEnabled(false);
+        });
+
+        client.on('asleep', () => {
+            setStatus('Asleep — waiting for voice', 'warning');
+            // Session is still live — keep Stop available as an escape hatch.
+            stopInnerBtn.disabled = false;
+            startInnerBtn.disabled = true;
+            sleepInnerBtn.disabled = true;
+        });
+
+        client.on('wakeWordDetected', () => {
+            setStatus('Awake — listening', 'success');
+            stopInnerBtn.disabled = false;
+            sleepInnerBtn.disabled = false;
+        });
+
+        client.on('standby', () => {
+            setStatus('Standby', 'info');
+            startInnerBtn.disabled = false;
+            stopInnerBtn.disabled = true;
+            sleepInnerBtn.disabled = true;
+            setMicEnabled(true);
+        });
+
+        client.on('disconnected', () => {
+            setStatus('Disconnected');
+            stopInnerBtn.disabled = true;
+            startInnerBtn.disabled = false;
+            sleepInnerBtn.disabled = true;
+            setMicEnabled(true);
+        });
+
+        client.on('error', (err) => {
+            nui.components.dialog.alert('Microphone Error', String(err));
+            startInnerBtn.disabled = false;
+            setMicEnabled(true);
+        });
+
+        client.on('transcript', (msg) => {
+            let finalSpan = transcriptionDiv.querySelector('.final');
+            let provSpan = transcriptionDiv.querySelector('.provisional');
+            if (!finalSpan) {
+                transcriptionDiv.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+                finalSpan = transcriptionDiv.querySelector('.final');
+                provSpan = transcriptionDiv.querySelector('.provisional');
+            }
+            if (msg.is_final) {
+                finalSpan.textContent += msg.text + ' ';
+                provSpan.textContent = '';
+            } else {
+                provSpan.textContent = msg.text + ' ';
+            }
+            transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
+        });
+
+        client.on('telemetry', (msg) => {
+            let extraStats = '';
+            if (msg.rms !== undefined) {
+                extraStats += ` | RMS: ${msg.rms.toFixed(4)}`;
+            }
+            if (msg.infer_time !== undefined) {
+                extraStats += ` | Infer: ${msg.infer_time.toFixed(3)}s`;
+            }
+
+            if (msg.state === 'idle/silence') {
+                telemetryDiv.style.color = 'var(--text-color-dim)';
+                telemetryDiv.textContent = `Listening (silence)${extraStats}`;
+            } else {
+                telemetryDiv.style.color = 'var(--color-success, #2e8b57)';
+                telemetryDiv.textContent = `${msg.state} | RTF: ${msg.rtf} | Backlog: ${msg.backlog_sec}s${extraStats}`;
+            }
+        });
+    }
+
+    startBtn.addEventListener('click', async () => {
+        initClient();
+        startInnerBtn.disabled = true;
+        setMicEnabled(false);
+
+        const selectedEngine = window.nvoice.activeEngine;
+        const isCloudEngine = window.nvoice.engines.find(e => e.name === selectedEngine)?.cloud;
+
+        // Browser VAD wake/sleep only applies to local engines (client-side frame gating).
+        // Cloud engines have their own server-side VAD — always send audio directly.
+        if (isCloudEngine) {
+            client.wakeWordEnabled = false;
+            client.isAwake = true;
+        } else if (wakeWordToggle.checked && !client.wakeWordEnabled) {
+            try {
+                await client.enableWakeWord('/sdk/silero_vad.onnx');
+            } catch (e) {
+                nui.components.dialog.alert('Wake Word Error', 'Error loading Wake Word model: ' + e);
+                startInnerBtn.disabled = false;
+                wakeWordToggle.disabled = false;
+                return;
+            }
+        } else if (!wakeWordToggle.checked) {
+            client.wakeWordEnabled = false;
+            client.isAwake = true;
+        }
+
+        client.setAudioDevice(micSelect.value);
+        client.rawAudio = rawAudioToggle.checked;
+        client.recordDebug = recordDebugToggle.checked;
+        client.engine = selectedEngine;
+        client.start().catch(e => console.error(e));
+    });
+
+    stopBtn.addEventListener('click', () => {
+        if (client) {
+            // Stop = full teardown: close the socket and reset state. (A WebSocket
+            // reconnect on next Start is cheap, so there is no value in a half-alive
+            // "standby" state — that stale state was a source of bugs.)
+            client.disconnect();
+        }
+    });
+
+    sleepBtn.addEventListener('click', () => {
+        if (client) {
+            client.sleep();
+        }
+    });
+}
+</script>

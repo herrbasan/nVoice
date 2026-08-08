@@ -1,0 +1,67 @@
+<div class="page-home">
+    <header style="margin-bottom: var(--nui-space-double)">
+        <h1>Home</h1>
+        <p class="lead">Engine status and service overview.</p>
+    </header>
+
+    <nui-card>
+        <p id="system-info" class="nv-dim" style="margin-top: 0">Checking engine status...</p>
+        <div id="engine-grid" class="nv-engine-grid"></div>
+    </nui-card>
+</div>
+
+<script type="nui/page">
+function init(element, params, nui) {
+    const infoEl = element.querySelector('#system-info');
+    const gridEl = element.querySelector('#engine-grid');
+    const nv = window.nvoice;
+
+    function engineType(e) {
+        if (e.cloud) return 'cloud';
+        if (e.gpu) return 'gpu';
+        return 'cpu';
+    }
+
+    function render() {
+        if (!nv.activeEngine && !nv.engines.length) {
+            infoEl.textContent = 'Failed to load engine status. Server may be down.';
+            return;
+        }
+        infoEl.textContent = `nVoice v${nv.version} — ${nv.engines.length} engines registered`;
+
+        gridEl.innerHTML = '';
+        for (const eng of nv.engines) {
+            const isActive = eng.name === nv.activeEngine;
+            const type = engineType(eng);
+            const caps = (eng.capabilities || []).join(', ');
+
+            const card = document.createElement('div');
+            card.className = 'nv-engine-card' + (isActive ? ' is-active' : '');
+
+            const title = document.createElement('div');
+            title.className = 'nv-engine-card-title';
+
+            const name = document.createElement('strong');
+            name.textContent = eng.name;
+            if (isActive) name.style.color = 'var(--color-highlight)';
+
+            const badge = document.createElement('nui-badge');
+            badge.textContent = type.toUpperCase();
+            badge.setAttribute('variant', { gpu: 'primary', cpu: 'info', cloud: 'success' }[type]);
+
+            title.appendChild(name);
+            title.appendChild(badge);
+
+            const meta = document.createElement('div');
+            meta.className = 'nv-engine-card-caps';
+            meta.textContent = (isActive ? 'active — ' : '') + caps;
+
+            card.appendChild(title);
+            card.appendChild(meta);
+            gridEl.appendChild(card);
+        }
+    }
+
+    render();
+}
+</script>

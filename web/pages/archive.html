@@ -1,0 +1,294 @@
+<div class="page-archive">
+    <header style="margin-bottom: var(--nui-space-double)">
+        <h1>Archival Transcription</h1>
+        <p class="lead">Long-audio transcription with speaker diarization. Pick files, a whole folder, or a video (audio extracted server-side).</p>
+    </header>
+
+    <nui-card>
+        <div class="nv-section">
+            <div class="nv-form-stack">
+                <nui-input-group>
+                    <label>Source</label>
+                    <div class="nv-options-row">
+                        <nui-button id="btn-archive-file">
+                            <button type="button">Audio File(s)…</button>
+                            <input type="file" id="archive-file" accept="audio/*" multiple style="display: none">
+                        </nui-button>
+
+                        <nui-button id="btn-archive-folder">
+                            <button type="button">Folder…</button>
+                            <input type="file" id="archive-folder" webkitdirectory style="display: none">
+                        </nui-button>
+
+                        <nui-button id="btn-archive-video">
+                            <button type="button">Video…</button>
+                            <input type="file" id="archive-video" accept="video/*,.mkv,.mpg,.mpeg,.ts,.vob" style="display: none">
+                        </nui-button>
+                    </div>
+                    <p id="archive-file-list" class="nv-dim" style="font-size: 0.85em; margin: var(--nui-space-half) 0 0;">No source selected.</p>
+                </nui-input-group>
+
+                <nui-input-group>
+                    <label for="archive-speakers">Speakers (leave empty for auto)</label>
+                    <nui-input>
+                        <input type="number" id="archive-speakers" min="1" max="10" placeholder="auto">
+                    </nui-input>
+                </nui-input-group>
+            </div>
+
+            <nui-button-container class="nv-actions">
+                <nui-button variant="primary" id="btn-archive">
+                    <button type="button" disabled>Transcribe + Diarize</button>
+                </nui-button>
+            </nui-button-container>
+        </div>
+
+        <div id="archive-progress" class="nv-section nv-hidden">
+            <div style="display: flex; align-items: center; gap: var(--nui-space); margin-bottom: var(--nui-space-quarter);">
+                <nui-badge id="archive-status-badge" variant="info">Idle</nui-badge>
+                <span id="archive-stage" style="font-weight: bold;"></span>
+            </div>
+            <nui-progress id="archive-bar" value="0" max="100"></nui-progress>
+            <div id="archive-detail" class="nv-dim" style="font-size: 0.85em; margin-top: var(--nui-space-quarter);"></div>
+        </div>
+
+        <div id="archive-result" class="nv-log nv-log-tall nv-hidden"></div>
+
+        <nui-button-container id="archive-actions" class="nv-hidden nv-actions">
+            <nui-button id="btn-dl-txt">
+                <button type="button">Download .txt</button>
+            </nui-button>
+            <nui-button id="btn-dl-json">
+                <button type="button">Download .json</button>
+            </nui-button>
+        </nui-button-container>
+    </nui-card>
+</div>
+
+<script type="nui/page">
+function init(element, params, nui) {
+    const archiveFileBtn = element.querySelector('#btn-archive-file');
+    const archiveFolderBtn = element.querySelector('#btn-archive-folder');
+    const archiveVideoBtn = element.querySelector('#btn-archive-video');
+    const archiveFileList = element.querySelector('#archive-file-list');
+    const archiveSpeakers = element.querySelector('#archive-speakers');
+    const archiveBtn = element.querySelector('#btn-archive');
+    const archiveInnerBtn = archiveBtn.querySelector('button');
+    const archiveProgress = element.querySelector('#archive-progress');
+    const archiveStage = element.querySelector('#archive-stage');
+    const archiveStatusBadge = element.querySelector('#archive-status-badge');
+    const archiveBar = element.querySelector('#archive-bar');
+    const archiveDetail = element.querySelector('#archive-detail');
+    const archiveResult = element.querySelector('#archive-result');
+    const archiveActions = element.querySelector('#archive-actions');
+
+    let archiveFullText = '';
+    let archiveFullJson = null;
+
+    // The ordered set of files to transcribe as one continuous recording.
+    // Populated either by the multi-file input or the folder picker.
+    let archivePickedFiles = [];
+
+    const ARCHIVE_AUDIO_RE = /\.(flac|wav|mp3|m4a|ogg|opus|aac|wma|aiff?|ape)$/i;
+
+    function setProgress(pct) {
+        archiveBar.setAttribute('value', String(pct));
+    }
+
+    function setStatus(text, variant) {
+        archiveStatusBadge.textContent = text;
+        archiveStatusBadge.setAttribute('variant', variant);
+    }
+
+    function setArchiveFiles(fileArray) {
+        // Natural-sort by filename — MiniDisc auto-splits are track-numbered,
+        // so filename order IS recording order. Numeric-aware so 2 < 10.
+        archivePickedFiles = [...fileArray]
+            .filter(f => ARCHIVE_AUDIO_RE.test(f.name))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        archiveInnerBtn.disabled = archivePickedFiles.length === 0;
+
+        if (archivePickedFiles.length === 0) {
+            archiveFileList.textContent = 'No audio files selected.';
+            return;
+        }
+        archiveFileList.textContent = archivePickedFiles.length === 1
+            ? `1 file: ${archivePickedFiles[0].name}`
+            : `${archivePickedFiles.length} files (in order): ` +
+              archivePickedFiles.map(f => f.name).join('  →  ');
+    }
+
+    archiveFileBtn.addEventListener('nui-file-selected', (e) => setArchiveFiles(e.detail.files));
+    archiveFolderBtn.addEventListener('nui-file-selected', (e) => setArchiveFiles(e.detail.files));
+
+    // Video: a single file whose audio track gets extracted server-side by ffmpeg
+    // (video stream ignored). Bypasses the audio-extension filter — we take whatever
+    // container the user picks; ffmpeg either decodes it or the server fails loud.
+    archiveVideoBtn.addEventListener('nui-file-selected', (e) => {
+        const f = e.detail.files[0];
+        if (!f) { archivePickedFiles = []; archiveInnerBtn.disabled = true; return; }
+        archivePickedFiles = [f];
+        archiveInnerBtn.disabled = false;
+        const mb = (f.size / 1048576).toFixed(0);
+        archiveFileList.textContent = `Video: ${f.name} (${mb} MB — audio extracted on server)`;
+    });
+
+    archiveBtn.addEventListener('click', async () => {
+        if (archivePickedFiles.length === 0) return;
+        archiveInnerBtn.disabled = true;
+
+        archiveProgress.classList.remove('nv-hidden');
+        archiveResult.classList.add('nv-hidden');
+        archiveActions.classList.add('nv-hidden');
+        archiveResult.textContent = '';
+        setProgress(0);
+        setStatus('Uploading', 'info');
+        archiveStage.textContent = archivePickedFiles.length > 1
+            ? `Uploading ${archivePickedFiles.length} files (concat on server)...`
+            : 'Uploading...';
+        archiveDetail.textContent = '';
+
+        const formData = new FormData();
+        for (const f of archivePickedFiles) {
+            formData.append('file', f, f.name);
+        }
+        formData.append('model', window.nvoice.activeEngine || 'faster_whisper_large-v3');
+        formData.append('language', 'de');
+        formData.append('diarize', 'true');
+        if (archiveSpeakers.value) {
+            formData.append('num_speakers', archiveSpeakers.value);
+        }
+
+        try {
+            const resp = await fetch('/v1/audio/transcribe-archive', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                setStatus('Error', 'danger');
+                archiveStage.textContent = `Error: ${err.error?.message || resp.statusText}`;
+                return;
+            }
+
+            // Read SSE stream
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let currentEvent = null;
+            let totalChunks = 0;
+            let chunkCount = 0;
+            const transcriptParts = [];
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        currentEvent = line.slice(7);
+                    } else if (line.startsWith('data: ') && currentEvent) {
+                        const data = JSON.parse(line.slice(6));
+
+                        if (currentEvent === 'status') {
+                            if (data.stage === 'diarizing') {
+                                setStatus('Diarizing', 'info');
+                                archiveStage.textContent = 'Diarizing speakers...';
+                                setProgress(5);
+                            } else if (data.stage === 'loading_diarizer') {
+                                archiveStage.textContent = 'Loading diarization model...';
+                            } else if (data.stage === 'diarized') {
+                                archiveStage.textContent = `Found ${data.num_speakers} speakers (${data.turns} turns)`;
+                                setProgress(10);
+                            } else if (data.stage === 'transcribing') {
+                                chunkCount = data.chunk;
+                                totalChunks = data.total_chunks;
+                                setStatus('Transcribing', 'info');
+                                setProgress(10 + Math.round((chunkCount / totalChunks) * 80));
+                                archiveStage.textContent = `Transcribing chunk ${chunkCount}/${totalChunks}`;
+                                archiveDetail.textContent = `[${data.start.toFixed(0)}s - ${data.end.toFixed(0)}s]`;
+                            } else if (data.stage === 'merged') {
+                                archiveStage.textContent = 'Merging speakers...';
+                                setProgress(95);
+                            }
+                        } else if (currentEvent === 'processing') {
+                            // Server-side prep before the worker starts: audio
+                            // extraction (video), merging (folder), normalizing.
+                            if (data.activity === 'done') {
+                                archiveStage.textContent = 'Audio ready — starting transcription...';
+                                archiveDetail.textContent = '';
+                            } else {
+                                const label = data.activity.charAt(0).toUpperCase() + data.activity.slice(1);
+                                archiveStage.textContent = `${label}...`;
+                                archiveDetail.textContent = data.files
+                                    ? `${data.files} files`
+                                    : (data.file || '');
+                            }
+                        } else if (currentEvent === 'chunk') {
+                            // Live transcript display
+                            const segs = data.segments || [];
+                            for (const seg of segs) {
+                                const spk = seg.speaker !== undefined ? seg.speaker : '?';
+                                const text = seg.text || '';
+                                transcriptParts.push(`[Sprecher ${spk}] ${text}`);
+                            }
+                            archiveResult.classList.remove('nv-hidden');
+                            archiveResult.textContent = transcriptParts.join('\n');
+                            archiveResult.scrollTop = archiveResult.scrollHeight;
+                        } else if (currentEvent === 'done') {
+                            setProgress(100);
+                            setStatus('Complete', 'success');
+                            archiveStage.textContent = 'Complete!';
+                            archiveDetail.textContent = `${data.segments?.length || 0} segments, ${data.duration?.toFixed(1)}s audio`;
+
+                            archiveFullText = data.text_raw || '';
+                            archiveFullJson = data;
+
+                            archiveResult.classList.remove('nv-hidden');
+                            archiveResult.textContent = archiveFullText;
+                            archiveResult.scrollTop = 0;
+                            archiveActions.classList.remove('nv-hidden');
+                        } else if (currentEvent === 'error') {
+                            setStatus('Error', 'danger');
+                            archiveStage.textContent = `Error: ${data.message}`;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            setStatus('Error', 'danger');
+            archiveStage.textContent = `Error: ${e.message}`;
+        } finally {
+            archiveInnerBtn.disabled = false;
+        }
+    });
+
+    // Download handlers
+    element.querySelector('#btn-dl-txt').addEventListener('click', () => {
+        if (!archiveFullText) return;
+        const blob = new Blob([archiveFullText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (archivePickedFiles[0]?.name || 'archive').replace(/\.[^.]+$/, '') + '_transcript.txt';
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    element.querySelector('#btn-dl-json').addEventListener('click', () => {
+        if (!archiveFullJson) return;
+        const blob = new Blob([JSON.stringify(archiveFullJson, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (archivePickedFiles[0]?.name || 'archive').replace(/\.[^.]+$/, '') + '_transcript.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+}
+</script>

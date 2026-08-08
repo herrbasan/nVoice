@@ -65,6 +65,14 @@ function createApp(httpsOptions) {
     });
   }
 
+  if (fs.existsSync(config.nuiDir)) {
+    app.register(fastifyStatic, {
+      root: config.nuiDir,
+      prefix: '/nui',
+      decorateReply: false,
+    });
+  }
+
   // --- API routes ---
   registerTranscriptionRoutes(app, engineManager);
   registerAlignRoute(app, engineManager);

@@ -1,0 +1,94 @@
+<div class="page-batch">
+    <header style="margin-bottom: var(--nui-space-double)">
+        <h1>Batch Transcription</h1>
+        <p class="lead">Transcribe a single audio file with the active engine.</p>
+    </header>
+
+    <nui-card>
+        <div class="nv-form-stack">
+            <nui-input-group>
+                <label>Audio file</label>
+                <div class="nv-options-row">
+                    <nui-button id="btn-batch-file">
+                        <button type="button">Browse…</button>
+                        <input type="file" id="batch-file" accept="audio/*" style="display: none">
+                    </nui-button>
+                    <span id="batch-file-name" class="nv-dim" style="font-size: 0.85em;">No file selected</span>
+                </div>
+            </nui-input-group>
+
+            <nui-input-group>
+                <label for="batch-format">Response format</label>
+                <nui-select id="batch-format-select">
+                    <select id="batch-format">
+                        <option value="json" selected>JSON</option>
+                        <option value="text">Text</option>
+                        <option value="verbose_json">Verbose JSON</option>
+                        <option value="srt">SRT</option>
+                        <option value="vtt">VTT</option>
+                    </select>
+                </nui-select>
+            </nui-input-group>
+        </div>
+
+        <nui-button-container class="nv-actions">
+            <nui-button variant="primary" id="btn-transcribe">
+                <button type="button" disabled>Transcribe</button>
+            </nui-button>
+        </nui-button-container>
+
+        <div id="batch-result" class="nv-log nv-log-short nv-dim">Result will appear here.</div>
+    </nui-card>
+</div>
+
+<script type="nui/page">
+function init(element, params, nui) {
+    const fileBtn = element.querySelector('#btn-batch-file');
+    const fileName = element.querySelector('#batch-file-name');
+    const formatSelect = element.querySelector('#batch-format');
+    const btn = element.querySelector('#btn-transcribe');
+    const innerBtn = btn.querySelector('button');
+    const resultEl = element.querySelector('#batch-result');
+
+    let pickedFile = null;
+
+    fileBtn.addEventListener('nui-file-selected', (e) => {
+        pickedFile = e.detail.files[0] || null;
+        innerBtn.disabled = !pickedFile;
+        fileName.textContent = pickedFile ? pickedFile.name : 'No file selected';
+    });
+
+    btn.addEventListener('click', async () => {
+        if (!pickedFile) return;
+        innerBtn.disabled = true;
+        btn.setLoading?.(true);
+        resultEl.classList.remove('nv-dim');
+        resultEl.textContent = 'Transcribing...';
+
+        const formData = new FormData();
+        formData.append('file', pickedFile);
+        formData.append('model', window.nvoice.activeEngine || 'faster_whisper_large-v3');
+        formData.append('response_format', formatSelect.value);
+
+        try {
+            const resp = await fetch('/v1/audio/transcriptions', { method: 'POST', body: formData });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                resultEl.textContent = `Error: ${err.error?.message || resp.statusText}`;
+                return;
+            }
+            const contentType = resp.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                resultEl.textContent = JSON.stringify(await resp.json(), null, 2);
+            } else {
+                resultEl.textContent = await resp.text();
+            }
+        } catch (e) {
+            resultEl.textContent = `Error: ${e.message}`;
+        } finally {
+            innerBtn.disabled = false;
+            btn.setLoading?.(false);
+        }
+    });
+}
+</script>

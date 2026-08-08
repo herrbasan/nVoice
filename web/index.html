@@ -1,123 +1,64 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>nVoice v3 STT</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>nVoice</title>
+    <link rel="stylesheet" href="/nui/css/nui-theme.css">
+    <link rel="stylesheet" href="/css/main.css">
     <style>
-        body { font-family: sans-serif; padding: 20px; transition: background-color 0.3s, color 0.3s; max-width: 900px; margin: 0 auto; }
-        h1 { margin-bottom: 5px; }
-        h2 { font-size: 18px; margin-top: 30px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        #transcription {
-            width: 100%; height: 300px; border: 1px solid #ccc; padding: 10px;
-            overflow-y: scroll; margin-top: 10px; white-space: pre-wrap; background-color: #fff;
-            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-        }
-        .btn { padding: 10px 20px; font-size: 16px; margin-right: 10px; cursor: pointer; border: 1px solid #ccc; background-color: #f0f0f0; border-radius: 4px; transition: background-color 0.3s, color 0.3s; }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        #status { font-weight: bold; margin-bottom: 10px; }
-        #telemetry { font-family: monospace; font-size: 12px; color: #555; margin-top: 10px; transition: color 0.3s; }
-        .section { margin-bottom: 20px; }
-        label { font-size: 14px; font-weight: bold; }
-        input[type="file"] { margin: 10px 0; }
-        select { padding: 5px; font-size: 14px; min-width: 250px; }
-        #batchResult { background: #f9f9f9; border: 1px solid #ddd; padding: 10px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; }
-        #archiveProgress { margin-top: 10px; font-size: 13px; color: #888; display: none; }
-        #archiveStage { font-weight: bold; margin-bottom: 4px; }
-        #archiveBar { width: 100%; height: 8px; background: #ddd; border-radius: 4px; overflow: hidden; }
-        #archiveBarFill { height: 100%; width: 0%; background: #4a9eff; transition: width 0.3s; }
-        #archiveDetail { margin-top: 4px; font-size: 12px; }
-        #archiveResult { background: #f9f9f9; border: 1px solid #ddd; padding: 10px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto; display: none; }
-
-        @media (prefers-color-scheme: dark) {
-            body { background-color: #1e1e1e; color: #e0e0e0; }
-            #transcription { background-color: #2d2d2d; color: #f0f0f0; border-color: #444; }
-            .btn { background-color: #3a3a3a; color: #e0e0e0; border-color: #555; }
-            .btn:hover:not(:disabled) { background-color: #4a4a4a; }
-            #telemetry { color: #aaa; }
-            #batchResult { background: #2d2d2d; border-color: #444; color: #e0e0e0; }
-            #archiveResult { background: #2d2d2d; border-color: #444; color: #e0e0e0; }
-            #archiveBar { background: #444; }
-            #archiveBarFill { background: #4a9eff; }
-            h2 { border-color: #444; }
-        }
+        body { margin: 0; padding: 0; overflow: hidden; }
+        nui-app:not(.nui-ready) { display: none; }
+        nui-loading:not(.active) { display: none; }
     </style>
-</head>
-<body>
-    <h1>nVoice v3 STT</h1>
-
-    <div id="systemInfo" style="font-size: 13px; color: #888; margin-bottom: 15px; font-style: italic;">
-        Checking engine status...
-    </div>
-
-    <h2>Engine</h2>
-    <div class="section">
-        <label for="engineSelect">Active engine:</label>
-        <select id="engineSelect"></select>
-        <button id="switchEngineBtn" class="btn">Switch</button>
-        <span id="engineSwitchStatus" style="font-size: 13px; color: #888; margin-left: 10px;"></span>
-    </div>
-
-    <h2>Batch Transcription</h2>
-    <div class="section">
-        <label for="batchFile">Audio file:</label>
-        <input type="file" id="batchFile" accept="audio/*">
-        <select id="batchFormat">
-            <option value="json">JSON</option>
-            <option value="text">Text</option>
-            <option value="verbose_json">Verbose JSON</option>
-            <option value="srt">SRT</option>
-            <option value="vtt">VTT</option>
-        </select>
-        <button id="transcribeBtn" class="btn" disabled>Transcribe</button>
-        <div id="batchResult"></div>
-    </div>
-
-    <h2>Archival Transcription</h2>
-    <div class="section">
-        <label for="archiveFile">Audio file(s):</label>
-        <input type="file" id="archiveFile" accept="audio/*" multiple>
-        <button id="archiveFolderBtn" class="btn" style="font-size:13px; padding:4px 10px;">Browse Folder</button>
-        <input type="file" id="archiveFolder" webkitdirectory style="display:none">
-        <button id="archiveVideoBtn" class="btn" style="font-size:13px; padding:4px 10px;">Select Video</button>
-        <input type="file" id="archiveVideo" accept="video/*,.mkv,.mpg,.mpeg,.ts,.vob" style="display:none">
-        <input type="number" id="archiveSpeakers" placeholder="speakers (auto)" min="1" max="10" style="width:130px" title="Number of speakers (leave empty for auto)">
-        <button id="archiveBtn" class="btn" disabled>Transcribe + Diarize</button>
-        <div id="archiveFileList" style="margin-top:6px; font-size:12px; color:#666;"></div>
-        <div id="archiveProgress">
-            <div id="archiveStage"></div>
-            <div id="archiveBar">
-                <div id="archiveBarFill"></div>
-            </div>
-            <div id="archiveDetail"></div>
-        </div>
-        <div id="archiveResult"></div>
-        <div id="archiveActions" style="margin-top:5px; display:none;">
-            <button id="archiveDownload" class="btn" style="font-size:13px; padding:5px 12px;">Download .txt</button>
-            <button id="archiveDownloadJson" class="btn" style="font-size:13px; padding:5px 12px;">Download .json</button>
-        </div>
-    </div>
-
-    <h2>Real-time Streaming</h2>
-    <div id="status">Disconnected</div>
-    <div style="margin-bottom: 10px;">
-        <label for="micSelect">Input Source:</label>
-        <select id="micSelect"></select>
-        <input type="checkbox" id="wakeWordToggle" style="margin-left: 15px;" checked>
-        <label for="wakeWordToggle">Enable Wake-on-Voice (WASM)</label>
-        <input type="checkbox" id="rawAudioToggle" style="margin-left: 15px;">
-        <label for="rawAudioToggle">Raw Audio (disable AGC/noise suppression)</label>
-        <input type="checkbox" id="recordDebugToggle" style="margin-left: 15px;">
-        <label for="recordDebugToggle">Record (debug — saves engine-received WAV to server output/)</label>
-    </div>
-    <div>
-        <button id="startBtn" class="btn">Start Audio</button>
-        <button id="stopBtn" class="btn" disabled>Stop Audio</button>
-        <button id="sleepBtn" class="btn" disabled>Go to Sleep</button>
-    </div>
-    <div id="transcription"></div>
-    <div id="telemetry"></div>
-
+    <script type="module" src="/nui/nui.js"></script>
     <script src="/sdk/ort.js"></script>
     <script src="/sdk/nVoiceClient.js"></script>
-    <script src="/js/app.js"></script>
+    <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+    <nui-loading mode="bar"></nui-loading>
+
+    <nui-app content-min-width="50rem">
+        <nui-skip-links></nui-skip-links>
+
+        <nui-app-header>
+            <header>
+                <div slot="left">
+                    <nui-button data-action="toggle-sidebar" variant="icon">
+                        <button type="button" aria-label="Toggle navigation menu">
+                            <nui-icon name="menu">☰</nui-icon>
+                        </button>
+                    </nui-button>
+                    <nui-select id="engine-switcher" class="nv-engine-select" aria-label="Active engine">
+                        <select>
+                            <option value="" disabled selected>Loading engines...</option>
+                        </select>
+                    </nui-select>
+                </div>
+
+                <div slot="right">
+                    <nui-button data-action="toggle-theme" variant="icon">
+                        <button type="button" aria-label="Toggle light/dark theme">
+                            <nui-icon name="brightness">⛭</nui-icon>
+                        </button>
+                    </nui-button>
+                </div>
+            </header>
+        </nui-app-header>
+
+        <nui-loading id="engine-busy" mode="overlay">Switching engine...</nui-loading>
+
+        <nui-sidebar behavior="primary" id="nav-sidebar">
+            <nav>
+                <nui-link-list mode="fold" id="main-navigation"></nui-link-list>
+            </nav>
+        </nui-sidebar>
+
+        <nui-content>
+            <nui-main></nui-main>
+        </nui-content>
+    </nui-app>
 </body>
 </html>

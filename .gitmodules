@@ -4,3 +4,6 @@
 [submodule "server/vendor/ffmpeg"]
 	path = server/vendor/ffmpeg
 	url = https://github.com/herrbasan/ffmpeg-build.git
+[submodule "lib/nui_wc2"]
+	path = lib/nui_wc2
+	url = https://github.com/herrbasan/nui_wc2.git
