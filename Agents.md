@@ -97,6 +97,16 @@ The dominant idle-CPU cost was the strategy's silence loop running the neural VA
 ### Guardrails
 13 implementation guardrails (G1–G13) are documented in `docs/NVoice_API_DEV_PLAN.md` §13. Read them before touching any phase. **Note:** G1 ("Node is NEVER in the real-time media path") was amended 2026-08-07 — Node relays WebSocket frames but never decodes audio; the original direct-UDP-to-worker design was abandoned (see Realtime Transport above).
 
+### Git: Submodules & Pushing
+This repo has git submodules (`lib/nui_wc2`, `server/nLogger`, `server/vendor/ffmpeg`). **Before every push, check whether any submodule has a new upstream commit and sync it first**, then push. A submodule is pinned to a specific commit — if the library moved upstream and the pin is stale, the push ships an outdated dependency.
+
+Pre-push checklist:
+1. `git submodule update --remote --merge` — pull each submodule to its tracked branch tip (or `git submodule foreach git fetch` then inspect if you want to review before merging).
+2. `git submodule status` — confirm no `+` prefix (which means the checked-out commit differs from the recorded pin). If a submodule advanced, stage the new pin: `git add <submodule-path>` and commit it with a note like "Bump lib/nui_wc2 to <sha>".
+3. Then commit your own changes and `git push`.
+
+Never push with a `+`-dirty submodule pin — that records a commit the rest of the team can't reproduce.
+
 ### Environment Reference
 - **Active Engine:** Configured in `config.json` (`default_engine`). Default: `faster_whisper_large-v3`.
 - **Engine Documentation:** ALWAYS refer to [docs/faster_whisper_api_reference.md](docs/faster_whisper_api_reference.md) for faster-whisper implementation details.
