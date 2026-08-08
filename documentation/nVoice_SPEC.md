@@ -191,6 +191,11 @@ to disk, never buffered in RAM — the limit is an abuse guard, not a capacity c
 **Ports:** HTTP `2244`, HTTPS `2245` (`config.port` + 1). Dashboard at both. Realtime mic
 requires the HTTPS (secure-context) origin; the WebSocket upgrades to WSS accordingly.
 
+**Static mounts (`server/index.js`):** three `@fastify/static` roots — `web/` at `/`
+(the dashboard), `sdk/` at `/sdk` (browser SDK + ORT WASM), and `lib/nui_wc2/NUI/` at
+`/nui` (the NUI component library the dashboard is built on). The NUI library is vendored
+as the `lib/nui_wc2` git submodule; the mount serves it in place (no copy into `web/`).
+
 ---
 
 ## 7. Directory Map
@@ -209,7 +214,9 @@ src/nvoice/         Python worker code (shared across engine venvs via PYTHONPAT
   merge.py          timestamp-overlap speaker merge
   audio_window.py   ffmpeg duration/window extraction helpers
 sdk/                Browser SDK (nVoiceClient.js) + ORT WASM Silero VAD
-web/                Dashboard (vanilla HTML/JS)
+web/                Dashboard (NUI component library)
+  pages/            Router page fragments (home, batch, archive, realtime)
+lib/nui_wc2/        git submodule — NUI UI component library (served at /nui)
 tests/              E2E test suite + smoke tests
 docs/               Working docs (plans, handover, references)
 documentation/      Stable reference — this file + nVoice_API.md

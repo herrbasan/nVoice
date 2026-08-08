@@ -8,7 +8,7 @@ OpenAI-compatible Speech-to-Text server with multi-engine support, WebSocket rea
 # 1. Install Python engine venvs + TLS cert + ORT WASM
 python install.py
 
-# 2. Fetch git submodules (nLogger + vendored ffmpeg)
+# 2. Fetch git submodules (nLogger, vendored ffmpeg, nui_wc2 UI library)
 git submodule update --init --recursive
 
 # 3. Install Node.js dependencies
@@ -26,7 +26,7 @@ The server starts dual HTTP+HTTPS:
 - **HTTP** `http://localhost:2244` — API endpoints
 - **HTTPS** `https://localhost:2245` — browser UI and realtime WebSocket (mic access requires secure context)
 
-Open `https://localhost:2245` in a browser for the dashboard (batch + archival transcription + realtime).
+Open `https://localhost:2245` in a browser for the dashboard (batch + archival transcription + realtime). The dashboard UI is built on the [nui_wc2](https://github.com/herrbasan/nui_wc2) component library, vendored as a git submodule at `lib/nui_wc2` and served at `/nui`.
 
 ## Requirements
 
@@ -140,7 +140,9 @@ src/nvoice/         Python worker code (shared across all engine venvs)
   engines/          Per-engine adapters (faster_whisper, parakeet, sherpa_onnx, parakeet_npu)
   realtime/         Buffer-retranscribe realtime strategy
 sdk/                Browser SDK (nVoiceClient.js) + ORT WASM for client-side VAD
-web/                Dashboard (vanilla HTML/JS)
+web/                Dashboard (NUI component library)
+  pages/            Router page fragments (home, batch, archive, realtime)
+lib/nui_wc2/        git submodule — NUI UI component library (served at /nui)
 tests/              E2E test suite
 docs/               Working docs (dev plans, handover, engine references)
 documentation/      Stable reference (nVoice_SPEC.md, nVoice_API.md)

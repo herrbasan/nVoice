@@ -54,7 +54,7 @@ venv/
 - `server/`: Node.js management layer (Fastify, engine manager, API routes, audio normalization, cloud adapters).
 - `src/`: Python worker code — shared across all engine venvs via `PYTHONPATH`. Contains STT adapters, realtime WebSocket endpoint, worker HTTP server, realtime strategies, and per-engine adapters.
 - `src/nvoice/engines/`: Per-engine adapters — `faster_whisper.py`, `parakeet.py`, `sherpa_onnx.py`, `parakeet_npu.py`.
-- `web/`: Vanilla HTML/JS dashboard (batch + realtime UI).
+- `web/`: Dashboard built on the nui_wc2 component library (batch + archival + realtime UI). Page fragments live in `web/pages/`; the library is the `lib/nui_wc2` submodule, served at `/nui`.
 - `sdk/`: Browser SDK (`nVoiceClient.js`) + ORT WASM for client-side Silero VAD.
 - `tests/`: E2E test suite (`tests/e2e/test_runner.js`).
 - `docs/`: working docs — dev plans, handover notes, engine references.
