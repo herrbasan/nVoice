@@ -35,6 +35,12 @@
             <nui-button variant="primary" id="btn-transcribe">
                 <button type="button" disabled>Transcribe</button>
             </nui-button>
+            <nui-button id="btn-copy" class="nv-hidden">
+                <button type="button">Copy</button>
+            </nui-button>
+            <nui-button id="btn-download" class="nv-hidden">
+                <button type="button">Download</button>
+            </nui-button>
         </nui-button-container>
 
         <div id="batch-result" class="nv-log nv-log-short nv-dim">Result will appear here.</div>
@@ -49,8 +55,11 @@ function init(element, params, nui) {
     const btn = element.querySelector('#btn-transcribe');
     const innerBtn = btn.querySelector('button');
     const resultEl = element.querySelector('#batch-result');
+    const copyBtn = element.querySelector('#btn-copy');
+    const downloadBtn = element.querySelector('#btn-download');
 
     let pickedFile = null;
+    let resultText = '';
 
     fileBtn.addEventListener('nui-file-selected', (e) => {
         pickedFile = e.detail.files[0] || null;
@@ -58,12 +67,19 @@ function init(element, params, nui) {
         fileName.textContent = pickedFile ? pickedFile.name : 'No file selected';
     });
 
+    function setResultActions(visible) {
+        copyBtn.classList.toggle('nv-hidden', !visible);
+        downloadBtn.classList.toggle('nv-hidden', !visible);
+    }
+
     btn.addEventListener('click', async () => {
         if (!pickedFile) return;
         innerBtn.disabled = true;
         btn.setLoading?.(true);
         resultEl.classList.remove('nv-dim');
         resultEl.textContent = 'Transcribing...';
+        setResultActions(false);
+        resultText = '';
 
         const formData = new FormData();
         formData.append('file', pickedFile);
@@ -79,16 +95,47 @@ function init(element, params, nui) {
             }
             const contentType = resp.headers.get('content-type') || '';
             if (contentType.includes('application/json')) {
-                resultEl.textContent = JSON.stringify(await resp.json(), null, 2);
+                const data = await resp.json();
+                // Display the transcribed text.
+                resultText = data.text ?? JSON.stringify(data, null, 2);
             } else {
-                resultEl.textContent = await resp.text();
+                resultText = await resp.text();
             }
+            resultEl.textContent = resultText || '(no speech detected)';
+            setResultActions(!!resultText);
         } catch (e) {
             resultEl.textContent = `Error: ${e.message}`;
         } finally {
             innerBtn.disabled = false;
             btn.setLoading?.(false);
         }
+    });
+
+    copyBtn.addEventListener('click', async () => {
+        if (!resultText) return;
+        try {
+            await navigator.clipboard.writeText(resultText);
+            nui.components.banner.show({
+                content: 'Transcript copied to clipboard.',
+                placement: 'bottom', priority: 'info', autoClose: 2500,
+            });
+        } catch (e) {
+            nui.components.banner.show({
+                content: `Copy failed: ${e.message}`,
+                placement: 'bottom', priority: 'danger', autoClose: 4000,
+            });
+        }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+        if (!resultText) return;
+        const blob = new Blob([resultText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (pickedFile?.name || 'transcript').replace(/\.[^.]+$/, '') + '.txt';
+        a.click();
+        URL.revokeObjectURL(url);
     });
 }
 </script>
