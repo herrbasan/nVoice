@@ -1,6 +1,6 @@
 # nVoice Handsfree — Dev Plan (Siri-like voice assistant)
 
-**Status:** Design / Phase 1 planned
+**Status:** Phase 1 DONE (committed b84d1e0) · Phase 2 IN PROGRESS (training "ok kimi" model)
 **Date:** 2026-08-09
 **Owner:** nVoice + chat app + nSpeech
 
@@ -67,8 +67,11 @@ Prototype the full handsfree chain with a temporary text/keyboard trigger instea
 
 ### Phase 2 — Train the "ok kimi" acoustic model
 - openWakeWord custom training path: generate synthetic TTS clips of "ok kimi" (+ variants "okay kimi"), train a classifier on the frozen backbone.
+- **Windows path (implemented 2026-08-09):** the openWakeWord `train.py` CLI is Linux-only (Piper TTS). Instead, `tools/kimi_wake/gen_clips.py` generates synthetic clips via **edge-tts** (47 en voices, rate/pitch jitter), and `tools/kimi_wake/train_wake.py` uses the openWakeWord **library API directly** (augment_clips → compute_features_from_generator → Model.auto_train → export_model ONNX) in a dedicated Python 3.12 venv (`venv/wakeword/env`).
+- Train data: ~1500 train + 200 test per class synthetic clips; background noise (synthetic colored noise); 11.3-hr precomputed FP validation set (`models/kimi_wake/validation_set_features.npy`, 176 MB from HF `davidscripka/openwakeword_features`).
+- Known dep fixes: `acoustics` patched for scipy>=1.15 (`sph_harm_y`); `torchaudio.load/info` monkeypatched to soundfile (torchcodec DLL won't load on this box).
 - Export ONNX. Decide: speaker-agnostic vs voice-locked (verifier stage).
-- Deliverable: kimi-wake ONNX model; accuracy targets false-accept <0.5/hr, false-reject <5%.
+- Deliverable: `models/kimi_wake/kimi_wake.onnx`; accuracy targets false-accept <0.5/hr, false-reject <5% (checked by `tools/kimi_wake/validate_wake.py`).
 
 ### Phase 3 — Wake→capture wiring
 - Run the detector on raw audio (placement decision — see Open questions).
