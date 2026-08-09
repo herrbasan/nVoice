@@ -82,7 +82,6 @@ def create_strategy(adapter, config=None):
             sample_rate=16000,
             vad=vad,
             commit_silence_sec=rt.get('commit_silence_sec', cfg.get('commit_silence_tail_sec', 0.6)),
-            left_context_sec=rt.get('left_context_sec', 2.0),
             max_chunk_sec=rt.get('max_chunk_sec', 30.0),
         )
 

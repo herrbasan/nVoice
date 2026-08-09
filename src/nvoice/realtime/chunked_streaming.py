@@ -37,14 +37,13 @@ _HALLUCINATIONS = [
 
 class ChunkedStreamingStrategy(RealtimeStrategy):
     def __init__(self, stt_engine, sample_rate=16000, vad=None,
-                 commit_silence_sec=0.6, left_context_sec=2.0,
+                 commit_silence_sec=0.6,
                  max_chunk_sec=30.0, provisional_interval_sec=0.5):
         self.stt_engine = stt_engine
         self.sample_rate = sample_rate
         self.vad = vad
 
         self.commit_silence_sec = commit_silence_sec      # silence tail → chunk complete
-        self.left_context_sec = left_context_sec          # trailing context included in commit
         self.max_chunk_sec = max_chunk_sec                # force-commit cap
         self.provisional_interval_sec = provisional_interval_sec
 

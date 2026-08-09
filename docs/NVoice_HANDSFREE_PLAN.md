@@ -108,3 +108,11 @@ Read `docs/NVoice_API_DEV_PLAN.md` §13 (G1–G13) before touching any phase. No
 - openWakeWord (`dscripka/openWakeWord`) — Apache-2.0 code; pretrained models CC-BY-NC-SA; custom training ~1hr from synthetic TTS.
 - Parakeet-TDT-0.6B-V3 model card — native punctuation/capitalization; no command detection.
 - This repo: `src/nvoice/realtime/chunked_streaming.py`, `server/api/realtime.js`, `server/assistant/actions.js`, `sdk/nVoiceClient.js`.
+
+## Operational notes (preserved from the retired assistant handover)
+
+- **Never kill node by process name** — always by PID on port 2244. Broad kills took down the LLM Gateway (port 3400) and monitoring (port 4440), which are unrelated services on this machine.
+- **The server on 2244 can be stale** (old code) if not restarted properly — check server logs for the expected lines after a restart.
+- **LLM Gateway:** port 3400, OpenAI-compatible `/v1/chat/completions`, Bearer auth (key from `D:\DEV\mcp_server\.env` → `GATEWAY_ACCESS_KEY`).
+- **Strategy differences:** `chunked_streaming` (parakeet_tdt) vs `buffer_retranscribe` (faster_whisper) emit finals differently.
+- **First-word clipping** is fixed client-side via the pre-wake ring buffer (`_preWakeBuffer` in `sdk/nVoiceClient.js`) — preserved behavior, do not regress it.

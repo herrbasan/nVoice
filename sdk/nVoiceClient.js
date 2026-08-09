@@ -270,11 +270,14 @@ class nVoiceClient {
      * so no audio leaves the browser until the wake word fires.
      */
     async _setupStreamingWorklet() {
-        this._streamContext = new (window.AudioContext || window.webkitAudioContext)();
-        const nativeSr = this._streamContext.sampleRate;
+        // Local ctx — never read the shared field across an await; overlapping
+        // setup calls would otherwise cross-contaminate contexts.
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this._streamContext = ctx;
+        const nativeSr = ctx.sampleRate;
         const targetSr = 16000;
         const frameSize = 512; // 32ms @ 16kHz
-        const source = this._streamContext.createMediaStreamSource(this.audioStream);
+        const source = ctx.createMediaStreamSource(this.audioStream);
 
         const workletCode = `
         class StreamProcessor extends AudioWorkletProcessor {
@@ -326,9 +329,9 @@ class nVoiceClient {
 
         const blob = new Blob([workletCode], { type: 'application/javascript' });
         const workletUrl = URL.createObjectURL(blob);
-        await this._streamContext.audioWorklet.addModule(workletUrl);
+        await ctx.audioWorklet.addModule(workletUrl);
 
-        this._streamNode = new AudioWorkletNode(this._streamContext, 'stream-processor');
+        this._streamNode = new AudioWorkletNode(ctx, 'stream-processor');
         this._preWakeBuffer = [];      // frames received while asleep
         this._preWakeMaxFrames = 10;   // ~320ms at 32ms/frame
         this._streamNode.port.onmessage = (event) => {
@@ -347,30 +350,33 @@ class nVoiceClient {
         };
 
         source.connect(this._streamNode);
-        const silentGain = this._streamContext.createGain();
+        const silentGain = ctx.createGain();
         silentGain.gain.value = 0;
         this._streamNode.connect(silentGain);
-        silentGain.connect(this._streamContext.destination);
+        silentGain.connect(ctx.destination);
     }
 
     async _setupAudioWorklet() {
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        // Local ctx — never read the shared field across an await; overlapping
+        // setup calls would otherwise cross-contaminate contexts.
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.audioContext = ctx;
 
         // iOS Safari: AudioContext starts suspended, must be resumed after user gesture
-        if (this.audioContext.state === 'suspended') {
+        if (ctx.state === 'suspended') {
             console.log('[VAD] AudioContext suspended, resuming...');
             try {
-                await this.audioContext.resume();
+                await ctx.resume();
             } catch (e) {
                 console.warn('[VAD] Could not resume AudioContext:', e);
             }
         }
 
-        const nativeSr = this.audioContext.sampleRate;
+        const nativeSr = ctx.sampleRate;
         const targetSr = 16000;
         const frameSize = 1536;
 
-        const source = this.audioContext.createMediaStreamSource(this.audioStream);
+        const source = ctx.createMediaStreamSource(this.audioStream);
 
         // Exact vad-web resampler algorithm ported into AudioWorklet
         const workletCode = `
@@ -438,9 +444,9 @@ class nVoiceClient {
 
         const blob = new Blob([workletCode], { type: 'application/javascript' });
         const workletUrl = URL.createObjectURL(blob);
-        await this.audioContext.audioWorklet.addModule(workletUrl);
+        await ctx.audioWorklet.addModule(workletUrl);
 
-        this.workletNode = new AudioWorkletNode(this.audioContext, 'vad-processor');
+        this.workletNode = new AudioWorkletNode(ctx, 'vad-processor');
         console.log('[VAD] AudioWorklet registered. nativeSr=' + nativeSr + ' targetSr=' + targetSr + ' frameSize=' + frameSize);
 
         this.workletNode.port.onmessage = (event) => {
@@ -450,10 +456,10 @@ class nVoiceClient {
 
         source.connect(this.workletNode);
 
-        const silentGain = this.audioContext.createGain();
+        const silentGain = ctx.createGain();
         silentGain.gain.value = 0;
         this.workletNode.connect(silentGain);
-        silentGain.connect(this.audioContext.destination);
+        silentGain.connect(ctx.destination);
     }
 
     async _processVAD(audioFrame, fc) {
@@ -568,6 +574,12 @@ class nVoiceClient {
     }
 
     async start() {
+        // Guard against overlapping/duplicate start() calls. A second concurrent
+        // start races on the shared AudioContext fields, leaving the worklet
+        // unregistered ("vad-processor is not defined") and the UI stuck.
+        if (this._starting) return;
+        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+        this._starting = true;
         try {
             console.log('[nVoice] start() called, wakeWordEnabled=' + this.wakeWordEnabled);
 
@@ -693,9 +705,11 @@ class nVoiceClient {
             };
 
         } catch (error) {
+            this._starting = false;
             this.emit('error', error);
             throw error;
         }
+        this._starting = false;
     }
 
     /**
