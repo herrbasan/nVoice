@@ -68,6 +68,16 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("kimi_train")
 
 
+class IterDataset(torch.utils.data.IterableDataset):
+    """Module-level so multiprocessing DataLoader workers can pickle it."""
+
+    def __init__(self, generator):
+        self.generator = generator
+
+    def __iter__(self):
+        return self.generator
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=30000, help="training steps")
@@ -77,6 +87,10 @@ def main():
                     help="generate N synthetic noise background clips (0 = skip background mixing)")
     ap.add_argument("--skip-augment", action="store_true", help="reuse existing feature .npy files")
     ap.add_argument("--gpu", action="store_true", help="use GPU for feature extraction")
+    ap.add_argument("--max-negative-weight", type=int, default=1500,
+                    help="max negative class weight in auto_train (lower = gentler on positives)")
+    ap.add_argument("--target-fp-per-hour", type=float, default=0.2,
+                    help="FP/hr target fed to auto_train (higher = stops doubling negative weight sooner)")
     args = ap.parse_args()
 
     data_dir = os.path.abspath(args.data)
@@ -197,15 +211,8 @@ def main():
         label_transform_funcs=label_transforms,
     )
 
-    class IterDataset(torch.utils.data.IterableDataset):
-        def __init__(self, generator):
-            self.generator = generator
-
-        def __iter__(self):
-            return self.generator
-
     X_train = torch.utils.data.DataLoader(
-        IterDataset(batch_generator), batch_size=None, num_workers=n_cpus, prefetch_factor=16
+        IterDataset(batch_generator), batch_size=None, num_workers=0, prefetch_factor=None
     )
 
     # False-positive validation data (11.3 hrs of precomputed features).
@@ -235,19 +242,36 @@ def main():
     )
 
     # --- train ----------------------------------------------------------------
-    log.info("Starting auto_train (%d steps)...", args.steps)
+    log.info("Starting auto_train (%d steps, max_neg_weight=%d, target_fp/hr=%.2f)...",
+             args.steps, args.max_negative_weight, args.target_fp_per_hour)
     best_model = oww.auto_train(
         X_train=X_train,
         X_val=X_val,
         false_positive_val_data=X_val_fp,
         steps=args.steps,
-        max_negative_weight=1500,
-        target_fp_per_hour=0.2,
+        max_negative_weight=args.max_negative_weight,
+        target_fp_per_hour=args.target_fp_per_hour,
     )
 
     # --- export ---------------------------------------------------------------
     log.info("Exporting ONNX model...")
-    oww.export_model(model=best_model, model_name="kimi_wake", output_dir=data_dir)
+    try:
+        oww.export_model(model=best_model, model_name="kimi_wake", output_dir=data_dir)
+    except Exception:
+        # torch 2.13's default (dynamo) exporter needs onnxscript; fall back to
+        # the legacy exporter, which only needs the onnx package.
+        import copy
+        import torch as _torch
+
+        log.info("dynamo exporter unavailable (onnxscript missing); using legacy exporter")
+        model_to_save = copy.deepcopy(best_model)
+        _torch.onnx.export(
+            model_to_save.to("cpu"),
+            _torch.rand(oww.input_shape)[None, ],
+            os.path.join(data_dir, "kimi_wake.onnx"),
+            opset_version=13,
+            dynamo=False,
+        )
     log.info("Done. Model: %s", os.path.join(data_dir, "kimi_wake.onnx"))
 
 

@@ -25,19 +25,28 @@ import scipy.io.wavfile
 from openwakeword.utils import AudioFeatures
 
 
-def embed_clip(F, path, window=16):
-    """Return (n_frames, 96) embeddings for one clip, plus the raw pcm."""
+def embed_clip(F, path, window=16, pad_to=42000):
+    """Return (n_frames, 96) embeddings for one clip, plus the raw pcm.
+
+    Clips are zero-padded to `pad_to` samples (matching training clip length,
+    ~2.62s) so short clips still produce enough frames for the model window.
+    """
     sr, pcm = scipy.io.wavfile.read(path)
     if pcm.ndim > 1:
         pcm = pcm.mean(axis=1)
     if sr != 16000:
         raise ValueError(f"clip {path} is {sr} Hz, expected 16000")
-    pcm = pcm.astype(np.float32) / 32767.0
+    pcm = pcm.astype(np.int16)
+    if len(pcm) < pad_to:
+        pad = np.zeros(pad_to, dtype=np.int16)
+        start = max(0, (pad_to - len(pcm)) // 2)
+        pad[start:start + len(pcm)] = pcm
+        pcm = pad
     feats = F.embed_clips(pcm[None, :], batch_size=1)  # (1, frames, 96)
     return feats[0], pcm
 
 
-def max_activation(sess, feats, window=16):
+def max_activation(sess, feats, window):
     """Slide the window over embeddings and return the max sigmoid."""
     if feats.shape[0] < window:
         return 0.0
@@ -47,6 +56,14 @@ def max_activation(sess, feats, window=16):
         out = sess.run(None, {sess.get_inputs()[0].name: w})[0]
         scores.append(float(out.ravel()[0]))
     return max(scores) if scores else 0.0
+
+
+def get_window(sess):
+    """Read the model's expected window length from the ONNX input shape."""
+    shape = sess.get_inputs()[0].shape
+    if shape and len(shape) >= 3 and isinstance(shape[1], int):
+        return shape[1]
+    return 16
 
 
 def main():
@@ -62,7 +79,8 @@ def main():
 
     F = AudioFeatures(inference_framework="onnx", device="cpu")
     sess = ort.InferenceSession(args.model, providers=["CPUExecutionProvider"])
-
+    window = get_window(sess)
+    print(f"model input shape: {sess.get_inputs()[0].shape}, window={window}")
     pos_files = sorted(glob.glob(os.path.join(args.data, "positive_test", "*.wav")))
     neg_files = sorted(glob.glob(os.path.join(args.data, "negative_test", "*.wav")))
     print(f"pos test clips: {len(pos_files)}, neg test clips: {len(neg_files)}")
@@ -71,14 +89,14 @@ def main():
     pos_scores = []
     for p in pos_files:
         feats, _ = embed_clip(F, p)
-        pos_scores.append(max_activation(sess, feats))
+        pos_scores.append(max_activation(sess, feats, window))
     pos_scores = np.array(pos_scores)
 
     # Negative (false-accept) scores
     neg_scores = []
     for p in neg_files:
         feats, _ = embed_clip(F, p)
-        neg_scores.append(max_activation(sess, feats))
+        neg_scores.append(max_activation(sess, feats, window))
     neg_scores = np.array(neg_scores)
 
     print(f"\n=== THRESHOLD {args.threshold} ===")
@@ -97,7 +115,7 @@ def main():
         rng = np.random.default_rng(0)
         n_detections = 0
         n_sampled = 0
-        win = 16
+        win = window
         step = 20  # sample windows 20 frames apart (~1.6s) to approximate realtime sliding
         max_start = X.shape[0] - win
         idx = np.arange(0, max_start, step)
