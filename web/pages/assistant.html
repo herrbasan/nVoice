@@ -59,6 +59,14 @@
                 <div id="asst-cleaned" class="nv-log nv-assistant-log"></div>
             </div>
         </div>
+
+        <!-- Handsfree Phase 1 harness: button stands in for the "ok kimi" wake word -->
+        <div style="margin-top: var(--nui-space); display: flex; gap: var(--nui-space); align-items: flex-start;">
+            <nui-button variant="primary" id="asst-btn-send">
+                <button type="button" disabled>Send (handsfree)</button>
+            </nui-button>
+            <div id="asst-reply" class="nv-log" style="flex: 1; min-height: 4rem; max-height: 10rem; margin-top: 0;"></div>
+        </div>
     </nui-card>
 </div>
 
@@ -81,8 +89,12 @@ function init(element, params, nui) {
     const micSelectWrap = element.querySelector('#asst-mic-select-wrap');
     const wakeWordToggle = element.querySelector('#asst-wake-word-toggle');
     const rawAudioToggle = element.querySelector('#asst-raw-audio-toggle');
+    const sendBtn = element.querySelector('#asst-btn-send');
+    const sendInnerBtn = sendBtn.querySelector('button');
+    const replyDiv = element.querySelector('#asst-reply');
 
     let client = null;
+    let rawText = '';  // accumulated final transcripts, sent on handsfree Send
 
     async function loadInputSources() {
         try {
@@ -133,6 +145,7 @@ function init(element, params, nui) {
             stopInnerBtn.disabled = false;
             startInnerBtn.disabled = true;
             copyInnerBtn.disabled = false;
+            sendInnerBtn.disabled = false;
             setMicEnabled(false);
         });
 
@@ -143,6 +156,7 @@ function init(element, params, nui) {
             startInnerBtn.disabled = false;
             stopInnerBtn.disabled = true;
             sleepInnerBtn.disabled = true;
+            sendInnerBtn.disabled = true;
             setMicEnabled(true);
         });
         client.on('disconnected', () => {
@@ -150,6 +164,7 @@ function init(element, params, nui) {
             stopInnerBtn.disabled = true;
             startInnerBtn.disabled = false;
             sleepInnerBtn.disabled = true;
+            sendInnerBtn.disabled = true;
             setMicEnabled(true);
         });
         client.on('error', (err) => { console.error('[Assistant] Error:', err); });
@@ -165,6 +180,7 @@ function init(element, params, nui) {
             }
             if (msg.is_final) {
                 finalSpan.textContent += msg.text + ' ';
+                rawText += msg.text.trim() + ' ';
                 provSpan.textContent = '';
             } else {
                 provSpan.textContent = msg.text + ' …';
@@ -251,6 +267,39 @@ function init(element, params, nui) {
                     autoClose: 2000,
                 });
             });
+        }
+    });
+
+    // Handsfree Phase 1 harness: send the accumulated utterance to the LLM
+    // and speak the reply. The button stands in for the "ok kimi" wake word
+    // until the acoustic model lands (Phase 2/3).
+    function speak(text) {
+        if (!('speechSynthesis' in window) || !text) return;
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.0;
+        window.speechSynthesis.speak(u);
+    }
+
+    sendBtn.addEventListener('click', async () => {
+        const text = rawText.trim();
+        if (!text) return;
+        sendInnerBtn.disabled = true;
+        replyDiv.textContent = '…';
+        try {
+            const resp = await fetch('/v1/assistant/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            });
+            const data = await resp.json();
+            const reply = (data && data.reply) || (data && data.error && data.error.message) || 'No reply';
+            replyDiv.textContent = reply;
+            speak(reply);
+        } catch (e) {
+            replyDiv.textContent = 'Error: ' + e.message;
+        } finally {
+            sendInnerBtn.disabled = false;
         }
     });
 }

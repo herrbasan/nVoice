@@ -21,6 +21,7 @@ import { EngineManager } from './engine/manager.js';
 import { registerTranscriptionRoutes, registerAlignRoute, registerArchiveRoute } from './api/transcriptions.js';
 import { registerAdminRoutes } from './api/admin.js';
 import { registerRealtimeRoutes, attachRealtimeWebSocket } from './api/realtime.js';
+import { registerAssistantRoutes } from './api/assistant.js';
 import { listCloudEngines } from './cloud/registry.js';
 
 // Engine manager — singleton for the server lifetime
@@ -79,6 +80,7 @@ function createApp(httpsOptions) {
   registerArchiveRoute(app, engineManager);
   registerAdminRoutes(app, engineManager);
   registerRealtimeRoutes(app, engineManager);
+  registerAssistantRoutes(app);
 
   // --- Health & status ---
   app.get('/health', async () => ({

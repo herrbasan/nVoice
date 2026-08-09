@@ -179,6 +179,60 @@ Rules:
   }
 
   /**
+   * Handsfree one-shot reply (Phase 1 harness). The driver's spoken utterance
+   * (raw STT, imperfect) gets a short, TTS-friendly reply from the LLM.
+   * Stateless — conversation context lives in the chat app later (handsfree
+   * phase); this just proves the STT → LLM → TTS leg.
+   *
+   * @param {string} text - The user's spoken utterance
+   * @returns {Promise<string|null>} Reply text, or null on failure
+   */
+  async chatReply(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+
+    const systemPrompt = `You are a hands-free voice assistant for a driver. You receive raw speech-to-text output, so ignore dictation errors, fillers (um, uh), and repetitions and understand the intent.
+
+Rules:
+- Reply with SHORT, focused responses suitable for text-to-speech playback: at most 1-3 sentences.
+- Be direct, natural, and conversational. No markdown, no bullets, no prefixes like "Assistant:".
+- If the user's message is a command (stop, pause, resume, send), acknowledge it in one short sentence.`;
+
+    const body = JSON.stringify({
+      model: this.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: trimmed },
+      ],
+      max_tokens: 200,
+      temperature: 0.4,
+      stream: false,
+    });
+
+    try {
+      const res = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.gatewayKey}`,
+        },
+        body,
+      });
+      if (!res.ok) {
+        logger.warn('Assistant chatReply HTTP error', { status: res.status }, 'Assistant');
+        return null;
+      }
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) return null;
+      return content.trim();
+    } catch (err) {
+      logger.error('Assistant chatReply failed', err, 'Assistant');
+      return null;
+    }
+  }
+
+  /**
    * Process a settled transcript sentence through the LLM.
    *
    * @param {string} rawText - The raw STT output
