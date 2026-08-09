@@ -91,6 +91,8 @@ def main():
                     help="max negative class weight in auto_train (lower = gentler on positives)")
     ap.add_argument("--target-fp-per-hour", type=float, default=0.2,
                     help="FP/hr target fed to auto_train (higher = stops doubling negative weight sooner)")
+    ap.add_argument("--real-negatives", type=str, default=None, metavar="NPY",
+                    help="real-audio negative features (real_negative_features_train.npy) to add as a class")
     args = ap.parse_args()
 
     data_dir = os.path.abspath(args.data)
@@ -204,6 +206,23 @@ def main():
         "positive": 50,
     }
 
+    # Optional real-audio negatives (built by build_real_negatives.py). Training
+    # on REAL speech/music/noise features is what fixes over-firing on real-world
+    # audio — synthetic-only negatives leave real audio in the positive region.
+    if args.real_negatives is None:
+        auto_real = os.path.join(feature_save_dir, "real_negative_features_train.npy")
+        if os.path.exists(auto_real):
+            args.real_negatives = auto_real
+    if args.real_negatives:
+        rn_path = os.path.abspath(args.real_negatives)
+        if not os.path.exists(rn_path):
+            sys.exit(f"--real-negatives file not found: {rn_path}")
+        feature_data_files["real_negative"] = rn_path
+        label_transforms["real_negative"] = lambda x: [0 for _ in x]
+        data_transforms["real_negative"] = f
+        batch_n_per_class["real_negative"] = 50
+        log.info("Adding real-audio negatives: %s", rn_path)
+
     batch_generator = mmap_batch_generator(
         feature_data_files,
         n_per_class=batch_n_per_class,
@@ -215,13 +234,18 @@ def main():
         IterDataset(batch_generator), batch_size=None, num_workers=0, prefetch_factor=None
     )
 
-    # False-positive validation data (11.3 hrs of precomputed features).
-    fp_path = os.path.join(feature_save_dir, "validation_set_features.npy")
+    # False-positive validation data (real-audio features). Prefer the held-out
+    # portion (validation_set_holdout.npy) when real negatives were built from the
+    # full set — otherwise we'd validate on audio the model already trained on.
+    fp_path = os.path.join(feature_save_dir, "validation_set_holdout.npy")
+    if not os.path.exists(fp_path):
+        fp_path = os.path.join(feature_save_dir, "validation_set_features.npy")
     if not os.path.exists(fp_path):
         sys.exit(
             "Missing validation_set_features.npy (11.3 hr FP set). Download from:\n"
             "  https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/validation_set_features.npy"
         )
+    log.info("FP validation: %s", os.path.basename(fp_path))
     X_val_fp = np.load(fp_path)
     X_val_fp = np.array([X_val_fp[i:i + input_shape[0]] for i in range(0, X_val_fp.shape[0] - input_shape[0], 1)])
     X_val_fp_labels = np.zeros(X_val_fp.shape[0]).astype(np.float32)

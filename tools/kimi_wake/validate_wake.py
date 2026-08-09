@@ -107,8 +107,11 @@ def main():
     print(f"Pos score mean={pos_scores.mean():.3f} min={pos_scores.min():.3f} p25={np.percentile(pos_scores,25):.3f} med={np.median(pos_scores):.3f}")
     print(f"Neg score mean={neg_scores.mean():.3f} max={neg_scores.max():.3f} p90={np.percentile(neg_scores,90):.3f} p99={np.percentile(neg_scores,99):.3f}")
 
-    # FP/hour estimate from the 11.3 hr validation set
-    fp_path = os.path.join(args.data, "validation_set_features.npy")
+    # FP/hour estimate from the real-audio FP set. Prefer the held-out portion
+    # (not used in training) when it exists.
+    fp_path = os.path.join(args.data, "validation_set_holdout.npy")
+    if not os.path.exists(fp_path):
+        fp_path = os.path.join(args.data, "validation_set_features.npy")
     if os.path.exists(fp_path):
         X = np.load(fp_path)
         total_hrs = 11.3

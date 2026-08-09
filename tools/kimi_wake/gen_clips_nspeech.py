@@ -17,6 +17,7 @@ import os
 import random
 import sys
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import requests
@@ -104,16 +105,17 @@ def write_clip(pcm16, out_path):
     sf.write(out_path, pcm, 16000, subtype="PCM_16")
 
 
-def generate_set(phrases, count, out_dir, positive: bool):
-    """Generate `count` clips into `out_dir` from the phrase pool (locally, no throttling)."""
+def generate_set(phrases, count, out_dir, positive: bool, concurrency: int = 8):
+    """Generate `count` clips into `out_dir` from the phrase pool (local, concurrent)."""
     os.makedirs(out_dir, exist_ok=True)
     existing = len([f for f in os.listdir(out_dir) if f.endswith(".wav")])
     if existing >= count:
         print(f"  {out_dir}: already has {existing} clips, skipping", flush=True)
         return 0
 
-    ok = 0
-    for i in range(count - existing):
+    n_needed = count - existing
+
+    def work(_):
         phrase = random.choice(phrases)
         voice = random.choice(VOICES)
         speed = random.choice(SPEEDS)
@@ -121,11 +123,23 @@ def generate_set(phrases, count, out_dir, positive: bool):
         try:
             pcm16 = synthesize(phrase, voice, speed)
             write_clip(pcm16, path)
-            ok += 1
+            return True, path
         except Exception as e:  # noqa: BLE001
-            print(f"  FAILED [{voice}@{speed}] {phrase!r}: {e}", flush=True)
-        if (i + 1) % 100 == 0:
-            print(f"  {out_dir}: {i+1}/{count-existing} done ({ok} ok)", flush=True)
+            return False, f"[{voice}@{speed}] {phrase!r}: {e}"
+
+    ok = 0
+    done = 0
+    with ThreadPoolExecutor(max_workers=concurrency) as ex:
+        futs = [ex.submit(work, i) for i in range(n_needed)]
+        for fut in as_completed(futs):
+            success, detail = fut.result()
+            done += 1
+            if success:
+                ok += 1
+            else:
+                print(f"  FAILED {detail}", flush=True)
+            if done % 100 == 0:
+                print(f"  {out_dir}: {done}/{n_needed} done ({ok} ok)", flush=True)
 
     print(f"  {out_dir}: complete ({ok} ok)", flush=True)
     return ok
@@ -138,6 +152,8 @@ def main():
     ap.add_argument("--out", default=r"models\kimi_wake")
     ap.add_argument("--only-positives", action="store_true",
                     help="only generate positive sets (keep existing edge-tts negatives)")
+    ap.add_argument("--concurrency", type=int, default=8,
+                    help="parallel requests to nSpeech")
     args = ap.parse_args()
 
     # Sanity check: server reachable + kokoro engine
@@ -150,17 +166,17 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"WARNING: could not reach nSpeech at {NSPEECH_URL}: {e}", flush=True)
 
-    print(f"Generating {args.n_train} train + {args.n_test} test clips each via nSpeech/Kokoro", flush=True)
+    print(f"Generating {args.n_train} train + {args.n_test} test clips each via nSpeech/Kokoro (concurrency={args.concurrency})", flush=True)
     print("=== POSITIVE TRAIN ===", flush=True)
-    generate_set(POSITIVE_PHRASES, args.n_train, os.path.join(args.out, "positive_train"), True)
+    generate_set(POSITIVE_PHRASES, args.n_train, os.path.join(args.out, "positive_train"), True, args.concurrency)
     print("=== POSITIVE TEST ===", flush=True)
-    generate_set(POSITIVE_PHRASES, args.n_test, os.path.join(args.out, "positive_test"), True)
+    generate_set(POSITIVE_PHRASES, args.n_test, os.path.join(args.out, "positive_test"), True, args.concurrency)
     if not args.only_positives:
         neg = ADVERSARIAL_PHRASES + GENERAL_SPEECH
         print("=== NEGATIVE TRAIN ===", flush=True)
-        generate_set(neg, args.n_train, os.path.join(args.out, "negative_train"), False)
+        generate_set(neg, args.n_train, os.path.join(args.out, "negative_train"), False, args.concurrency)
         print("=== NEGATIVE TEST ===", flush=True)
-        generate_set(neg, args.n_test, os.path.join(args.out, "negative_test"), False)
+        generate_set(neg, args.n_test, os.path.join(args.out, "negative_test"), False, args.concurrency)
     print("Done.", flush=True)
 
 
