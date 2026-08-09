@@ -73,6 +73,17 @@ const config = {
     silence_tail_sec: 1.5,
   },
 
+  // Assistant layer — LLM-powered transcription post-processing
+  // Intercepts settled (is_final) transcripts from the realtime pipeline,
+  // sends them to the LLM Gateway for cleanup/command-detection.
+  assistant: rawConfig.assistant ?? {
+    enabled: false,
+    gateway_url: 'http://localhost:3400',
+    gateway_key: '',
+    model: 'badkid-llama-chat',
+    context_sentences: 3,
+  },
+
   // TLS
   tlsCert: rawConfig.ssl_cert ?? path.join(PROJECT_ROOT, 'tls', 'cert.pem'),
   tlsKey: rawConfig.ssl_key ?? path.join(PROJECT_ROOT, 'tls', 'key.pem'),

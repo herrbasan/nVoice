@@ -1,0 +1,257 @@
+<div class="page-assistant">
+    <header style="margin-bottom: var(--nui-space-double)">
+        <h1>Voice Assistant</h1>
+        <p class="lead">Speak naturally — the raw transcript appears instantly. After a longer pause, the cleaned transcript updates below.</p>
+    </header>
+
+    <nui-card>
+        <div class="nv-section">
+            <div style="display: flex; align-items: center; gap: var(--nui-space); margin-bottom: var(--nui-space);">
+                <nui-badge id="asst-status-badge">Disconnected</nui-badge>
+                <span id="asst-telemetry" class="nv-dim" style="font-family: monospace; font-size: 0.8em;"></span>
+            </div>
+
+            <div class="nv-form-stack">
+                <nui-input-group>
+                    <label for="asst-mic-select">Input source</label>
+                    <nui-select id="asst-mic-select-wrap">
+                        <select id="asst-mic-select"></select>
+                    </nui-select>
+                </nui-input-group>
+
+                <div class="nv-options-row">
+                    <nui-checkbox>
+                        <input type="checkbox" id="asst-wake-word-toggle" checked>
+                        <label for="asst-wake-word-toggle">Wake-on-Voice (WASM)</label>
+                    </nui-checkbox>
+
+                    <nui-checkbox>
+                        <input type="checkbox" id="asst-raw-audio-toggle">
+                        <label for="asst-raw-audio-toggle">Raw audio (disable AGC/noise suppression)</label>
+                    </nui-checkbox>
+                </div>
+            </div>
+
+            <nui-button-container class="nv-actions" gap="medium">
+                <nui-button variant="primary" id="asst-btn-start">
+                    <button type="button">Start</button>
+                </nui-button>
+                <nui-button variant="danger" id="asst-btn-stop">
+                    <button type="button" disabled>Stop</button>
+                </nui-button>
+                <nui-button id="asst-btn-sleep">
+                    <button type="button" disabled>Go to Sleep</button>
+                </nui-button>
+                <nui-button id="asst-btn-copy">
+                    <button type="button" disabled>Copy Cleaned</button>
+                </nui-button>
+            </nui-button-container>
+        </div>
+
+        <div class="nv-assistant-columns">
+            <div class="nv-assistant-col">
+                <h3 style="margin: 0 0 var(--nui-space-quarter) 0; font-size: 1em;">Raw Transcript</h3>
+                <div id="asst-raw" class="nv-log nv-transcript"></div>
+            </div>
+
+            <div class="nv-assistant-col">
+                <h3 style="margin: 0 0 var(--nui-space-quarter) 0; font-size: 1em;">Cleaned Transcript <span id="asst-cleanup-latency" class="nv-dim" style="font-weight: normal; font-size: 0.85em;"></span></h3>
+                <div id="asst-cleaned" class="nv-log nv-assistant-log"></div>
+            </div>
+        </div>
+    </nui-card>
+</div>
+
+<script type="nui/page">
+function init(element, params, nui) {
+    const startBtn = element.querySelector('#asst-btn-start');
+    const stopBtn = element.querySelector('#asst-btn-stop');
+    const sleepBtn = element.querySelector('#asst-btn-sleep');
+    const copyBtn = element.querySelector('#asst-btn-copy');
+    const startInnerBtn = startBtn.querySelector('button');
+    const stopInnerBtn = stopBtn.querySelector('button');
+    const sleepInnerBtn = sleepBtn.querySelector('button');
+    const copyInnerBtn = copyBtn.querySelector('button');
+    const statusBadge = element.querySelector('#asst-status-badge');
+    const rawDiv = element.querySelector('#asst-raw');
+    const cleanedDiv = element.querySelector('#asst-cleaned');
+    const cleanupLatencyDiv = element.querySelector('#asst-cleanup-latency');
+    const telemetryDiv = element.querySelector('#asst-telemetry');
+    const micSelect = element.querySelector('#asst-mic-select');
+    const micSelectWrap = element.querySelector('#asst-mic-select-wrap');
+    const wakeWordToggle = element.querySelector('#asst-wake-word-toggle');
+    const rawAudioToggle = element.querySelector('#asst-raw-audio-toggle');
+
+    let client = null;
+
+    async function loadInputSources() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputDevices = devices.filter(d => d.kind === 'audioinput');
+            const items = audioInputDevices.map((device, i) => ({
+                value: device.deviceId,
+                label: device.label || `Microphone ${i + 1}`,
+            }));
+            if (items.length === 0) {
+                micSelectWrap.setItems([{ value: '', label: 'No microphones found' }]);
+                return;
+            }
+            micSelectWrap.setItems(items);
+            micSelectWrap.setValue?.(items[0].value);
+        } catch (err) {
+            micSelectWrap.setItems([{ value: '', label: 'Microphone permission denied' }]);
+        }
+    }
+
+    element.show = () => { loadInputSources(); };
+    loadInputSources();
+
+    function setMicEnabled(enabled) {
+        micSelect.disabled = !enabled;
+        wakeWordToggle.disabled = !enabled;
+    }
+
+    function setStatus(text, variant) {
+        statusBadge.textContent = text;
+        if (variant) statusBadge.setAttribute('variant', variant);
+        else statusBadge.removeAttribute('variant');
+    }
+
+    function initClient() {
+        if (client) return;
+
+        client = new window.nVoiceClient({ serverUrl: '' });
+
+        client.on('connected', () => {
+            if (client.wakeWordEnabled && !client.isAwake) {
+                setStatus('Asleep', 'warning');
+            } else {
+                setStatus('Connected', 'success');
+            }
+            stopInnerBtn.disabled = false;
+            startInnerBtn.disabled = true;
+            copyInnerBtn.disabled = false;
+            setMicEnabled(false);
+        });
+
+        client.on('asleep', () => { setStatus('Asleep — waiting for voice', 'warning'); });
+        client.on('wakeWordDetected', () => { setStatus('Awake — listening', 'success'); });
+        client.on('standby', () => {
+            setStatus('Standby', 'info');
+            startInnerBtn.disabled = false;
+            stopInnerBtn.disabled = true;
+            sleepInnerBtn.disabled = true;
+            setMicEnabled(true);
+        });
+        client.on('disconnected', () => {
+            setStatus('Disconnected');
+            stopInnerBtn.disabled = true;
+            startInnerBtn.disabled = false;
+            sleepInnerBtn.disabled = true;
+            setMicEnabled(true);
+        });
+        client.on('error', (err) => { console.error('[Assistant] Error:', err); });
+
+        // Raw transcript — same rendering as realtime page
+        client.on('transcript', (msg) => {
+            let finalSpan = rawDiv.querySelector('.final');
+            let provSpan = rawDiv.querySelector('.provisional');
+            if (!finalSpan) {
+                rawDiv.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+                finalSpan = rawDiv.querySelector('.final');
+                provSpan = rawDiv.querySelector('.provisional');
+            }
+            if (msg.is_final) {
+                finalSpan.textContent += msg.text + ' ';
+                provSpan.textContent = '';
+            } else {
+                provSpan.textContent = msg.text + ' …';
+            }
+            rawDiv.scrollTop = rawDiv.scrollHeight;
+        });
+
+        // Assistant cleanup — locked committed text solid, provisional (unsettled) tail dimmed;
+        // paragraph — mirror the break in the raw panel
+        client.on('assistant', (data) => {
+            console.log('[Assistant]', data.type, JSON.stringify(data));
+            if (data.type === 'cleanup') {
+                cleanedDiv.textContent = data.text || '';
+                if (data.provisional) {
+                    const p = document.createElement('span');
+                    p.className = 'provisional';
+                    p.textContent = ' ' + data.provisional;
+                    cleanedDiv.appendChild(p);
+                }
+                cleanedDiv.scrollTop = cleanedDiv.scrollHeight;
+                cleanupLatencyDiv.textContent = data.elapsed_ms != null ? `(${data.elapsed_ms}ms)` : '';
+            } else if (data.type === 'paragraph') {
+                const finalSpan = rawDiv.querySelector('.final');
+                if (finalSpan) finalSpan.textContent = finalSpan.textContent.replace(/\s+$/, '') + '\n\n';
+            }
+        });
+
+        client.on('telemetry', (msg) => {
+            if (msg.state === 'idle/silence') {
+                telemetryDiv.style.color = 'var(--text-color-dim)';
+                telemetryDiv.textContent = `Listening (silence)`;
+            } else {
+                telemetryDiv.style.color = 'var(--color-success, #2e8b57)';
+                telemetryDiv.textContent = `${msg.state} | RTF: ${msg.rtf} | Backlog: ${msg.backlog_sec}s`;
+            }
+        });
+    }
+
+    startBtn.addEventListener('click', async () => {
+        initClient();
+        startInnerBtn.disabled = true;
+        setMicEnabled(false);
+
+        const selectedEngine = window.nvoice.activeEngine;
+
+        if (wakeWordToggle.checked && !client.wakeWordEnabled) {
+            try {
+                await client.enableWakeWord('/sdk/silero_vad.onnx');
+            } catch (e) {
+                nui.components.dialog.alert('Wake Word Error', 'Error loading Wake Word model: ' + e);
+                startInnerBtn.disabled = false;
+                wakeWordToggle.disabled = false;
+                return;
+            }
+        } else if (!wakeWordToggle.checked) {
+            client.wakeWordEnabled = false;
+            client.isAwake = true;
+        }
+
+        client.setAudioDevice(micSelect.value);
+        client.rawAudio = rawAudioToggle.checked;
+        client.engine = selectedEngine;
+        // Opt into the assistant layer — the server checks ?assistant=1
+        client.assistantEnabled = true;
+        client.start().catch(e => console.error(e));
+    });
+
+    stopBtn.addEventListener('click', () => {
+        if (client) client.disconnect();
+    });
+
+    sleepBtn.addEventListener('click', () => {
+        if (client) client.sleep();
+    });
+
+    copyBtn.addEventListener('click', () => {
+        const text = cleanedDiv.textContent;
+        if (text) {
+            navigator.clipboard.writeText(text).then(() => {
+                nui.components.banner.show({
+                    content: 'Transcript copied to clipboard',
+                    placement: 'top',
+                    priority: 'info',
+                    autoClose: 2000,
+                });
+            });
+        }
+    });
+}
+</script>

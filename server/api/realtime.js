@@ -15,6 +15,7 @@ import { logger } from '../logger.js';
 import { EngineError } from '../engine/manager.js';
 import { lookupCloudAdapter, loadCloudAdapter } from '../cloud/registry.js';
 import { config } from '../config.js';
+import { createAssistantSession } from '../assistant/index.js';
 
 export function registerRealtimeRoutes(app, engineManager) {
 
@@ -140,10 +141,109 @@ export function attachRealtimeWebSocket(app, engineManager) {
       return;
     }
 
-    // Pipe worker → browser (JSON events). Buffer nothing; forward as they arrive.
+    // Assistant session — null if disabled in config or not requested by client.
+    // Accumulates raw final transcripts. A cleanup pass fires when the gap
+    // since the last final transcript exceeds pause_trigger_ms (a "longer
+    // pause" than a normal utterance boundary) — not on a fixed wall-clock
+    // interval, and not on a spoken command word (unreliable, see handover).
+    const assistantParam = url.searchParams.get('assistant');
+    logger.info('Assistant check', { assistantParam, configEnabled: config.assistant?.enabled, qs }, 'Assistant', { console: true });
+    const assistant = createAssistantSession(config.assistant, url.searchParams);
+
+    // Segmented cleanup: parakeet attempts punctuation but often fails, so the
+    // LLM's job is to SETTLE sentence boundaries. Only the UNCOMMITTED tail
+    // (pendingRaw) is ever sent to the LLM. When the returned block ends in
+    // terminal punctuation it is locked into committedText and the tail resets —
+    // locked sentences are never reprocessed, so LLM input stays bounded and
+    // latency stays flat no matter how long the session runs.
+    let committedText = '';     // locked cleaned transcript (grows monotonically)
+    let pendingRaw = '';        // raw tail awaiting settlement (bounded)
+    let pendingParagraph = false; // next commit starts a new paragraph
+    let lastFinalAt = null;     // Date.now() of the previous final transcript
+    let pauseTimer = null;
+
+    const assistantPage = !!assistantParam;
+
+    // Automatic paragraph breaks from LONG pauses (independent of LLM cleanup):
+    // a gap longer than paragraph_pause_ms after the last settled utterance
+    // inserts a paragraph break. Timer-based so the break lands DURING the
+    // pause (before the next utterance is forwarded), not after it.
+    const paragraphPauseMs = config.raw?.realtime?.paragraph_pause_ms ?? config.assistant.paragraph_pause_ms;
+    let paragraphTimer = null;
+
+    async function runPauseCleanup() {
+      pauseTimer = null;
+      const snapshot = pendingRaw.trim();
+      if (!snapshot || browserWs.readyState !== WebSocket.OPEN) return;
+      const startedAt = Date.now();
+      try {
+        const cleaned = ((await assistant.cleanTranscript(snapshot)) || '').trim();
+        const elapsedMs = Date.now() - startedAt;
+        // Sentence settled only if the block ends in terminal punctuation.
+        const terminated = /[.!?…]["')\]]*$/.test(cleaned);
+        let provisional = '';
+        if (terminated) {
+          const sep = pendingParagraph ? '\n\n' : ' ';
+          pendingParagraph = false;
+          committedText = (committedText ? committedText.replace(/\s+$/, '') + sep : '') + cleaned;
+          pendingRaw = '';
+        } else {
+          // Sentence still incomplete — hold the raw, show the working version.
+          provisional = cleaned;
+        }
+        if (browserWs.readyState !== WebSocket.OPEN) return;
+        const msg = JSON.stringify({ type: 'assistant', result: { type: 'cleanup', text: committedText, provisional, elapsed_ms: elapsedMs } });
+        browserWs.send(msg, { binary: false });
+        logger.info('Assistant cleanup', { committedLen: committedText.length, pendingLen: pendingRaw.length, provisionalLen: provisional.length, elapsedMs, terminated }, 'Assistant', { console: true });
+      } catch (err) {
+        logger.error('Assistant cleanup error', err, 'Assistant');
+      }
+    }
+
+    if (assistant) {
+      logger.info('Assistant enabled', { model: config.assistant.model, pauseTriggerMs: config.assistant.pause_trigger_ms }, 'Assistant', { console: true });
+    }
+
+    // Pipe worker → browser (JSON events). Forward everything immediately.
+    // When assistant is enabled, each final transcript resets the pause timer;
+    // cleanup only runs once speech has actually stopped for a while.
     workerWs.on('message', (data, isBinary) => {
-      if (browserWs.readyState === WebSocket.OPEN) {
-        browserWs.send(data, { binary: isBinary });
+      if (browserWs.readyState !== WebSocket.OPEN) return;
+
+      // Forward immediately — instant rendering of raw text.
+      browserWs.send(data, { binary: isBinary });
+
+      if (!assistantPage && !assistant) return;
+      let event;
+      try {
+        event = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (event.type !== 'transcript' || !event.is_final || !event.text) return;
+
+      const now = Date.now();
+
+      // Long pause → paragraph break. Re-arm on every settled utterance; if no
+      // new final arrives within paragraph_pause_ms, emit the break immediately
+      // so the raw panel shows the blank line before the next utterance starts.
+      if (assistantPage) {
+        if (paragraphTimer) clearTimeout(paragraphTimer);
+        paragraphTimer = setTimeout(() => {
+          paragraphTimer = null;
+          if (browserWs.readyState !== WebSocket.OPEN) return;
+          browserWs.send(JSON.stringify({ type: 'assistant', result: { type: 'paragraph' } }), { binary: false });
+        }, paragraphPauseMs);
+      }
+
+      // LLM-cleanup path — only when the assistant session exists.
+      if (assistant) {
+        if (lastFinalAt !== null && (now - lastFinalAt) >= paragraphPauseMs) pendingParagraph = true;
+        pendingRaw += event.text.trim() + ' ';
+        lastFinalAt = now;
+
+        if (pauseTimer) clearTimeout(pauseTimer);
+        pauseTimer = setTimeout(runPauseCleanup, config.assistant.pause_trigger_ms);
       }
     });
 
@@ -171,6 +271,8 @@ export function attachRealtimeWebSocket(app, engineManager) {
     });
 
     browserWs.on('close', () => {
+      if (pauseTimer) clearTimeout(pauseTimer);
+      if (paragraphTimer) clearTimeout(paragraphTimer);
       if (workerWs.readyState === WebSocket.OPEN) workerWs.close();
     });
     browserWs.on('error', (err) => {

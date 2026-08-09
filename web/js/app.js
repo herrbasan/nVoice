@@ -153,10 +153,11 @@ function initEngineSwitcher() {
 /* --- Sidebar navigation --- */
 
 const NAV = [
-    { label: 'Home', href: '#page=home', icon: 'home' },
-    { label: 'Batch', href: '#page=batch', icon: 'headphones' },
-    { label: 'Archive', href: '#page=archive', icon: 'book' },
+    { label: 'Home', href: '#page=home', icon: 'public' },
+    { label: 'Batch', href: '#page=batch', icon: 'volume' },
+    { label: 'Archive', href: '#page=archive', icon: 'headphones' },
     { label: 'Realtime', href: '#page=realtime', icon: 'mic' },
+    { label: 'Assistant', href: '#page=assistant', icon: 'mic' },
 ];
 
 function initNav() {

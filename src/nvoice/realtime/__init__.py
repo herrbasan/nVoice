@@ -73,14 +73,17 @@ def create_strategy(adapter, config=None):
         # Transducer engines (Parakeet-TDT) designed for chunked/local-attention
         # inference: transcribe each speech chunk ONCE at a silence boundary instead
         # of re-transcribing a growing buffer. This is where the realtime CPU win is.
+        # Tuning lives in config.json → realtime (parakeet-family scoped — faster_whisper
+        # uses buffer-retranscribe and never reaches this code).
         from nvoice.realtime.chunked_streaming import ChunkedStreamingStrategy
+        rt = cfg.get('realtime', {}) or {}
         return ChunkedStreamingStrategy(
             stt_engine=adapter,
             sample_rate=16000,
             vad=vad,
-            commit_silence_sec=cfg.get('commit_silence_tail_sec', 0.6),
-            left_context_sec=2.0,
-            max_chunk_sec=30.0,
+            commit_silence_sec=rt.get('commit_silence_sec', cfg.get('commit_silence_tail_sec', 0.6)),
+            left_context_sec=rt.get('left_context_sec', 2.0),
+            max_chunk_sec=rt.get('max_chunk_sec', 30.0),
         )
 
     raise ValueError(f"Unknown realtime strategy: {strategy_name}")

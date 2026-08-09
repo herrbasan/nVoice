@@ -5,6 +5,7 @@ class nVoiceClient {
         this.rawAudio = config.rawAudio || false;
         this.engine = config.engine || null;
         this.recordDebug = config.recordDebug || false;  // worker captures engine-received audio
+        this.assistantEnabled = config.assistantEnabled || false;  // opt into LLM post-processing
 
         this.ws = null;             // local realtime WebSocket (browser → Node → worker)
         this.audioStream = null;
@@ -48,6 +49,10 @@ class nVoiceClient {
         // Recording: capture the exact 16kHz frames the pipeline sends (post-worklet)
         this._recording = false;
         this._recordedChunks = [];
+
+        // Assistant layer: segment store + action handlers
+        this.segments = [];
+        this._actions = {};
 
         this.listeners = {};
     }
@@ -112,6 +117,110 @@ class nVoiceClient {
 
     emit(event, data) {
         if (this.listeners[event]) this.listeners[event].forEach(cb => cb(data));
+    }
+
+    // --- Assistant layer (LLM-powered transcription post-processing) ---
+
+    /**
+     * Segment store — tracks all transcript segments (raw + corrected).
+     * Segments are non-destructive: removed segments stay in the array
+     * with status "removed" for undo support.
+     *
+     * Segment shape:
+     *   { id, raw, text, status: "active"|"removed", paragraph_break, timestamp }
+     */
+    // this.segments = [];     // initialized in constructor
+    // this._actions = {};     // registered action handlers
+
+    /**
+     * Register a custom action handler.
+     * When the LLM detects the spoken phrase, the SDK emits 'action' and calls the handler.
+     *
+     * @param {string} id - Action id (must match the id registered server-side)
+     * @param {Function} handler - Called with { action, phrase, segment_id }
+     */
+    registerAction(id, handler) {
+        if (!this._actions) this._actions = {};
+        this._actions[id] = handler;
+    }
+
+    /**
+     * Get the current "settled" transcript — all active segments' cleaned text,
+     * joined with appropriate spacing and paragraph breaks.
+     *
+     * @returns {string}
+     */
+    getTranscript() {
+        if (!this.segments) return '';
+        return this.segments
+            .filter(s => s.status === 'active')
+            .map(s => s.text)
+            .join(s => s.paragraph_break ? '\n\n' : ' ');
+    }
+
+    /**
+     * Handle an assistant event from the server.
+     * Dispatches to the appropriate handler based on type.
+     */
+    _handleAssistantEvent(data) {
+        if (!this.segments) this.segments = [];
+
+        if (data.type === 'cleanup' || data.type === 'paragraph') {
+            // Pause-triggered cleanup + paragraph-break notice \u2014 no segment
+            // bookkeeping, just relay to the page.
+            this.emit('assistant', data);
+
+        } else if (data.type === 'correction' || data.type === 'passthrough') {
+            // Add a new segment with cleaned text
+            const segment = {
+                id: data.segment_id,
+                raw: data.original,
+                text: data.text,
+                status: 'active',
+                paragraph_break: false,
+                timestamp: Date.now(),
+            };
+            this.segments.push(segment);
+            this.emit('assistant', { ...data, segment });
+
+        } else if (data.type === 'command') {
+            // Built-in transcript manipulation commands
+            const cmd = data.command;
+            if (cmd === 'delete_last_sentence' || cmd === 'undo') {
+                // Mark the last active segment as removed (non-destructive)
+                for (let i = this.segments.length - 1; i >= 0; i--) {
+                    if (this.segments[i].status === 'active') {
+                        this.segments[i].status = 'removed';
+                        break;
+                    }
+                }
+            } else if (cmd === 'delete_last_paragraph') {
+                // Remove segments back to the last paragraph break
+                for (let i = this.segments.length - 1; i >= 0; i--) {
+                    if (this.segments[i].status === 'active') {
+                        this.segments[i].status = 'removed';
+                        if (this.segments[i].paragraph_break) break;
+                    }
+                }
+            } else if (cmd === 'paragraph_break') {
+                // Mark the last active segment as ending a paragraph
+                for (let i = this.segments.length - 1; i >= 0; i--) {
+                    if (this.segments[i].status === 'active') {
+                        this.segments[i].paragraph_break = true;
+                        break;
+                    }
+                }
+            }
+            this.emit('command', { command: cmd, original: data.original, segment_id: data.segment_id });
+
+        } else if (data.type === 'action') {
+            // Custom action — emit event and call registered handler
+            const actionEvent = { action: data.action, original: data.original, segment_id: data.segment_id };
+            this.emit('action', actionEvent);
+            if (this._actions && this._actions[data.action]) {
+                this._actions[data.action](actionEvent);
+            }
+        }
     }
 
     setAudioDevice(deviceId) {
@@ -220,9 +329,20 @@ class nVoiceClient {
         await this._streamContext.audioWorklet.addModule(workletUrl);
 
         this._streamNode = new AudioWorkletNode(this._streamContext, 'stream-processor');
+        this._preWakeBuffer = [];      // frames received while asleep
+        this._preWakeMaxFrames = 10;   // ~320ms at 32ms/frame
         this._streamNode.port.onmessage = (event) => {
-            if (!this.isAwake) return;                       // asleep: drop frames
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+            if (!this.isAwake) {
+                // Asleep: buffer frame for retroactive send on wake.
+                // This prevents the first word from being clipped by the
+                // 3-frame wake detection delay (~96ms).
+                this._preWakeBuffer.push(event.data.audio);
+                if (this._preWakeBuffer.length > this._preWakeMaxFrames) {
+                    this._preWakeBuffer.shift();
+                }
+                return;
+            }
             this.ws.send(event.data.audio);                  // ArrayBuffer of float32
         };
 
@@ -414,8 +534,21 @@ class nVoiceClient {
         this._finalReceived = false;
         this._silenceCount = 0;
         this._hangupCount = 0;   // fresh endpointing window on wake
+
+        // Flush pre-wake buffer: send the last ~320ms of audio that was
+        // captured during the wake detection delay. This recovers the
+        // first word that would otherwise be clipped.
+        if (this._preWakeBuffer && this._preWakeBuffer.length > 0) {
+            console.log('[VAD] Flushing pre-wake buffer:', this._preWakeBuffer.length, 'frames');
+            for (const frame of this._preWakeBuffer) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(frame);
+                }
+            }
+            this._preWakeBuffer = [];
+        }
+
         this.emit('wakeWordDetected');
-        // Frames now flow to the WebSocket (gated on isAwake in the worklet).
     }
 
     sleep() {
@@ -503,6 +636,9 @@ class nVoiceClient {
             if (this.recordDebug) {
                 wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'record=1';
             }
+            if (this.assistantEnabled) {
+                wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'assistant=1';
+            }
             console.log('[nVoice] Connecting realtime WebSocket: ' + wsUrl);
             this.ws = new WebSocket(wsUrl);
 
@@ -516,14 +652,28 @@ class nVoiceClient {
                 }
             };
 
-            this.ws.onmessage = (event) => {
+            this.ws.onmessage = async (event) => {
+                // Accept both text and binary frames. The Node relay may send
+                // JSON as either depending on the ws library's frame type detection.
+                let text;
+                if (typeof event.data === 'string') {
+                    text = event.data;
+                } else if (event.data instanceof Blob) {
+                    text = await event.data.text();
+                } else if (event.data instanceof ArrayBuffer) {
+                    text = new TextDecoder().decode(event.data);
+                } else {
+                    return;
+                }
                 try {
-                    const data = JSON.parse(event.data);
+                    const data = JSON.parse(text);
                     if (data.type === 'transcript') {
                         if (this.wakeWordEnabled && data.is_final) {
                             this._finalReceived = true;
                         }
                         this.emit('transcript', data);
+                    } else if (data.type === 'assistant') {
+                        this._handleAssistantEvent(data.result || data);
                     } else if (data.type === 'telemetry') {
                         this.emit('telemetry', data);
                     }

@@ -61,6 +61,101 @@
 .nv-transcript { min-height: 16rem; height: 22rem; }
 .nv-transcript .provisional { color: var(--text-color-dim); }
 
+/* Assistant log — LLM-corrected transcript bubbles */
+.nv-assistant-log {
+    min-height: 8rem;
+    height: 14rem;
+}
+.nv-assistant-log .provisional { color: var(--text-color-dim); font-style: italic; }
+.nv-assistant-bubble {
+    padding: var(--nui-space-quarter) var(--nui-space-half);
+    margin-bottom: var(--nui-space-quarter);
+    border-radius: var(--border-radius1);
+    font-size: 0.85em;
+    animation: nv-fade-in 0.3s ease;
+}
+.nv-assistant-correction {
+    background: var(--color-shade3);
+    border-left: 3px solid var(--color-success, #2e8b57);
+}
+.nv-assistant-correction .nv-assistant-text {
+    color: var(--text-color);
+}
+.nv-assistant-correction .nv-assistant-original {
+    display: block;
+    font-size: 0.8em;
+    color: var(--text-color-dim);
+    text-decoration: line-through;
+    margin-top: 2px;
+}
+.nv-assistant-pending {
+    background: var(--color-shade2);
+    border-left: 3px solid var(--text-color-dim);
+    color: var(--text-color-dim);
+}
+.nv-assistant-provisional {
+    background: var(--color-shade2);
+    border-left: 3px solid var(--border-shade1);
+    color: var(--text-color-dim);
+    font-style: italic;
+}
+.nv-assistant-passthrough {
+    background: var(--color-shade2);
+    border-left: 3px solid var(--border-shade1);
+    color: var(--text-color-dim);
+}
+.nv-assistant-command {
+    background: var(--color-shade3);
+    border-left: 3px solid var(--color-warning, #c0a030);
+    color: var(--text-color-dim);
+    font-style: italic;
+}
+.nv-assistant-action {
+    background: var(--color-shade3);
+    border-left: 3px solid var(--color-info, #3070b0);
+    font-weight: bold;
+}
+.nv-assistant-removed {
+    opacity: 0.4;
+    text-decoration: line-through;
+    transition: opacity 0.5s ease;
+}
+@keyframes nv-fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Assistant page — side-by-side columns */
+.nv-assistant-columns {
+    display: flex;
+    gap: var(--nui-space);
+    margin-top: var(--nui-space);
+}
+.nv-assistant-col {
+    flex: 1;
+    min-width: 0;
+}
+.nv-assistant-col .nv-log {
+    height: 22rem;
+}
+@media (max-width: 768px) {
+    .nv-assistant-columns {
+        flex-direction: column;
+    }
+}
+
+/* Assistant page — header row + help section */
+.nv-assistant-header {
+    display: flex;
+    align-items: baseline;
+    gap: var(--nui-space);
+    margin-bottom: var(--nui-space-quarter);
+}
+.nv-assistant-help p {
+    margin: var(--nui-space-quarter) 0;
+    font-size: 0.85em;
+}
+
 /* Status line under realtime controls */
 .nv-status-line {
     font-weight: bold;
