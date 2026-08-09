@@ -26,6 +26,11 @@
                     </nui-checkbox>
 
                     <nui-checkbox>
+                        <input type="checkbox" id="asst-kimi-toggle">
+                        <label for="asst-kimi-toggle">"ok kimi" (worker detector)</label>
+                    </nui-checkbox>
+
+                    <nui-checkbox>
                         <input type="checkbox" id="asst-raw-audio-toggle">
                         <label for="asst-raw-audio-toggle">Raw audio (disable AGC/noise suppression)</label>
                     </nui-checkbox>
@@ -88,6 +93,7 @@ function init(element, params, nui) {
     const micSelect = element.querySelector('#asst-mic-select');
     const micSelectWrap = element.querySelector('#asst-mic-select-wrap');
     const wakeWordToggle = element.querySelector('#asst-wake-word-toggle');
+    const kimiToggle = element.querySelector('#asst-kimi-toggle');
     const rawAudioToggle = element.querySelector('#asst-raw-audio-toggle');
     const sendBtn = element.querySelector('#asst-btn-send');
     const sendInnerBtn = sendBtn.querySelector('button');
@@ -123,6 +129,7 @@ function init(element, params, nui) {
     function setMicEnabled(enabled) {
         micSelect.disabled = !enabled;
         wakeWordToggle.disabled = !enabled;
+        kimiToggle.disabled = !enabled;
     }
 
     function setStatus(text, variant) {
@@ -226,7 +233,19 @@ function init(element, params, nui) {
 
         const selectedEngine = window.nvoice.activeEngine;
 
-        if (wakeWordToggle.checked && !client.wakeWordEnabled) {
+        if (kimiToggle.checked) {
+            // "ok kimi" — worker-side acoustic detector (Phase 3). Replaces the
+            // local Silero VAD: the worker runs the trained model on the streamed
+            // frames and emits wake. Silero WASM is skipped entirely.
+            try {
+                await client.enableKimiWakeWord();
+            } catch (e) {
+                nui.components.dialog.alert('Kimi Wake Error', 'Error arming kimi wake: ' + e);
+                startInnerBtn.disabled = false;
+                kimiToggle.disabled = false;
+                return;
+            }
+        } else if (wakeWordToggle.checked && !client.wakeWordEnabled) {
             try {
                 await client.enableWakeWord('/sdk/silero_vad.onnx');
             } catch (e) {

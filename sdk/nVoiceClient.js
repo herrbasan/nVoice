@@ -264,6 +264,54 @@ class nVoiceClient {
     }
 
     /**
+     * Enable "ok kimi" wake mode via the worker-side acoustic detector.
+     *
+     * Instead of the browser running Silero VAD locally, the client streams the
+     * raw 16kHz frames to the worker's /v1/wakeword/ws detector (which runs the
+     * trained kimi_wake model). The worker emits {type:"wake"} when "ok kimi"
+     * crosses threshold; the client then wakes and captures the next utterance.
+     *
+     * Must be called before start(). Disables local VAD wake (if any).
+     */
+    async enableKimiWakeWord() {
+        this.kimiWakeEnabled = true;
+        this.wakeWordEnabled = true;
+        this.isAwake = false;
+        this._finalReceived = false;
+
+        const base = this.serverUrl || '';
+        const model = this.engine ? `?model=${encodeURIComponent(this.engine)}` : '';
+        const proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+        this._kimiWs = new WebSocket(`${proto}//${window.location.host}/v1/wakeword/ws${model}${model ? '&' : '?'}telemetry=1`);
+
+        this._kimiWs.onmessage = (event) => {
+            let evt;
+            try { evt = JSON.parse(event.data); } catch { return; }
+            if (evt.type === 'wake') {
+                console.log('[Kimi] wake detected, score=' + evt.score);
+                if (!this.isAwake) this.wake();
+            } else if (evt.type === 'score') {
+                // throttled diagnostic so we can see live detector liveness
+                this._kimiDiagCount = (this._kimiDiagCount || 0) + 1;
+                if (this._kimiDiagCount % 30 === 0) {
+                    console.log('[Kimi] score=' + evt.score);
+                }
+            }
+        };
+        this._kimiWs.onerror = (e) => {
+            console.error('[Kimi] wake-word WS error', e);
+            // Fall back to "always awake" so the loop isn't dead.
+            if (!this.isAwake) { this.isAwake = true; this.emit('wakeWordDetected'); }
+        };
+        this._kimiWs.onclose = () => {
+            console.log('[Kimi] wake-word WS closed');
+            this._kimiWs = null;
+        };
+
+        console.log('[Kimi] kimi wake mode armed (worker detector)');
+    }
+
+    /**
      * Build an AudioWorklet that downsamples the mic to 16kHz mono float32
      * frames and forwards each frame to the realtime WebSocket. Gated by
      * isAwake — when asleep (wake-word mode), frames are produced but dropped,
@@ -335,18 +383,26 @@ class nVoiceClient {
         this._preWakeBuffer = [];      // frames received while asleep
         this._preWakeMaxFrames = 10;   // ~320ms at 32ms/frame
         this._streamNode.port.onmessage = (event) => {
+            const frame = event.data.audio;  // ArrayBuffer of float32 16kHz
+
+            // Kimi wake mode: the wake-word detector (worker) needs ALL audio,
+            // asleep or awake — it decides when "ok kimi" was spoken.
+            if (this.kimiWakeEnabled && this._kimiWs && this._kimiWs.readyState === WebSocket.OPEN) {
+                try { this._kimiWs.send(frame); } catch (e) { /* ignore */ }
+            }
+
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
             if (!this.isAwake) {
                 // Asleep: buffer frame for retroactive send on wake.
                 // This prevents the first word from being clipped by the
-                // 3-frame wake detection delay (~96ms).
-                this._preWakeBuffer.push(event.data.audio);
+                // wake detection delay.
+                this._preWakeBuffer.push(frame);
                 if (this._preWakeBuffer.length > this._preWakeMaxFrames) {
                     this._preWakeBuffer.shift();
                 }
                 return;
             }
-            this.ws.send(event.data.audio);                  // ArrayBuffer of float32
+            this.ws.send(frame);                             // ArrayBuffer of float32
         };
 
         source.connect(this._streamNode);
@@ -464,6 +520,7 @@ class nVoiceClient {
 
     async _processVAD(audioFrame, fc) {
         if (!this.wakeWordEnabled || !this.wwSession) return;
+        if (this.kimiWakeEnabled) return;  // kimi mode: wake decided by worker detector
 
         try {
             const inputTensor = new ort.Tensor('float32', audioFrame, [1, audioFrame.length]);
@@ -609,9 +666,15 @@ class nVoiceClient {
                 this.isAwake = false;
                 this._finalReceived = false;
                 this._silenceCount = 0;
-                this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
-                this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
-                await this._setupAudioWorklet();
+                if (this.kimiWakeEnabled) {
+                    // Kimi mode: no local Silero VAD — the worker detector drives
+                    // wake. The stream worklet (set up below after the session)
+                    // routes frames to /v1/wakeword/ws.
+                } else {
+                    this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+                    this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
+                    await this._setupAudioWorklet();
+                }
             } else {
                 this.isAwake = true;
             }
@@ -898,6 +961,14 @@ class nVoiceClient {
 
     disconnect() {
         this.stop();
+
+        if (this._kimiWs) {
+            if (this._kimiWs.readyState === WebSocket.OPEN || this._kimiWs.readyState === WebSocket.CONNECTING) {
+                this._kimiWs.close();
+            }
+            this._kimiWs = null;
+        }
+        this.kimiWakeEnabled = false;
 
         if (this.ws) {
             if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
