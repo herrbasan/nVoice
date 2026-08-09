@@ -27,7 +27,7 @@ import torch
 
 # openwakeword must be importable (pip install -e D:/DEV/openWakeWord)
 import openwakeword
-from openwakeword.data import augment_clips, mmap_batch_generator
+from openwakeword.data import augment_clips, mmap_batch_generator, create_fixed_size_clip
 from openwakeword.train import Model
 from openwakeword.utils import AudioFeatures, compute_features_from_generator
 
@@ -78,6 +78,74 @@ class IterDataset(torch.utils.data.IterableDataset):
         return self.generator
 
 
+def augment_clips_random_pos(clip_paths, total_length, sr=16000, batch_size=128,
+                             background_clip_paths=[], RIR_paths=[]):
+    """Like openwakeword.data.augment_clips but places each clip at a RANDOM
+    position within the window (create_fixed_size_clip start randomized).
+
+    The stock augment_clips end-anchors every clip (phrase always near the
+    window end), which makes the model POSITION-SENSITIVE — in streaming the
+    phrase scrolls through many positions and the model over-fires on speech
+    it would reject at the training position. Randomizing start teaches
+    position invariance (matching how real wake-word audio arrives).
+
+    Yields batches of (batch_size, total_length) int16 PCM like augment_clips.
+    """
+    import audiomentations
+    import torch_audiomentations
+
+    probs = {
+        "SevenBandParametricEQ": 0.25, "TanhDistortion": 0.25,
+        "PitchShift": 0.25, "BandStopFilter": 0.25, "AddColoredNoise": 0.25,
+        "AddBackgroundNoise": 0.75, "Gain": 1.0, "RIR": 0.5,
+    }
+    augment1 = audiomentations.Compose([
+        audiomentations.SevenBandParametricEQ(min_gain_db=-6, max_gain_db=6, p=probs["SevenBandParametricEQ"]),
+        audiomentations.TanhDistortion(min_distortion=0.0001, max_distortion=0.10, p=probs["TanhDistortion"]),
+    ])
+    if background_clip_paths:
+        augment2 = torch_audiomentations.Compose([
+            torch_audiomentations.PitchShift(min_transpose_semitones=-3, max_transpose_semitones=3,
+                                             p=probs["PitchShift"], sample_rate=16000, mode="per_batch"),
+            torch_audiomentations.BandStopFilter(p=probs["BandStopFilter"], mode="per_batch"),
+            torch_audiomentations.AddColoredNoise(min_snr_in_db=10, max_snr_in_db=30,
+                                                  min_f_decay=-1, max_f_decay=2, p=probs["AddColoredNoise"], mode="per_batch"),
+            torch_audiomentations.AddBackgroundNoise(p=probs["AddBackgroundNoise"], background_paths=background_clip_paths,
+                                                     min_snr_in_db=-10, max_snr_in_db=15, mode="per_batch"),
+            torch_audiomentations.Gain(max_gain_in_db=0, p=probs["Gain"]),
+        ])
+    else:
+        augment2 = torch_audiomentations.Compose([
+            torch_audiomentations.PitchShift(min_transpose_semitones=-3, max_transpose_semitones=3,
+                                             p=probs["PitchShift"], sample_rate=16000, mode="per_batch"),
+            torch_audiomentations.BandStopFilter(p=probs["BandStopFilter"], mode="per_batch"),
+            torch_audiomentations.AddColoredNoise(min_snr_in_db=10, max_snr_in_db=30,
+                                                  min_f_decay=-1, max_f_decay=2, p=probs["AddColoredNoise"], mode="per_batch"),
+            torch_audiomentations.Gain(max_gain_in_db=0, p=probs["Gain"]),
+        ])
+
+    for i in range(0, len(clip_paths), batch_size):
+        batch = clip_paths[i:i + batch_size]
+        augmented = []
+        for clip in batch:
+            clip_data, clip_sr = torchaudio.load(clip)
+            clip_data = clip_data[0]
+            if clip_data.shape[0] > total_length:
+                clip_data = clip_data[0:total_length]
+            if clip_sr != sr:
+                raise ValueError("Error! Clip does not have the correct sample rate!")
+            # RANDOM start position (0..total_length-len), so the phrase is not
+            # always end-anchored → position-invariant model.
+            max_start = max(0, total_length - int(clip_data.shape[0]))
+            start = np.random.randint(0, max_start + 1) if max_start > 0 else 0
+            clip_data = create_fixed_size_clip(clip_data, total_length, clip_sr, start=start)
+            augmented.append(torch.from_numpy(augment1(samples=clip_data, sample_rate=sr)))
+
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        aug_batch = augment2(samples=torch.vstack(augmented).unsqueeze(dim=1).to(device), sample_rate=sr).squeeze(axis=1)
+        yield (aug_batch.cpu().numpy() * 32767).astype(np.int16)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=30000, help="training steps")
@@ -93,6 +161,8 @@ def main():
                     help="FP/hr target fed to auto_train (higher = stops doubling negative weight sooner)")
     ap.add_argument("--real-negatives", type=str, default=None, metavar="NPY",
                     help="real-audio negative features (real_negative_features_train.npy) to add as a class")
+    ap.add_argument("--random-pos", action="store_true",
+                    help="randomize wake-phrase position in the window (position-invariant model)")
     args = ap.parse_args()
 
     data_dir = os.path.abspath(args.data)
@@ -153,13 +223,23 @@ def main():
             clips = [str(i) for i in Path(data_dir, clip_dir).glob("*.wav")] * aug_rounds
             if not clips:
                 sys.exit(f"No clips in {clip_dir} — run gen_clips.py first")
-            gen = augment_clips(
-                clips,
-                total_length=total_length,
-                batch_size=aug_batch,
-                background_clip_paths=background_paths,
-                RIR_paths=[],  # no RIR for the lean first model
-            )
+            if args.random_pos:
+                log.info("Using RANDOMIZED phrase position (position-invariant training)")
+                gen = augment_clips_random_pos(
+                    clips,
+                    total_length=total_length,
+                    batch_size=aug_batch,
+                    background_clip_paths=background_paths,
+                    RIR_paths=[],
+                )
+            else:
+                gen = augment_clips(
+                    clips,
+                    total_length=total_length,
+                    batch_size=aug_batch,
+                    background_clip_paths=background_paths,
+                    RIR_paths=[],  # no RIR for the lean first model
+                )
             log.info("Computing features: %s (%d clips) -> %s", clip_dir, len(clips), feat_file)
             compute_features_from_generator(
                 gen,

@@ -283,3 +283,83 @@ export function attachRealtimeWebSocket(app, engineManager) {
 
   return wss;
 }
+
+/**
+ * Wake-word relay (browser → Node → worker) for the always-on "ok kimi"
+ * detector. Mirrors the realtime relay: Node pipes bytes only, never decodes
+ * audio (G1). The detector runs in the Python worker (openWakeWord native).
+ *
+ *   browser → worker: binary float32 PCM (16kHz mono)
+ *   worker → browser: JSON text events (wake / score / error)
+ */
+export function attachWakeWordWebSocket(app, engineManager) {
+  const wss = new WebSocketServer({ noServer: true });
+
+  app.server.on('upgrade', (request, socket, head) => {
+    let url;
+    try {
+      url = new URL(request.url, 'http://localhost');
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (url.pathname !== '/v1/wakeword/ws') {
+      return;  // not ours — let other handlers deal with it
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request, url);
+    });
+  });
+
+  wss.on('connection', async (browserWs, request, url) => {
+    // Wake-word detection is model-agnostic — it runs in whatever engine's
+    // worker is active (the parakeet worker has openwakeword installed).
+    const model = url.searchParams.get('model') || engineManager.activeEngine;
+    const qs = url.searchParams.toString();
+    logger.info('Wake-word WS connected', { model, qs }, 'WakeWord', { console: true });
+
+    let workerWs;
+    try {
+      const worker = await engineManager.getWorker(model);
+      const workerWsUrl = `ws://127.0.0.1:${worker.port}/v1/wakeword/ws${qs ? '?' + qs : ''}`;
+      workerWs = new WebSocket(workerWsUrl);
+    } catch (e) {
+      logger.error('Wake-word WS: failed to reach worker', e, { model }, 'WakeWord', { console: true });
+      browserWs.close(1011, 'worker unavailable');
+      return;
+    }
+
+    // Pipe worker → browser (JSON events) and browser → worker (bytes).
+    workerWs.on('message', (data, isBinary) => {
+      if (browserWs.readyState !== WebSocket.OPEN) return;
+      browserWs.send(data, { binary: isBinary });
+    });
+
+    browserWs.on('message', (data, isBinary) => {
+      if (workerWs.readyState !== WebSocket.OPEN) return;
+      workerWs.send(data, { binary: isBinary });
+    });
+
+    const sendableCloseCode = (code) =>
+      (code === 1000 || (code >= 3000 && code <= 4999)) ? code : 1000;
+
+    workerWs.on('close', (code, reason) => {
+      logger.info('Wake-word WS: worker closed', { model, code }, 'WakeWord', { console: true });
+      if (browserWs.readyState === WebSocket.OPEN) browserWs.close(sendableCloseCode(code));
+    });
+    workerWs.on('error', (err) => {
+      logger.error('Wake-word WS: worker error', err, { model }, 'WakeWord', { console: true });
+      if (browserWs.readyState === WebSocket.OPEN) browserWs.close(1011, 'worker error');
+    });
+
+    browserWs.on('close', () => {
+      if (workerWs.readyState === WebSocket.OPEN) workerWs.close();
+    });
+    browserWs.on('error', (err) => {
+      logger.error('Wake-word WS: browser error', err, { model }, 'WakeWord', { console: true });
+      if (workerWs.readyState === WebSocket.OPEN) workerWs.close();
+    });
+  });
+
+  return wss;
+}

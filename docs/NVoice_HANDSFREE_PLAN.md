@@ -40,8 +40,8 @@ This plan covers the **handsfree** mode.
 | nVoice STT (parakeet_tdt, realtime WS) | EXISTS — production-good (native punctuation + automatic paragraphs) |
 | Chat app + LLM Gateway (badkid-llama-chat / Gemma-4-E4B) | EXISTS |
 | nSpeech TTS endpoint | EXISTS |
-| "ok kimi" acoustic detector | NEW — train openWakeWord custom model |
-| Wake→capture wiring | NEW |
+| "ok kimi" acoustic detector | NEW — trained (Phase 2); worker-side detector wired (Phase 3) |
+| Wake→capture wiring | NEW — `/v1/wakeword/ws` worker detector + Node relay; browser capture pending |
 | Intent→action layer | NEW — head start: `server/assistant/actions.js` (leftover skeleton) |
 | Handsfree mode (chat app) | NEW |
 
@@ -79,6 +79,11 @@ Prototype the full handsfree chain with a temporary text/keyboard trigger instea
 - Run the detector on raw audio (placement decision — see Open questions).
 - On detection: raise wake flag; capture the next utterance until a pause boundary (reuse realtime commit/pause logic).
 - Deliverable: "ok kimi" reliably wakes; utterance captured; silence ends capture.
+- **STATUS 2026-08-09: detector wired in the worker.** `/v1/wakeword/ws` (worker_routes.py) streams 16kHz float32 frames into an openWakeWord batch-path detector (`src/nvoice/wakeword.py`), Node relays bytes only (`attachWakeWordWebSocket`, server/api/realtime.js). 
+  - **CRITICAL FINDING 1 — streaming `Model.predict()` is NOT usable for our model.** openWakeWord's streaming feature accumulation differs from the batch `embed_clips` path TRAINING used; our model over-fires on all speech in streaming mode. Fix: the detector recomputes embeddings via `embed_clips` on a rolling fixed window (like validate_wake.py).
+  - **CRITICAL FINDING 2 — the model is position-sensitive.** Stock `augment_clips` end-anchors the wake phrase in a mostly-silent window, so the model learned "speech near window end = positive" and over-fires on negatives at other positions during streaming scroll. Official `alexa` model rejects the same negatives at all positions (max ~0.1) — proves a well-trained model is position-invariant. FIX: retrain with `--random-pos` (randomized `create_fixed_size_clip` start) so the phrase lands anywhere in the window. In progress as of 2026-08-09.
+  - Detector input contract: float32 16kHz mono [-1,1]; internally converted to int16 (embed_clips requires PCM16). Fixed 42000-sample window (must match training window). Threshold 0.6-0.7 (silence floor ~0.45).
+  - Browser-side candidate (onnxruntime-web) remains a later option; openWakeWord docs say the full chain isn't browser-portable yet.
 
 ### Phase 4 — Intent→action layer
 - Define a fixed action vocabulary: `send`, `stop_playback`, `pause_playback`, `resume_playback`, `new_paragraph`, `cancel`.

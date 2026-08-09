@@ -394,6 +394,53 @@ def build_routes(app, adapter, engine_name, diarizer=None):
                 _write_capture_wav(capture, engine_name)
             logger.info("Realtime WS session stopped")
 
+    # ------------------------------------------------------------------ #
+    # Wake-word detection ("ok kimi") — always-on phrase spotter.         #
+    #                                                                     #
+    # Inbound:  binary frames of float32 PCM, 16kHz mono (from browser).  #
+    # Outbound: JSON text frames — {"type":"wake","score":..} when the    #
+    #           "ok kimi" model crosses the threshold, plus optional      #
+    #           {"type":"score",..} telemetry (?telemetry=1).             #
+    #                                                                     #
+    # Runs openWakeWord natively (kimi_wake.onnx on the frozen embedding  #
+    # backbone). Node relays bytes only — the detector lives in the       #
+    # worker, never in Node (G1).                                         #
+    # ------------------------------------------------------------------ #
+    @app.websocket("/v1/wakeword/ws")
+    async def wakeword_ws(ws: WebSocket):
+        await ws.accept()
+        logger.info("Wake-word WS connected")
+
+        from nvoice.wakeword import get_detector
+        detector = get_detector()
+        if not detector.is_available():
+            await ws.send_text(json.dumps({
+                "type": "error",
+                "message": "wake-word model not installed (models/kimi_wake/kimi_wake.onnx)",
+            }))
+            await ws.close()
+            return
+
+        detector.load()
+        detector.reset()
+        telemetry = ws.query_params.get("telemetry") == "1"
+        detector._debug = ws.query_params.get("debug") == "1"
+
+        try:
+            while True:
+                data = await ws.receive_bytes()
+                frames = np.frombuffer(data, dtype=np.float32)
+                score, fired = detector.feed(frames)
+                if telemetry and score > 0:
+                    await ws.send_text(json.dumps({"type": "score", "score": round(score, 3)}))
+                if fired:
+                    await ws.send_text(json.dumps({"type": "wake", "score": round(score, 3)}))
+        except WebSocketDisconnect:
+            logger.info("Wake-word WS disconnected")
+        finally:
+            detector.reset()
+            logger.info("Wake-word WS session stopped")
+
     # Store metadata on app for the manager to query
     app.state.engine_name = engine_name
     app.state.capabilities = caps
