@@ -1,6 +1,6 @@
 # nVoice Handsfree — Dev Plan (Siri-like voice assistant)
 
-**Status:** Phase 1 DONE (committed b84d1e0) · Phase 2 IN PROGRESS (training "ok kimi" model)
+**Status:** Phase 1 DONE (b84d1e0) · Phase 2 DONE (position-invariant model, b5ccbee) · Phase 3 DONE (browser kimi wake, a770d1b) · Phase 4 NEXT (intent→action layer)
 **Date:** 2026-08-09
 **Owner:** nVoice + chat app + nSpeech
 
@@ -84,6 +84,7 @@ Prototype the full handsfree chain with a temporary text/keyboard trigger instea
   - **CRITICAL FINDING 2 — the model is position-sensitive.** Stock `augment_clips` end-anchors the wake phrase in a mostly-silent window, so the model learned "speech near window end = positive" and over-fires on negatives at other positions during streaming scroll. Official `alexa` model rejects the same negatives at all positions (max ~0.1) — proves a well-trained model is position-invariant. FIX: retrain with `--random-pos` (randomized `create_fixed_size_clip` start) so the phrase lands anywhere in the window. In progress as of 2026-08-09.
   - Detector input contract: float32 16kHz mono [-1,1]; internally converted to int16 (embed_clips requires PCM16). Fixed 42000-sample window (must match training window). Threshold 0.6-0.7 (silence floor ~0.45).
   - Browser-side candidate (onnxruntime-web) remains a later option; openWakeWord docs say the full chain isn't browser-portable yet.
+  - **DONE 2026-08-09 (a770d1b): browser kimi wake mode.** `enableKimiWakeWord()` in sdk/nVoiceClient.js streams mic frames to /v1/wakeword/ws always (even asleep); on {type:wake} calls the existing wake() → STT WS → LLM → TTS. Assistant page has an "ok kimi (worker detector)" toggle. Verified live: client arms, worker scores mic frames (score=0 on silence), full loop wired.
 
 ### Phase 4 — Intent→action layer
 - Define a fixed action vocabulary: `send`, `stop_playback`, `pause_playback`, `resume_playback`, `new_paragraph`, `cancel`.
