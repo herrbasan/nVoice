@@ -288,6 +288,7 @@ function init(element, params, nui) {
         initClient();
         startInnerBtn.disabled = true;
         setMicEnabled(false);
+        ensureTtsCtx();   // create AudioContext during this gesture so TTS can autoplay later
 
         const selectedEngine = window.nvoice.activeEngine;
 
@@ -351,32 +352,39 @@ function init(element, params, nui) {
     // and speak the reply. The button stands in for the "ok kimi" wake word
     // until the acoustic model lands (Phase 2/3). Reused by the kimi state
     // machine for "send" and "message" commands.
-    // TTS: nSpeech on :2233 (local kokoro/chatterbox engine, CORS enabled).
-    // Replaces the browser speechSynthesis voice.
-    let _ttsAudio = null;
+    // TTS: nSpeech SDK (nspeech-client.js) on :2233 + AudioContext playback.
+    // The AudioContext is created on the Start click (a real user gesture) so
+    // the browser autoplay policy does not block the spoken reply — a plain
+    // new Audio().play() after the transient activation expires is rejected.
+    let _ttsCtx = null;
+    let _ttsSrc = null;
+    let _nspeechClient = null;
+    async function getNSpeechClient() {
+        if (!_nspeechClient) {
+            const mod = await import('/sdk/nspeech-client.js');
+            _nspeechClient = new mod.NSpeechClient({ baseUrl: 'http://127.0.0.1:2233' });
+        }
+        return _nspeechClient;
+    }
+    function ensureTtsCtx() {
+        if (!_ttsCtx) _ttsCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (_ttsCtx.state === 'suspended') _ttsCtx.resume().catch(() => {});
+        return _ttsCtx;
+    }
     async function speak(text) {
         if (!text) return;
-        // Cut off any currently-playing reply when a new one starts.
-        if (_ttsAudio) { _ttsAudio.pause(); _ttsAudio = null; }
         try {
-            const resp = await fetch('http://127.0.0.1:2233/v1/audio/speech', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: 'nspeech',
-                    input: text,
-                    voice: 'default',
-                    response_format: 'mp3',
-                    speed: 1.0,
-                }),
-            });
-            if (!resp.ok) throw new Error('nSpeech HTTP ' + resp.status);
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            _ttsAudio = audio;
-            audio.onended = () => { URL.revokeObjectURL(url); if (_ttsAudio === audio) _ttsAudio = null; };
-            await audio.play();
+            const nspeech = await getNSpeechClient();
+            const res = await nspeech.speech({ model: 'nspeech', input: text, voice: 'default', format: 'mp3', speed: 1.0 });
+            const ctx = ensureTtsCtx();
+            const audioBuf = await ctx.decodeAudioData(await res.arrayBuffer());
+            // Cut off any currently-playing reply when a new one starts.
+            if (_ttsSrc) { try { _ttsSrc.stop(); } catch (_) {} }
+            const src = ctx.createBufferSource();
+            src.buffer = audioBuf;
+            src.connect(ctx.destination);
+            _ttsSrc = src;
+            src.start();
         } catch (e) {
             console.error('[Assistant] nSpeech TTS failed:', e);
         }
