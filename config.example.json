@@ -21,6 +21,7 @@
     "commit_silence_tail_sec": 1.0,
     "temperature": 0.0,
     "hallucination_silence_threshold": 2.0,
+    "wakeword_threshold": 0.55,
     "engine_dirs": {
         "faster_whisper": "venv/faster_whisper",
         "parakeet": "venv/parakeet"

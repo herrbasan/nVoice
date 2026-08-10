@@ -186,12 +186,21 @@ _detector = None
 _detector_lock = threading.Lock()
 
 
-def get_detector():
-    """Return the process-wide KimiWakeWordDetector singleton."""
+def get_detector(threshold=None):
+    """Return the process-wide KimiWakeWordDetector singleton.
+
+    Optional `threshold` re-tunes the singleton (used by the WS route to apply
+    config.json -> wakeword_threshold). Lower threshold = higher recall on the
+    user's live voice at the cost of more false alarms (handled gracefully by
+    the client's command-timeout + resume logic).
+    """
     global _detector
     if _detector is None:
         with _detector_lock:
             if _detector is None:
                 _detector = KimiWakeWordDetector()
+    if threshold is not None and abs(_detector.threshold - threshold) > 1e-6:
+        _detector.threshold = threshold
+        logger.info("Wake-word threshold set to %.2f", _detector.threshold)
     return _detector
 

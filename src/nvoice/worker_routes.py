@@ -412,7 +412,7 @@ def build_routes(app, adapter, engine_name, diarizer=None):
         logger.info("Wake-word WS connected")
 
         from nvoice.wakeword import get_detector
-        detector = get_detector()
+        detector = get_detector(threshold=_load_config().get("wakeword_threshold", 0.55))
         if not detector.is_available():
             await ws.send_text(json.dumps({
                 "type": "error",

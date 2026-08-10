@@ -83,8 +83,21 @@ function makeClient() {
         if (this._kimiIdleCount >= this._kimiIdleToClassify && !this._kimiClassifying) this._kimiClassifyCommand();
       }
     },
+    _kimiShouldTreatAsCommand(text) {
+      if (!_kimiMatchCommand(text)) return false;
+      const norm = _kimiNormalize(text);
+      const words = norm.split(' ').filter(Boolean).length;
+      if (words <= 2) return true;
+      return /\b(kimi|kimmy|kyumi)\b/.test(norm);
+    },
     _kimiOnFinal(text) {
       if (this._kimiState === 'command') { this._kimiCommandText = (this._kimiCommandText + ' ' + text).trim(); this._kimiCommandFinal = true; this._kimiIdleCount = 0; this.emit('kimiCommandText', { text: this._kimiCommandText }); return true; }
+      if (this._kimiShouldTreatAsCommand(text)) {
+        const wasTranscribing = this._kimiState === 'transcribing';
+        this._kimiState = 'command'; this._kimiCommandText = text; this._kimiCommandFinal = true; this._kimiIdleCount = 0; this._kimiInterruptedTranscribing = wasTranscribing;
+        this.emit('kimiState', { state: 'command' }); this.emit('kimiCommandText', { text });
+        return true;
+      }
       if (this._kimiState === 'transcribing') { this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim(); this._kimiIdleCount = 0; this.emit('kimiDictation', { text: this._kimiDictationText }); }
       return false;
     },
@@ -213,6 +226,55 @@ c9._kimiOnFinal('do not actually save this');
 c9._onKimiWake(); c9._kimiOnFinal('stop'); idle3(c9);
 check('s9: stop interrupt -> sleep', c9._kimiState === 'sleep');
 check('s9: dictation discarded', c9._kimiDictationText === '');
+
+// Scenario 10: wake MISSES but STT captures "ok kimi send" -> text-command fallback
+const c10 = makeClient();
+events.length = 0;
+c10._onKimiWake(); c10._kimiOnFinal('listen'); idle3(c10);
+check('t10: pre transcribing', c10._kimiState === 'transcribing');
+c10._kimiOnFinal('remember to buy milk');
+c10._kimiOnFinal('okay kimi send');          // no acoustic wake — text fallback
+idle3(c10);
+const ev10 = events.find(e => e[0] === 'kimiCommand' && e[1].action === 'send');
+check('t10: text-command send fires', !!ev10);
+check('t10: send carries dictation', ev10 && ev10[1].dictation === 'remember to buy milk');
+
+// Scenario 11: dictation "i listen to music" is NOT a command
+const c11 = makeClient();
+events.length = 0;
+c11._onKimiWake(); c11._kimiOnFinal('listen'); idle3(c11);
+c11._kimiOnFinal('i listen to music');
+check('t11: dictation stays transcribing', c11._kimiState === 'transcribing');
+check('t11: dictation accumulated', c11._kimiDictationText === 'i listen to music');
+
+// Scenario 12: dictation "eventually i will stop it" is NOT a command
+const c12 = makeClient();
+events.length = 0;
+c12._onKimiWake(); c12._kimiOnFinal('listen'); idle3(c12);
+c12._kimiOnFinal('eventually i will stop it');
+check('t12: dictation with stop stays', c12._kimiState === 'transcribing');
+check('t12: dictation kept', c12._kimiDictationText === 'eventually i will stop it');
+
+// Scenario 13: bare "stop" (1 word, wake missed) is a command
+const c13 = makeClient();
+events.length = 0;
+c13._onKimiWake(); c13._kimiOnFinal('listen'); idle3(c13);
+c13._kimiOnFinal('do not save this');
+c13._kimiOnFinal('stop');
+idle3(c13);
+check('t13: bare stop -> sleep', c13._kimiState === 'sleep');
+check('t13: dictation discarded', c13._kimiDictationText === '');
+
+// Scenario 14: "и сен" (2 words, wake missed) is a send command
+const c14 = makeClient();
+events.length = 0;
+c14._onKimiWake(); c14._kimiOnFinal('listen'); idle3(c14);
+c14._kimiOnFinal('the report is on the desk');
+c14._kimiOnFinal('и сен');
+idle3(c14);
+const ev14 = events.find(e => e[0] === 'kimiCommand' && e[1].action === 'send');
+check('t14: "и сен" -> send', !!ev14);
+check('t14: dictation carried', ev14 && ev14[1].dictation === 'the report is on the desk');
 
 // Scenario 7: re-entrancy — extra idle beats during classify don't re-fire
 const c7 = makeClient();

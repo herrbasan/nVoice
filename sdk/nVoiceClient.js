@@ -107,6 +107,7 @@ class nVoiceClient {
         this._kimiIdleToClassify = 3;       // idle beats before classifying the command
         this._kimiClassifying = false;      // re-entrancy guard for async classify
         this._kimiInterruptedTranscribing = false;  // wake came mid-dictation
+        this._kimiCommandTimer = null;      // command-state timeout (self-heal false wakes)
 
         // Wake-on-voice: require SUSTAINED speech to wake (rejects fan/ambient noise)
         this._wakeThreshold = 0.5;   // per-frame Silero prob to count toward wake
@@ -361,6 +362,7 @@ class nVoiceClient {
         this._kimiIdleCount = 0;
         this._kimiClassifying = false;
         this._kimiInterruptedTranscribing = false;
+        this._kimiCommandTimer = null;
 
         const base = this.serverUrl || '';
         const model = this.engine ? `?model=${encodeURIComponent(this.engine)}` : '';
@@ -742,6 +744,7 @@ class nVoiceClient {
         }
         console.log('[Kimi] -> command' + (wasTranscribing ? ' (interrupting transcription)' : ''));
         this.emit('kimiState', { state: 'command' });
+        this._armKimiCommandTimeout();
     }
 
     /**
@@ -759,6 +762,23 @@ class nVoiceClient {
             this._kimiCommandFinal = true;
             this._kimiIdleCount = 0;
             this.emit('kimiCommandText', { text: this._kimiCommandText });
+            this._clearKimiCommandTimeout();
+            return true;
+        }
+        // Acoustic wake missed — the STT still transcribed the command phrase, so
+        // recognize it from text ("ok kimi listen/send/stop", or a bare short
+        // command). This is what makes the flow work when the wake detector
+        // fails to fire on the live voice ("3 attempts" symptom).
+        if (this._kimiShouldTreatAsCommand(text)) {
+            const wasTranscribing = this._kimiState === 'transcribing';
+            this._kimiState = 'command';
+            this._kimiCommandText = text;
+            this._kimiCommandFinal = true;
+            this._kimiIdleCount = 0;
+            this._kimiInterruptedTranscribing = wasTranscribing;
+            console.log('[Kimi] text-command (wake missed): "' + text + '"');
+            this.emit('kimiState', { state: 'command' });
+            this.emit('kimiCommandText', { text });
             return true;
         }
         if (this._kimiState === 'transcribing') {
@@ -767,6 +787,41 @@ class nVoiceClient {
             this.emit('kimiDictation', { text: this._kimiDictationText });
         }
         return false;
+    }
+
+    // A final that wasn't captured in `command` state (acoustic wake missed) can
+    // still be a command. Heuristic: it matches a command word AND is either a
+    // bare short command (<= 2 words, e.g. "send", "и сен") or carries a wake
+    // token ("kimi"/"kimmy"/"кюми"). Longer dictation like "i listen to music"
+    // or "eventually i will stop it" is left as dictation.
+    _kimiShouldTreatAsCommand(text) {
+        if (!_kimiMatchCommand(text)) return false;
+        const norm = _kimiNormalize(text);
+        const words = norm.split(' ').filter(Boolean).length;
+        if (words <= 2) return true;
+        return /\b(kimi|kimmy|kyumi)\b/.test(norm);
+    }
+
+    _clearKimiCommandTimeout() {
+        if (this._kimiCommandTimer) { clearTimeout(this._kimiCommandTimer); this._kimiCommandTimer = null; }
+    }
+
+    _armKimiCommandTimeout() {
+        this._clearKimiCommandTimeout();
+        this._kimiCommandTimer = setTimeout(() => {
+            this._kimiCommandTimer = null;
+            // No command utterance captured in time — self-heal a false wake
+            // (or a wake whose command was missed).
+            if (this._kimiState !== 'command' || this._kimiCommandFinal) return;
+            if (this._kimiInterruptedTranscribing) {
+                this._kimiState = 'transcribing';
+                this._kimiIdleCount = 0;
+                this._kimiInterruptedTranscribing = false;
+                this.emit('kimiState', { state: 'transcribing' });
+            } else {
+                this._kimiToSleep('command timeout');
+            }
+        }, 4000);
     }
 
     /**
@@ -847,11 +902,13 @@ class nVoiceClient {
             }
         } finally {
             this._kimiClassifying = false;
+            this._clearKimiCommandTimeout();
         }
     }
 
     _kimiToSleep(reason) {
         console.log('[Kimi] -> sleep (' + reason + ')');
+        this._clearKimiCommandTimeout();
         this._kimiState = 'sleep';
         this._kimiCommandText = '';
         this._kimiCommandFinal = false;
