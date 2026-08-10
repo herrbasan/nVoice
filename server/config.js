@@ -76,12 +76,17 @@ const config = {
   // Assistant layer — LLM-powered transcription post-processing
   // Intercepts settled (is_final) transcripts from the realtime pipeline,
   // sends them to the LLM Gateway for cleanup/command-detection.
-  assistant: rawConfig.assistant ?? {
-    enabled: false,
-    gateway_url: 'http://localhost:3400',
-    gateway_key: '',
-    model: 'badkid-llama-chat',
-    context_sentences: 3,
+  assistant: {
+    ...(rawConfig.assistant ?? {
+      enabled: false,
+      gateway_url: 'http://localhost:3400',
+      gateway_key: '',
+      model: 'badkid-llama-chat',
+      context_sentences: 3,
+    }),
+    // Secrets live in .env (gitignored), never in committed config.json.
+    // LLM_GATEWAY_KEY from .env wins; the config.json value is only a fallback.
+    gateway_key: dotEnv.LLM_GATEWAY_KEY ?? (rawConfig.assistant?.gateway_key ?? ''),
   },
 
   // TLS
