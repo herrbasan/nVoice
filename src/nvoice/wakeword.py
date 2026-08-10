@@ -121,7 +121,11 @@ class KimiWakeWordDetector:
 
         Returns (score, fired):
           - score: latest activation in [0, 1] (0.0 until the window fills)
-          - fired: True once a score crossed `threshold`
+          - fired: True ONCE when the score crosses `threshold` (edge-triggered),
+                   then re-arms when the score drops back below threshold so the
+                   next "ok kimi" can fire again. Without the re-arm the latch
+                   stays set forever and every subsequent feed reports fired=True
+                   — a wake-storm that thrashes the client state machine.
         """
         if self._sess is None:
             self.load()
@@ -137,14 +141,17 @@ class KimiWakeWordDetector:
             self._buffer = self._buffer[-WINDOW_SAMPLES:]
 
         score = 0.0
-        fired = self._fired_latch
+        fired = False
         self._samples_since_recompute += frames.size
         while self._samples_since_recompute >= self.recompute_every:
             self._samples_since_recompute -= self.recompute_every
             score = self._score_buffer()
             if score >= self.threshold:
-                self._fired_latch = True
-                fired = True
+                if not self._fired_latch:
+                    self._fired_latch = True
+                    fired = True  # edge-triggered: report the wake exactly once
+            else:
+                self._fired_latch = False  # score dropped below threshold → re-arm
         return score, fired
 
     def _score_buffer(self):
