@@ -1,3 +1,57 @@
+// ------------------------------------------------------------------ //
+// Kimi command matcher — LOCAL, no gateway.                           //
+//                                                                     //
+// The command vocabulary is fixed and tiny: listen / stop / send. An  //
+// LLM is not needed to understand it (and would only see parakeet's   //
+// output anyway). Parakeet auto-detects language and often drifts to  //
+// Russian on a single short word; Russian borrowed "стоп" (stop), so  //
+// Cyrillic→Latin normalization makes the misdetected forms match the  //
+// English words. Word-boundary matching rejects false hits            //
+// ("stopwatch" ≠ "stop").                                             //
+// ------------------------------------------------------------------ //
+const _KIMI_CYR_TO_LAT = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'i', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+};
+
+// Match priority: stop > send > listen ("stop listening" must stop, not listen).
+const _KIMI_COMMAND_PHRASES = [
+    ['stop',   ['stop', 'stopp', 'stoppen', 'halt']],
+    ['send',   ['send', 'sende', 'zend']],
+    ['listen', ['listen', 'listening', 'lissin', 'listun']],
+];
+
+function _kimiNormalize(raw) {
+    let out = '';
+    for (const ch of String(raw || '').toLowerCase()) {
+        const c = _KIMI_CYR_TO_LAT[ch];
+        if (c !== undefined) out += c;
+        else if (/[a-z0-9]/.test(ch)) out += ch;
+        else out += ' ';  // punctuation/space → separator
+    }
+    return out.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Match a raw STT command utterance to one of the fixed commands.
+ * Returns 'listen' | 'stop' | 'send' | null (null = not a command).
+ */
+function _kimiMatchCommand(text) {
+    const norm = _kimiNormalize(text);
+    if (!norm) return null;
+    for (const [action, phrases] of _KIMI_COMMAND_PHRASES) {
+        for (const p of phrases) {
+            const np = _kimiNormalize(p);
+            const re = new RegExp('\\b' + np.replace(/\s+/g, '\\s+') + '\\b');
+            if (re.test(norm)) return action;
+        }
+    }
+    return null;
+}
+
 class nVoiceClient {
     constructor(config = {}) {
         this.serverUrl = config.serverUrl || '';
@@ -33,15 +87,17 @@ class nVoiceClient {
         this._silenceThreshold = 0.3;
 
         // Kimi-mode state machine (Phase 4). After "ok kimi" wakes the client it
-        // captures the NEXT utterance as a command ("listen"/"stop"/"send"/other).
-        //   sleep        → "ok kimi" → command (capture one utterance → classify)
+        // captures the NEXT utterance as a command and matches it LOCALLY
+        // (no gateway): "listen" → transcribing | "stop" → sleep+discard |
+        // "send" → sleep+submit | anything else → ignore.
+        //   sleep        → "ok kimi" → command (capture one utterance → match)
         //   command      → listen → transcribing | stop → sleep | send → sleep+submit
         //   transcribing → "ok kimi" (interrupt) → command (capture stop/send)
         // The kimi WS is always listening, so "ok kimi" interrupts transcription.
         // NOTE: the wake detector can false-fire on speech-like audio during
         // dictation (~11% adversarial FA). When that happens the captured
-        // "command" classifies as `message` — which means it was dictation, not a
-        // command. We then RESUME transcribing instead of responding (see
+        // "command" matches NO command word — which means it was dictation, not
+        // a command. We then RESUME transcribing instead of responding (see
         // _kimiInterruptedTranscribing).
         this._kimiState = 'sleep';          // sleep | command | transcribing
         this._kimiCommandText = '';         // current command utterance (raw STT)
@@ -727,7 +783,7 @@ class nVoiceClient {
     }
 
     /**
-     * Classify the captured command via /v1/assistant/command and dispatch.
+     * Match the captured command LOCALLY (no gateway) and dispatch.
      */
     async _kimiClassifyCommand() {
         if (this._kimiState !== 'command' || this._kimiClassifying) return;
@@ -737,30 +793,14 @@ class nVoiceClient {
             if (!text) { this._kimiToSleep('no command captured'); return; }
 
             console.log('[Kimi] classifying command: "' + text + '"');
-            let action = 'message';
-            try {
-                const resp = await fetch('/v1/assistant/command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text }),
-                });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    action = data?.action || 'message';
-                } else {
-                    console.warn('[Kimi] classify HTTP ' + resp.status);
-                }
-            } catch (e) {
-                console.error('[Kimi] classify error', e);
-            }
-
-            console.log('[Kimi] command action=' + action +
+            const action = _kimiMatchCommand(text);  // 'listen' | 'stop' | 'send' | null
+            console.log('[Kimi] command action=' + (action || 'none') +
                         (this._kimiInterruptedTranscribing ? ' (interrupted transcription)' : ''));
 
             // A wake that interrupted transcription is only honored for real
-            // commands. If the "command" classifies as `message` it was actually
-            // dictation (false wake) — resume transcribing, don't respond.
-            if (this._kimiInterruptedTranscribing && action === 'message') {
+            // commands. No match = false wake (it was dictation) → resume
+            // transcribing, don't respond, don't lose the dictation.
+            if (action === null && this._kimiInterruptedTranscribing) {
                 // Put the captured text back into the dictation (it wasn't a command).
                 if (text) {
                     this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim();
@@ -772,6 +812,10 @@ class nVoiceClient {
                 this.emit('kimiState', { state: 'transcribing' });
                 return;
             }
+
+            // Not a command and nothing was being dictated — silently return to
+            // sleep. No gateway call, no response.
+            if (action === null) { this._kimiToSleep('not a command'); return; }
 
             switch (action) {
                 case 'listen':
@@ -792,12 +836,6 @@ class nVoiceClient {
                     this._kimiState = 'sleep';
                     this._kimiInterruptedTranscribing = false;
                     this.emit('kimiCommand', { action: 'send', text, dictation: this._kimiDictationText });
-                    this.sleep();
-                    break;
-                default: // 'message' — a normal utterance for the assistant (from sleep)
-                    this._kimiState = 'sleep';
-                    this._kimiInterruptedTranscribing = false;
-                    this.emit('kimiCommand', { action: 'message', text });
                     this.sleep();
                     break;
             }

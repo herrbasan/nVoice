@@ -1,7 +1,7 @@
 # nVoice Handsfree — Dev Plan (Siri-like voice assistant)
 
-**Status:** Phase 1 DONE (b84d1e0) · Phase 2 DONE (position-invariant model, b5ccbee) · Phase 3 DONE (browser kimi wake, a770d1b) · Phase 4 DONE (intent→action, db3b2ec) · Phase 5 NEXT (polish)
-**Date:** 2026-08-09
+**Status:** Phase 1 DONE (b84d1e0) · Phase 2 DONE (position-invariant model, b5ccbee) · Phase 3 DONE (browser kimi wake, a770d1b) · Phase 4 DONE (intent→action, db3b2ec, **pivoted to local command matching no-gateway, efa2aef+** ) · Phase 5 NEXT (polish)
+**Date:** 2026-08-10
 **Owner:** nVoice + chat app + nSpeech
 
 ## Goal
@@ -87,22 +87,30 @@ Prototype the full handsfree chain with a temporary text/keyboard trigger instea
   - **DONE 2026-08-09 (a770d1b): browser kimi wake mode.** `enableKimiWakeWord()` in sdk/nVoiceClient.js streams mic frames to /v1/wakeword/ws always (even asleep); on {type:wake} calls the existing wake() → STT WS → LLM → TTS. Assistant page has an "ok kimi (worker detector)" toggle. Verified live: client arms, worker scores mic frames (score=0 on silence), full loop wired.
 
 ### Phase 4 — Intent→action layer
-- Define a fixed action vocabulary: `send`, `stop_playback`, `pause_playback`, `resume_playback`, `new_paragraph`, `cancel`.
-- LLM prompt: interpret the transcribed command → action id + payload, or "message".
-- Execute actions (nSpeech control, chat send). Reuse/extend `server/assistant/actions.js`.
+- Define a fixed action vocabulary: `listen`, `stop`, `send`.
 - Deliverable: spoken commands map to actions reliably.
-- **DONE 2026-08-10 (db3b2ec): kimi intent→action state machine.**
-  - Server: `POST /v1/assistant/command` — `classifyCommand()` maps the post-"ok kimi"
-    utterance to `listen | stop | send | message` (LLM, falls back to message).
-    Verified: "listen"/"start listening"→listen, "stop"/"okay kimi stop"/"cancel"→stop,
-    "send"/"send the message"→send, "what is the weather"→message.
-  - Client (`nVoiceClient.js`): 3-state machine replaces simple auto-sleep.
-    `sleep →(ok kimi)→ command → listen→transcribing | stop→sleep(discard) |
-    send→sleep+submit | message→reply`. The kimi WS stays listening while
-    transcribing, so "ok kimi" interrupts to capture stop/send. Events:
-    `kimiState`, `kimiCommand{action,text,dictation}`, `kimiCommandText`, `kimiDictation`.
-  - Page: badge shows sleep/command/transcribing; send/message → `/v1/assistant/chat` + TTS.
-  - Verified: 10/10 state-machine unit tests; live command classifier + chat replies.
+- **DONE 2026-08-10 (db3b2ec): kimi intent→action state machine. PIVOT 2026-08-10 (efa2aef):**
+  **local command matching — NO gateway.**
+  - Root cause: parakeet auto-detects language and drifts to Russian on single
+    short words; an LLM only sees parakeet's (possibly garbled) output, so it
+    cannot fix STT errors. For a fixed 3-word vocabulary the LLM was overkill and
+    added a failure point ("Gateway call failed").
+  - Client (`nVoiceClient.js`): `_kimiMatchCommand()` — local keyword matcher,
+    language-tolerant (Cyrillic→Latin: "стоп"→stop, "сенд"→send, "листен"→listen)
+    with word-boundary matching ("stopwatch" ≠ "stop") and priority
+    stop > send > listen ("stop listening" stops). Returns `listen | stop | send | null`.
+    No `/v1/assistant/command` call. Only "listen" opens the transcription gate;
+    "stop" discards dictation; "send" submits dictation via `/v1/assistant/chat`;
+    anything else (incl. false-wake captures mid-dictation) resumes/sleeps silently.
+  - Re-entrancy guard `_kimiClassifying` + `_kimiInterruptedTranscribing` resume
+    (efa2aef) fix the earlier false-wake/reply and triple-classify bugs.
+  - State machine: `sleep →(ok kimi)→ command → listen→transcribing |
+    stop→sleep(discard) | send→sleep+submit | no-match→sleep(silent)`. The kimi WS
+    stays listening while transcribing, so "ok kimi" interrupts to capture stop/send.
+    Events: `kimiState`, `kimiCommand{action,text,dictation}`, `kimiCommandText`, `kimiDictation`.
+  - Page: badge shows sleep/command/transcribing; send → `/v1/assistant/chat` + TTS.
+  - Verified: 36/36 unit tests (13 matcher + 9 scenarios incl. false-wake resume,
+    stopwatch word-boundary, stop/send interrupt, re-entrancy single-fire).
 
 ### Phase 5 — Handsfree mode in the chat app
 - Mode toggle (dictate / handsfree).

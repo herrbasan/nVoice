@@ -269,10 +269,6 @@ function init(element, params, nui) {
                 } else {
                     setStatus('Nothing to send. Asleep — waiting for "ok kimi"', 'warning');
                 }
-            } else if (evt.action === 'message') {
-                // A non-transcription command: reply directly.
-                setStatus('Thinking…', 'info');
-                await sendToAssistant(evt.text);
             }
         });
     }
