@@ -48,11 +48,18 @@ function createApp(httpsOptions) {
   });
 
   // --- Static file mounts ---
+  // Dev server: static assets MUST NOT be cached by the browser, or an old
+  // SDK/page lingers in the tab after a code change and the user tests stale
+  // logic (seen 2026-08-10: cached nVoiceClient.js without the command
+  // matcher/suppression → commands leaked into the transcript).
+  const noCacheHeaders = (res) => res.setHeader('Cache-Control', 'no-store');
   if (fs.existsSync(config.webDir)) {
     app.register(fastifyStatic, {
       root: config.webDir,
       prefix: '/',
       decorateReply: true,
+      cacheControl: false,
+      setHeaders: noCacheHeaders,
     });
   } else {
     logger.warn('web/ directory not found', { webDir: config.webDir }, 'Server', { console: true });
@@ -63,6 +70,8 @@ function createApp(httpsOptions) {
       root: config.sdkDir,
       prefix: '/sdk',
       decorateReply: false,
+      cacheControl: false,
+      setHeaders: noCacheHeaders,
     });
   }
 
@@ -71,6 +80,8 @@ function createApp(httpsOptions) {
       root: config.nuiDir,
       prefix: '/nui',
       decorateReply: false,
+      cacheControl: false,
+      setHeaders: noCacheHeaders,
     });
   }
 
