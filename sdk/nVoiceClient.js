@@ -20,7 +20,7 @@ const _KIMI_CYR_TO_LAT = {
 // Match priority: stop > send > listen ("stop listening" must stop, not listen).
 const _KIMI_COMMAND_PHRASES = [
     ['stop',   ['stop', 'stopp', 'stoppen', 'halt']],
-    ['send',   ['send', 'sende', 'zend']],
+    ['send',   ['send', 'sende', 'zend', 'sen']],
     ['listen', ['listen', 'listening', 'lissin', 'listun']],
 ];
 
@@ -751,16 +751,22 @@ class nVoiceClient {
      *   transcribing → accumulate as dictation
      */
     _kimiOnFinal(text) {
+        // Returns true when the final was consumed as a COMMAND utterance (it
+        // must then be suppressed from the transcript — control words are not
+        // dictation). Returns false for dictation/ignored finals.
         if (this._kimiState === 'command') {
             this._kimiCommandText = (this._kimiCommandText + ' ' + text).trim();
             this._kimiCommandFinal = true;
             this._kimiIdleCount = 0;
             this.emit('kimiCommandText', { text: this._kimiCommandText });
-        } else if (this._kimiState === 'transcribing') {
+            return true;
+        }
+        if (this._kimiState === 'transcribing') {
             this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim();
             this._kimiIdleCount = 0;
             this.emit('kimiDictation', { text: this._kimiDictationText });
         }
+        return false;
     }
 
     /**
@@ -971,9 +977,21 @@ class nVoiceClient {
                             this._finalReceived = true;
                         }
                         // Route finals into the kimi state machine (command capture
-                        // or dictation accumulation) before emitting to the page.
+                        // or dictation accumulation). Command utterances are CONTROL
+                        // words ("ok kimi listen/stop/send") — they must NOT appear
+                        // in the transcript. Emit an empty final reset so consumers
+                        // clear any lingering provisional tail.
                         if (this.kimiWakeEnabled && data.is_final && data.text) {
-                            this._kimiOnFinal(data.text);
+                            const consumedAsCommand = this._kimiOnFinal(data.text);
+                            if (consumedAsCommand) {
+                                this.emit('transcript', { type: 'transcript', text: '', is_final: true, is_command: true });
+                                return;
+                            }
+                        }
+                        // Suppress provisionals while a command is being captured so
+                        // "ok kimi stop" never flickers in the panel mid-speech.
+                        if (this.kimiWakeEnabled && this._kimiState === 'command' && !data.is_final) {
+                            return;
                         }
                         this.emit('transcript', data);
                     } else if (data.type === 'assistant') {

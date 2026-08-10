@@ -18,7 +18,7 @@ const _KIMI_CYR_TO_LAT = {
 // Match priority: stop > send > listen ("stop listening" must stop, not listen).
 const _KIMI_COMMAND_PHRASES = [
   ['stop',   ['stop', 'stopp', 'stoppen', 'halt']],
-  ['send',   ['send', 'sende', 'zend']],
+  ['send',   ['send', 'sende', 'zend', 'sen']],
   ['listen', ['listen', 'listening', 'lissin', 'listun']],
 ];
 function _kimiNormalize(raw) {
@@ -84,8 +84,9 @@ function makeClient() {
       }
     },
     _kimiOnFinal(text) {
-      if (this._kimiState === 'command') { this._kimiCommandText = (this._kimiCommandText + ' ' + text).trim(); this._kimiCommandFinal = true; this._kimiIdleCount = 0; }
-      else if (this._kimiState === 'transcribing') { this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim(); this._kimiIdleCount = 0; }
+      if (this._kimiState === 'command') { this._kimiCommandText = (this._kimiCommandText + ' ' + text).trim(); this._kimiCommandFinal = true; this._kimiIdleCount = 0; this.emit('kimiCommandText', { text: this._kimiCommandText }); return true; }
+      if (this._kimiState === 'transcribing') { this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim(); this._kimiIdleCount = 0; this.emit('kimiDictation', { text: this._kimiDictationText }); }
+      return false;
     },
     _onKimiWake() {
       if (this._kimiState === 'command') return;
@@ -121,6 +122,8 @@ check('m10: "stopp" -> stop', _kimiMatchCommand('stopp') === 'stop');
 check('m11: "please zend it" -> send', _kimiMatchCommand('please zend it') === 'send');
 check('m12: "halt" -> stop', _kimiMatchCommand('halt') === 'stop');
 check('m13: empty -> null', _kimiMatchCommand('') === null);
+check('m14: "sen" (russian сен) -> send', _kimiMatchCommand('сен') === 'send');
+check('m15: "и сен" -> send', _kimiMatchCommand('и сен') === 'send');
 
 // Scenario 1: sleep -> wake -> listen -> transcribe -> wake -> send
 const c = makeClient();

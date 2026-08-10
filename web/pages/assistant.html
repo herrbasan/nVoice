@@ -187,6 +187,12 @@ function init(element, params, nui) {
                 finalSpan = rawDiv.querySelector('.final');
                 provSpan = rawDiv.querySelector('.provisional');
             }
+            if (msg.is_command) {
+                // Kimi control utterance ("ok kimi listen/stop/send") — not
+                // dictation. Clear any provisional tail, append nothing.
+                provSpan.textContent = '';
+                return;
+            }
             if (msg.is_final) {
                 finalSpan.textContent += msg.text + ' ';
                 rawText += msg.text.trim() + ' ';
