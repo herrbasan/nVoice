@@ -1,6 +1,6 @@
 # nVoice Handsfree — Dev Plan (Siri-like voice assistant)
 
-**Status:** Phase 1 DONE (b84d1e0) · Phase 2 DONE (position-invariant model, b5ccbee) · Phase 3 DONE (browser kimi wake, a770d1b) · Phase 4 NEXT (intent→action layer)
+**Status:** Phase 1 DONE (b84d1e0) · Phase 2 DONE (position-invariant model, b5ccbee) · Phase 3 DONE (browser kimi wake, a770d1b) · Phase 4 DONE (intent→action, db3b2ec) · Phase 5 NEXT (polish)
 **Date:** 2026-08-09
 **Owner:** nVoice + chat app + nSpeech
 
@@ -91,6 +91,18 @@ Prototype the full handsfree chain with a temporary text/keyboard trigger instea
 - LLM prompt: interpret the transcribed command → action id + payload, or "message".
 - Execute actions (nSpeech control, chat send). Reuse/extend `server/assistant/actions.js`.
 - Deliverable: spoken commands map to actions reliably.
+- **DONE 2026-08-10 (db3b2ec): kimi intent→action state machine.**
+  - Server: `POST /v1/assistant/command` — `classifyCommand()` maps the post-"ok kimi"
+    utterance to `listen | stop | send | message` (LLM, falls back to message).
+    Verified: "listen"/"start listening"→listen, "stop"/"okay kimi stop"/"cancel"→stop,
+    "send"/"send the message"→send, "what is the weather"→message.
+  - Client (`nVoiceClient.js`): 3-state machine replaces simple auto-sleep.
+    `sleep →(ok kimi)→ command → listen→transcribing | stop→sleep(discard) |
+    send→sleep+submit | message→reply`. The kimi WS stays listening while
+    transcribing, so "ok kimi" interrupts to capture stop/send. Events:
+    `kimiState`, `kimiCommand{action,text,dictation}`, `kimiCommandText`, `kimiDictation`.
+  - Page: badge shows sleep/command/transcribing; send/message → `/v1/assistant/chat` + TTS.
+  - Verified: 10/10 state-machine unit tests; live command classifier + chat replies.
 
 ### Phase 5 — Handsfree mode in the chat app
 - Mode toggle (dictate / handsfree).
