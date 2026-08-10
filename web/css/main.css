@@ -61,6 +61,41 @@
 .nv-transcript { min-height: 16rem; height: 22rem; }
 .nv-transcript .provisional { color: var(--text-color-dim); }
 
+/* Conversation view — handsfree chat bubbles (user right, assistant left) */
+.nv-chat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nui-space-quarter);
+    margin-top: var(--nui-space);
+    max-height: 24rem;
+    overflow-y: auto;
+    padding: var(--nui-space);
+    background: var(--color-shade2);
+    border: 1px solid var(--border-shade1);
+    border-radius: var(--border-radius1);
+}
+.nv-chat-bubble {
+    max-width: 80%;
+    padding: var(--nui-space-quarter) var(--nui-space);
+    border-radius: var(--border-radius1);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+.nv-chat-bubble.user {
+    align-self: flex-end;
+    background: var(--color-highlight);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+.nv-chat-bubble.assistant {
+    align-self: flex-start;
+    background: var(--color-shade3);
+    color: var(--text-color);
+    border-bottom-left-radius: 2px;
+}
+
 /* Assistant log — LLM-corrected transcript bubbles */
 .nv-assistant-log {
     min-height: 8rem;

@@ -65,6 +65,10 @@
             </div>
         </div>
 
+        <!-- Conversation — user dictation bubbles (right) + assistant reply bubbles (left) -->
+        <h3 style="margin: var(--nui-space-double) 0 0 0; font-size: 1em;">Conversation</h3>
+        <div id="asst-chat" class="nv-chat"></div>
+
         <!-- Handsfree Phase 1 harness: button stands in for the "ok kimi" wake word -->
         <div style="margin-top: var(--nui-space); display: flex; gap: var(--nui-space); align-items: flex-start;">
             <nui-button variant="primary" id="asst-btn-send">
@@ -98,6 +102,7 @@ function init(element, params, nui) {
     const sendBtn = element.querySelector('#asst-btn-send');
     const sendInnerBtn = sendBtn.querySelector('button');
     const replyDiv = element.querySelector('#asst-reply');
+    const chatDiv = element.querySelector('#asst-chat');
 
     let client = null;
     let rawText = '';  // accumulated final transcripts, sent on handsfree Send
@@ -346,18 +351,52 @@ function init(element, params, nui) {
     // and speak the reply. The button stands in for the "ok kimi" wake word
     // until the acoustic model lands (Phase 2/3). Reused by the kimi state
     // machine for "send" and "message" commands.
-    function speak(text) {
-        if (!('speechSynthesis' in window) || !text) return;
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = 1.0;
-        window.speechSynthesis.speak(u);
+    // TTS: nSpeech on :2233 (local kokoro/chatterbox engine, CORS enabled).
+    // Replaces the browser speechSynthesis voice.
+    let _ttsAudio = null;
+    async function speak(text) {
+        if (!text) return;
+        // Cut off any currently-playing reply when a new one starts.
+        if (_ttsAudio) { _ttsAudio.pause(); _ttsAudio = null; }
+        try {
+            const resp = await fetch('http://127.0.0.1:2233/v1/audio/speech', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: 'nspeech',
+                    input: text,
+                    voice: 'default',
+                    response_format: 'mp3',
+                    speed: 1.0,
+                }),
+            });
+            if (!resp.ok) throw new Error('nSpeech HTTP ' + resp.status);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            _ttsAudio = audio;
+            audio.onended = () => { URL.revokeObjectURL(url); if (_ttsAudio === audio) _ttsAudio = null; };
+            await audio.play();
+        } catch (e) {
+            console.error('[Assistant] nSpeech TTS failed:', e);
+        }
+    }
+
+    function addChatBubble(role, text) {
+        const b = document.createElement('div');
+        b.className = 'nv-chat-bubble ' + role;
+        b.textContent = text;
+        chatDiv.appendChild(b);
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+        return b;
     }
 
     async function sendToAssistant(text) {
         if (!text) return;
         sendInnerBtn.disabled = true;
-        replyDiv.textContent = '…';
+        // Render the conversation: user bubble (right) + reply bubble (left).
+        addChatBubble('user', text);
+        const replyBubble = addChatBubble('assistant', '…');
         try {
             const resp = await fetch('/v1/assistant/chat', {
                 method: 'POST',
@@ -366,10 +405,12 @@ function init(element, params, nui) {
             });
             const data = await resp.json();
             const reply = (data && data.reply) || (data && data.error && data.error.message) || 'No reply';
+            replyBubble.textContent = reply;
             replyDiv.textContent = reply;
             speak(reply);
             return reply;
         } catch (e) {
+            replyBubble.textContent = 'Error: ' + e.message;
             replyDiv.textContent = 'Error: ' + e.message;
             return null;
         } finally {
