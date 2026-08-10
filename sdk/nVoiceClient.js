@@ -38,12 +38,19 @@ class nVoiceClient {
         //   command      → listen → transcribing | stop → sleep | send → sleep+submit
         //   transcribing → "ok kimi" (interrupt) → command (capture stop/send)
         // The kimi WS is always listening, so "ok kimi" interrupts transcription.
+        // NOTE: the wake detector can false-fire on speech-like audio during
+        // dictation (~11% adversarial FA). When that happens the captured
+        // "command" classifies as `message` — which means it was dictation, not a
+        // command. We then RESUME transcribing instead of responding (see
+        // _kimiInterruptedTranscribing).
         this._kimiState = 'sleep';          // sleep | command | transcribing
         this._kimiCommandText = '';         // current command utterance (raw STT)
         this._kimiCommandFinal = false;     // a final landed for the current command
         this._kimiDictationText = '';       // accumulated dictation (for send)
         this._kimiIdleCount = 0;            // idle/silence telemetry beats since last final
         this._kimiIdleToClassify = 3;       // idle beats before classifying the command
+        this._kimiClassifying = false;      // re-entrancy guard for async classify
+        this._kimiInterruptedTranscribing = false;  // wake came mid-dictation
 
         // Wake-on-voice: require SUSTAINED speech to wake (rejects fan/ambient noise)
         this._wakeThreshold = 0.5;   // per-frame Silero prob to count toward wake
@@ -296,6 +303,8 @@ class nVoiceClient {
         this._kimiCommandFinal = false;
         this._kimiDictationText = '';
         this._kimiIdleCount = 0;
+        this._kimiClassifying = false;
+        this._kimiInterruptedTranscribing = false;
 
         const base = this.serverUrl || '';
         const model = this.engine ? `?model=${encodeURIComponent(this.engine)}` : '';
@@ -671,6 +680,7 @@ class nVoiceClient {
         this._kimiCommandText = '';
         this._kimiCommandFinal = false;
         this._kimiIdleCount = 0;
+        this._kimiInterruptedTranscribing = wasTranscribing;
         if (!this.isAwake) {
             this.wake();
         }
@@ -720,52 +730,79 @@ class nVoiceClient {
      * Classify the captured command via /v1/assistant/command and dispatch.
      */
     async _kimiClassifyCommand() {
-        if (this._kimiState !== 'command') return;
-        const text = this._kimiCommandText.trim();
-        if (!text) { this._kimiToSleep('no command captured'); return; }
-
-        console.log('[Kimi] classifying command: "' + text + '"');
-        let action = 'message';
+        if (this._kimiState !== 'command' || this._kimiClassifying) return;
+        this._kimiClassifying = true;
         try {
-            const resp = await fetch('/v1/assistant/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                action = data?.action || 'message';
-            } else {
-                console.warn('[Kimi] classify HTTP ' + resp.status);
-            }
-        } catch (e) {
-            console.error('[Kimi] classify error', e);
-        }
+            const text = this._kimiCommandText.trim();
+            if (!text) { this._kimiToSleep('no command captured'); return; }
 
-        console.log('[Kimi] command action=' + action);
-        switch (action) {
-            case 'listen':
+            console.log('[Kimi] classifying command: "' + text + '"');
+            let action = 'message';
+            try {
+                const resp = await fetch('/v1/assistant/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text }),
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    action = data?.action || 'message';
+                } else {
+                    console.warn('[Kimi] classify HTTP ' + resp.status);
+                }
+            } catch (e) {
+                console.error('[Kimi] classify error', e);
+            }
+
+            console.log('[Kimi] command action=' + action +
+                        (this._kimiInterruptedTranscribing ? ' (interrupted transcription)' : ''));
+
+            // A wake that interrupted transcription is only honored for real
+            // commands. If the "command" classifies as `message` it was actually
+            // dictation (false wake) — resume transcribing, don't respond.
+            if (this._kimiInterruptedTranscribing && action === 'message') {
+                // Put the captured text back into the dictation (it wasn't a command).
+                if (text) {
+                    this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim();
+                    this.emit('kimiDictation', { text: this._kimiDictationText });
+                }
                 this._kimiState = 'transcribing';
                 this._kimiIdleCount = 0;
+                this._kimiInterruptedTranscribing = false;
                 this.emit('kimiState', { state: 'transcribing' });
-                this.emit('kimiCommand', { action: 'listen', text });
-                break;
-            case 'stop':
-                this._kimiState = 'sleep';
-                this._kimiDictationText = '';
-                this.emit('kimiCommand', { action: 'stop', text });
-                this.sleep();
-                break;
-            case 'send':
-                this._kimiState = 'sleep';
-                this.emit('kimiCommand', { action: 'send', text, dictation: this._kimiDictationText });
-                this.sleep();
-                break;
-            default: // 'message' — a normal utterance for the assistant
-                this._kimiState = 'sleep';
-                this.emit('kimiCommand', { action: 'message', text });
-                this.sleep();
-                break;
+                return;
+            }
+
+            switch (action) {
+                case 'listen':
+                    this._kimiState = 'transcribing';
+                    this._kimiIdleCount = 0;
+                    this._kimiInterruptedTranscribing = false;
+                    this.emit('kimiState', { state: 'transcribing' });
+                    this.emit('kimiCommand', { action: 'listen', text });
+                    break;
+                case 'stop':
+                    this._kimiState = 'sleep';
+                    this._kimiDictationText = '';
+                    this._kimiInterruptedTranscribing = false;
+                    this.emit('kimiCommand', { action: 'stop', text });
+                    this.sleep();
+                    break;
+                case 'send':
+                    this._kimiState = 'sleep';
+                    this._kimiInterruptedTranscribing = false;
+                    this.emit('kimiCommand', { action: 'send', text, dictation: this._kimiDictationText });
+                    this.sleep();
+                    break;
+                default: // 'message' — a normal utterance for the assistant (from sleep)
+                    this._kimiState = 'sleep';
+                    this._kimiInterruptedTranscribing = false;
+                    this.emit('kimiCommand', { action: 'message', text });
+                    this.sleep();
+                    break;
+            }
+        } finally {
+            this._kimiClassifying = false;
         }
     }
 
