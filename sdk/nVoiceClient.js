@@ -32,6 +32,15 @@ class nVoiceClient {
         this._silenceFramesToSleep = 31;
         this._silenceThreshold = 0.3;
 
+        // Kimi-mode auto-sleep: after "ok kimi" wakes the client and a command
+        // is captured (final transcript), when the backend reports idle/silence
+        // the client returns to sleep — listening for the next "ok kimi" instead
+        // of transcribing everything forever. Only armed in kimi mode (the old
+        // generic auto-sleep was removed; it thrashed on conversational pauses).
+        this._kimiAwaitFinal = false;   // armed after wake, waits for first final
+        this._kimiIdleCount = 0;        // consecutive idle/silence telemetry frames
+        this._kimiIdleToSleep = 3;      // ~3 telemetry beats (~0.15s) of silence
+
         // Wake-on-voice: require SUSTAINED speech to wake (rejects fan/ambient noise)
         this._wakeThreshold = 0.5;   // per-frame Silero prob to count toward wake
         this._wakeFrames = 3;        // consecutive frames needed to wake (~96ms)
@@ -597,6 +606,10 @@ class nVoiceClient {
         this._finalReceived = false;
         this._silenceCount = 0;
         this._hangupCount = 0;   // fresh endpointing window on wake
+        if (this.kimiWakeEnabled) {
+            this._kimiAwaitFinal = true;
+            this._kimiIdleCount = 0;
+        }
 
         // Flush pre-wake buffer: send the last ~320ms of audio that was
         // captured during the wake detection delay. This recovers the
@@ -622,12 +635,32 @@ class nVoiceClient {
         this._silenceCount = 0;
         this._wakeCount = 0;   // reset sustained-wake counter for next listen cycle
         this._hangupCount = 0; // reset endpointing counter
+        this._kimiAwaitFinal = false;
+        this._kimiIdleCount = 0;
 
         this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
         this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
 
         // Frames stop flowing to the WebSocket while asleep.
         this.emit('asleep');
+    }
+
+    /**
+     * Kimi-mode auto-sleep. When the worker's "ok kimi" wake fires, the client
+     * captures the following command. Once a final transcript arrives (the
+     * command is committed), the backend idles on silence — at that point the
+     * client returns to sleep so it listens for the next "ok kimi" instead of
+     * transcribing everything forever.
+     */
+    _kimiHandleTelemetry(data) {
+        if (!this.kimiWakeEnabled || !this.isAwake || !this._kimiAwaitFinal) return;
+        if (this._finalReceived && data.state === 'idle/silence') {
+            this._kimiIdleCount = (this._kimiIdleCount || 0) + 1;
+            if (this._kimiIdleCount >= this._kimiIdleToSleep) {
+                console.log('[Kimi] utterance captured + idle — returning to sleep');
+                this.sleep();
+            }
+        }
     }
 
     async start() {
@@ -751,6 +784,7 @@ class nVoiceClient {
                         this._handleAssistantEvent(data.result || data);
                     } else if (data.type === 'telemetry') {
                         this.emit('telemetry', data);
+                        this._kimiHandleTelemetry(data);
                     }
                 } catch (e) {
                     this.emit('error', new Error('Failed to parse realtime message: ' + e.message));

@@ -153,11 +153,13 @@ function init(element, params, nui) {
             startInnerBtn.disabled = true;
             copyInnerBtn.disabled = false;
             sendInnerBtn.disabled = false;
+            // Go to Sleep is only meaningful while connected & wake-armed.
+            sleepInnerBtn.disabled = !client.wakeWordEnabled || !client.isAwake;
             setMicEnabled(false);
         });
 
-        client.on('asleep', () => { setStatus('Asleep — waiting for voice', 'warning'); });
-        client.on('wakeWordDetected', () => { setStatus('Awake — listening', 'success'); });
+        client.on('asleep', () => { setStatus('Asleep — waiting for voice', 'warning'); sleepInnerBtn.disabled = true; });
+        client.on('wakeWordDetected', () => { setStatus('Awake — listening', 'success'); sleepInnerBtn.disabled = false; });
         client.on('standby', () => {
             setStatus('Standby', 'info');
             startInnerBtn.disabled = false;
