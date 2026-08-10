@@ -32,14 +32,18 @@ class nVoiceClient {
         this._silenceFramesToSleep = 31;
         this._silenceThreshold = 0.3;
 
-        // Kimi-mode auto-sleep: after "ok kimi" wakes the client and a command
-        // is captured (final transcript), when the backend reports idle/silence
-        // the client returns to sleep — listening for the next "ok kimi" instead
-        // of transcribing everything forever. Only armed in kimi mode (the old
-        // generic auto-sleep was removed; it thrashed on conversational pauses).
-        this._kimiAwaitFinal = false;   // armed after wake, waits for first final
-        this._kimiIdleCount = 0;        // consecutive idle/silence telemetry frames
-        this._kimiIdleToSleep = 3;      // ~3 telemetry beats (~0.15s) of silence
+        // Kimi-mode state machine (Phase 4). After "ok kimi" wakes the client it
+        // captures the NEXT utterance as a command ("listen"/"stop"/"send"/other).
+        //   sleep        → "ok kimi" → command (capture one utterance → classify)
+        //   command      → listen → transcribing | stop → sleep | send → sleep+submit
+        //   transcribing → "ok kimi" (interrupt) → command (capture stop/send)
+        // The kimi WS is always listening, so "ok kimi" interrupts transcription.
+        this._kimiState = 'sleep';          // sleep | command | transcribing
+        this._kimiCommandText = '';         // current command utterance (raw STT)
+        this._kimiCommandFinal = false;     // a final landed for the current command
+        this._kimiDictationText = '';       // accumulated dictation (for send)
+        this._kimiIdleCount = 0;            // idle/silence telemetry beats since last final
+        this._kimiIdleToClassify = 3;       // idle beats before classifying the command
 
         // Wake-on-voice: require SUSTAINED speech to wake (rejects fan/ambient noise)
         this._wakeThreshold = 0.5;   // per-frame Silero prob to count toward wake
@@ -287,6 +291,11 @@ class nVoiceClient {
         this.wakeWordEnabled = true;
         this.isAwake = false;
         this._finalReceived = false;
+        this._kimiState = 'sleep';
+        this._kimiCommandText = '';
+        this._kimiCommandFinal = false;
+        this._kimiDictationText = '';
+        this._kimiIdleCount = 0;
 
         const base = this.serverUrl || '';
         const model = this.engine ? `?model=${encodeURIComponent(this.engine)}` : '';
@@ -298,7 +307,7 @@ class nVoiceClient {
             try { evt = JSON.parse(event.data); } catch { return; }
             if (evt.type === 'wake') {
                 console.log('[Kimi] wake detected, score=' + evt.score);
-                if (!this.isAwake) this.wake();
+                this._onKimiWake();
             } else if (evt.type === 'score') {
                 // throttled diagnostic so we can see live detector liveness
                 this._kimiDiagCount = (this._kimiDiagCount || 0) + 1;
@@ -606,10 +615,6 @@ class nVoiceClient {
         this._finalReceived = false;
         this._silenceCount = 0;
         this._hangupCount = 0;   // fresh endpointing window on wake
-        if (this.kimiWakeEnabled) {
-            this._kimiAwaitFinal = true;
-            this._kimiIdleCount = 0;
-        }
 
         // Flush pre-wake buffer: send the last ~320ms of audio that was
         // captured during the wake detection delay. This recovers the
@@ -635,8 +640,6 @@ class nVoiceClient {
         this._silenceCount = 0;
         this._wakeCount = 0;   // reset sustained-wake counter for next listen cycle
         this._hangupCount = 0; // reset endpointing counter
-        this._kimiAwaitFinal = false;
-        this._kimiIdleCount = 0;
 
         this.wwH = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
         this.wwC = new ort.Tensor('float32', new Float32Array(2 * 64), [2, 1, 64]);
@@ -645,22 +648,135 @@ class nVoiceClient {
         this.emit('asleep');
     }
 
+    // --- Kimi state machine (Phase 4) --------------------------------------
+    // States: sleep → command → transcribing (loop back to sleep or command).
+    //   sleep        : listening for "ok kimi". On wake → command.
+    //   command      : capturing the next utterance to classify (listen/stop/
+    //                  send/other). On final + idle → classify → dispatch.
+    //   transcribing : continuous dictation. On "ok kimi" (interrupt) → command
+    //                  to capture stop/send.
+    //
+    // Events emitted to the host app:
+    //   kimiState    {state}                     — sleep|command|transcribing
+    //   kimiCommand  {action, text}              — a classified command action
+    //   kimiDictation {text}                     — accumulated dictation text
+
+    _onKimiWake() {
+        // "ok kimi" heard. From sleep → capture a command; from transcribing →
+        // interrupt to capture a stop/send command. Already capturing a command?
+        // Ignore (don't double-capture).
+        if (this._kimiState === 'command') return;
+        const wasTranscribing = this._kimiState === 'transcribing';
+        this._kimiState = 'command';
+        this._kimiCommandText = '';
+        this._kimiCommandFinal = false;
+        this._kimiIdleCount = 0;
+        if (!this.isAwake) {
+            this.wake();
+        }
+        console.log('[Kimi] -> command' + (wasTranscribing ? ' (interrupting transcription)' : ''));
+        this.emit('kimiState', { state: 'command' });
+    }
+
     /**
-     * Kimi-mode auto-sleep. When the worker's "ok kimi" wake fires, the client
-     * captures the following command. Once a final transcript arrives (the
-     * command is committed), the backend idles on silence — at that point the
-     * client returns to sleep so it listens for the next "ok kimi" instead of
-     * transcribing everything forever.
+     * Called from the STT transcript handler when a final transcript lands.
+     * Routes the text depending on kimi state:
+     *   command      → accumulate as the command utterance
+     *   transcribing → accumulate as dictation
+     */
+    _kimiOnFinal(text) {
+        if (this._kimiState === 'command') {
+            this._kimiCommandText = (this._kimiCommandText + ' ' + text).trim();
+            this._kimiCommandFinal = true;
+            this._kimiIdleCount = 0;
+            this.emit('kimiCommandText', { text: this._kimiCommandText });
+        } else if (this._kimiState === 'transcribing') {
+            this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim();
+            this._kimiIdleCount = 0;
+            this.emit('kimiDictation', { text: this._kimiDictationText });
+        }
+    }
+
+    /**
+     * Telemetry-driven state progression. In `command` state, after the first
+     * final lands and the backend reports idle/silence (utterance fully
+     * committed), classify the command and dispatch. In `transcribing` state
+     * idle/silence is ignored (dictation continues until interrupted).
      */
     _kimiHandleTelemetry(data) {
-        if (!this.kimiWakeEnabled || !this.isAwake || !this._kimiAwaitFinal) return;
-        if (this._finalReceived && data.state === 'idle/silence') {
-            this._kimiIdleCount = (this._kimiIdleCount || 0) + 1;
-            if (this._kimiIdleCount >= this._kimiIdleToSleep) {
-                console.log('[Kimi] utterance captured + idle — returning to sleep');
-                this.sleep();
+        if (!this.kimiWakeEnabled || !this.isAwake) return;
+
+        if (this._kimiState === 'command') {
+            if (this._kimiCommandFinal && data.state === 'idle/silence') {
+                this._kimiIdleCount = (this._kimiIdleCount || 0) + 1;
+                if (this._kimiIdleCount >= this._kimiIdleToClassify) {
+                    this._kimiClassifyCommand();
+                }
             }
         }
+    }
+
+    /**
+     * Classify the captured command via /v1/assistant/command and dispatch.
+     */
+    async _kimiClassifyCommand() {
+        if (this._kimiState !== 'command') return;
+        const text = this._kimiCommandText.trim();
+        if (!text) { this._kimiToSleep('no command captured'); return; }
+
+        console.log('[Kimi] classifying command: "' + text + '"');
+        let action = 'message';
+        try {
+            const resp = await fetch('/v1/assistant/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                action = data?.action || 'message';
+            } else {
+                console.warn('[Kimi] classify HTTP ' + resp.status);
+            }
+        } catch (e) {
+            console.error('[Kimi] classify error', e);
+        }
+
+        console.log('[Kimi] command action=' + action);
+        switch (action) {
+            case 'listen':
+                this._kimiState = 'transcribing';
+                this._kimiIdleCount = 0;
+                this.emit('kimiState', { state: 'transcribing' });
+                this.emit('kimiCommand', { action: 'listen', text });
+                break;
+            case 'stop':
+                this._kimiState = 'sleep';
+                this._kimiDictationText = '';
+                this.emit('kimiCommand', { action: 'stop', text });
+                this.sleep();
+                break;
+            case 'send':
+                this._kimiState = 'sleep';
+                this.emit('kimiCommand', { action: 'send', text, dictation: this._kimiDictationText });
+                this.sleep();
+                break;
+            default: // 'message' — a normal utterance for the assistant
+                this._kimiState = 'sleep';
+                this.emit('kimiCommand', { action: 'message', text });
+                this.sleep();
+                break;
+        }
+    }
+
+    _kimiToSleep(reason) {
+        console.log('[Kimi] -> sleep (' + reason + ')');
+        this._kimiState = 'sleep';
+        this._kimiCommandText = '';
+        this._kimiCommandFinal = false;
+        this._kimiIdleCount = 0;
+        this.emit('kimiState', { state: 'sleep' });
+        if (this.isAwake) this.sleep();
     }
 
     async start() {
@@ -778,6 +894,11 @@ class nVoiceClient {
                     if (data.type === 'transcript') {
                         if (this.wakeWordEnabled && data.is_final) {
                             this._finalReceived = true;
+                        }
+                        // Route finals into the kimi state machine (command capture
+                        // or dictation accumulation) before emitting to the page.
+                        if (this.kimiWakeEnabled && data.is_final && data.text) {
+                            this._kimiOnFinal(data.text);
                         }
                         this.emit('transcript', data);
                     } else if (data.type === 'assistant') {

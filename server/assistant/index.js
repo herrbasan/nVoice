@@ -233,6 +233,71 @@ Rules:
   }
 
   /**
+   * Classify a spoken command (the utterance right after "ok kimi").
+   *
+   * The handsfree assistant has a small fixed vocabulary. The LLM maps the
+   * raw STT utterance to one action:
+   *   - "listen"       → start transcribing dictation
+   *   - "stop"         → stop transcribing, discard
+   *   - "send"         → stop transcribing, submit the text
+   *   - "cancel"       → same as stop (abort)
+   *   - anything else  → "message" (a normal utterance for the assistant)
+   *
+   * @param {string} text - raw STT of the command utterance
+   * @returns {Promise<{action: string, text?: string}|null>}
+   */
+  async classifyCommand(text) {
+    const trimmed = text.trim().toLowerCase();
+    if (!trimmed) return null;
+
+    const systemPrompt = `You are the intent classifier for a hands-free voice assistant. The user said "ok kimi" and then the following (raw speech-to-text, may have errors like "okay" instead of "ok"). Classify their intent into EXACTLY one action.
+
+Allowed actions and their meanings:
+- "listen" — the user wants to start dictating/transcribing their speech (words like "listen", "start listening", "transcribe", "take a note", "note", "record")
+- "stop" — stop the current transcription WITHOUT keeping it (words like "stop", "stop listening", "cancel", "abort", "that's it", "done", "enough")
+- "send" — stop transcription AND submit/send the captured text (words like "send", "send it", "submit", "send message")
+- "message" — anything that is NOT one of the above; it's a normal request/utterance for the assistant
+
+Return JSON only: {"action": "<one of listen|stop|send|message>", "text": "<the raw input verbatim>"}. No markdown, no commentary. If unsure, prefer "message".`;
+
+    const body = JSON.stringify({
+      model: this.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: trimmed },
+      ],
+      max_tokens: 60,
+      temperature: 0,
+      stream: false,
+    });
+
+    try {
+      const res = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.gatewayKey}`,
+        },
+        body,
+      });
+      if (!res.ok) {
+        logger.warn('Assistant classifyCommand HTTP error', { status: res.status }, 'Assistant');
+        return null;
+      }
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) return null;
+      const parsed = extractJson(content);
+      if (!parsed || !parsed.action) return null;
+      const action = ['listen', 'stop', 'send', 'message'].includes(parsed.action) ? parsed.action : 'message';
+      return { action, text: parsed.text || text };
+    } catch (err) {
+      logger.error('Assistant classifyCommand failed', err, 'Assistant');
+      return null;
+    }
+  }
+
+  /**
    * Process a settled transcript sentence through the LLM.
    *
    * @param {string} rawText - The raw STT output

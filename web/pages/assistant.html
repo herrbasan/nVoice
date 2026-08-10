@@ -226,6 +226,55 @@ function init(element, params, nui) {
                 telemetryDiv.textContent = `${msg.state} | RTF: ${msg.rtf} | Backlog: ${msg.backlog_sec}s`;
             }
         });
+
+        // --- Kimi handsfree state machine (Phase 4) ---
+        // The client is in one of sleep | command | transcribing. Surface it in
+        // the badge and execute classified commands.
+        client.on('kimiState', (evt) => {
+            console.log('[Assistant] kimiState', evt.state);
+            if (evt.state === 'sleep') {
+                setStatus('Asleep — waiting for "ok kimi"', 'warning');
+                sleepInnerBtn.disabled = true;
+            } else if (evt.state === 'command') {
+                setStatus('Awake — command? ("listen", "stop", "send"...)', 'success');
+                sleepInnerBtn.disabled = false;
+            } else if (evt.state === 'transcribing') {
+                setStatus('Transcribing — say "ok kimi stop/send" to finish', 'success');
+                sleepInnerBtn.disabled = false;
+            }
+        });
+
+        client.on('kimiCommandText', (evt) => {
+            // Live view of the command being captured (provisional-ish).
+            telemetryDiv.textContent = `command: "${evt.text}"`;
+        });
+
+        client.on('kimiDictation', (evt) => {
+            // Dictation accumulates in the raw panel automatically via 'transcript'.
+            telemetryDiv.textContent = `dictation: ${evt.text.length} chars`;
+        });
+
+        client.on('kimiCommand', async (evt) => {
+            console.log('[Assistant] kimiCommand', JSON.stringify(evt));
+            if (evt.action === 'listen') {
+                setStatus('Transcribing — say "ok kimi stop/send" to finish', 'success');
+            } else if (evt.action === 'stop') {
+                setStatus('Stopped — discarded. Asleep — waiting for "ok kimi"', 'warning');
+            } else if (evt.action === 'send') {
+                // Submit the accumulated dictation to the LLM and speak the reply.
+                const text = (evt.dictation || rawText).trim();
+                setStatus('Sending…', 'info');
+                if (text) {
+                    await sendToAssistant(text);
+                } else {
+                    setStatus('Nothing to send. Asleep — waiting for "ok kimi"', 'warning');
+                }
+            } else if (evt.action === 'message') {
+                // A non-transcription command: reply directly.
+                setStatus('Thinking…', 'info');
+                await sendToAssistant(evt.text);
+            }
+        });
     }
 
     startBtn.addEventListener('click', async () => {
@@ -293,7 +342,8 @@ function init(element, params, nui) {
 
     // Handsfree Phase 1 harness: send the accumulated utterance to the LLM
     // and speak the reply. The button stands in for the "ok kimi" wake word
-    // until the acoustic model lands (Phase 2/3).
+    // until the acoustic model lands (Phase 2/3). Reused by the kimi state
+    // machine for "send" and "message" commands.
     function speak(text) {
         if (!('speechSynthesis' in window) || !text) return;
         window.speechSynthesis.cancel();
@@ -302,8 +352,7 @@ function init(element, params, nui) {
         window.speechSynthesis.speak(u);
     }
 
-    sendBtn.addEventListener('click', async () => {
-        const text = rawText.trim();
+    async function sendToAssistant(text) {
         if (!text) return;
         sendInnerBtn.disabled = true;
         replyDiv.textContent = '…';
@@ -317,11 +366,15 @@ function init(element, params, nui) {
             const reply = (data && data.reply) || (data && data.error && data.error.message) || 'No reply';
             replyDiv.textContent = reply;
             speak(reply);
+            return reply;
         } catch (e) {
             replyDiv.textContent = 'Error: ' + e.message;
+            return null;
         } finally {
             sendInnerBtn.disabled = false;
         }
-    });
+    }
+
+    sendBtn.addEventListener('click', () => sendToAssistant(rawText.trim()));
 }
 </script>
