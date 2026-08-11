@@ -762,7 +762,10 @@ class nVoiceClient {
             this._kimiCommandFinal = true;
             this._kimiIdleCount = 0;
             this.emit('kimiCommandText', { text: this._kimiCommandText });
-            this._clearKimiCommandTimeout();
+            // NOTE: the command timeout stays armed as a safety net — if idle
+            // telemetry never arrives (so classify never fires), the timeout
+            // force-classifies or restores the dictation instead of wedging the
+            // client in command state.
             return true;
         }
         // Acoustic wake missed — the STT still transcribed the command phrase, so
@@ -779,6 +782,7 @@ class nVoiceClient {
             console.log('[Kimi] text-command (wake missed): "' + text + '"');
             this.emit('kimiState', { state: 'command' });
             this.emit('kimiCommandText', { text });
+            this._armKimiCommandTimeout();  // safety net if telemetry never arrives
             return true;
         }
         if (this._kimiState === 'transcribing') {
@@ -810,10 +814,20 @@ class nVoiceClient {
         this._clearKimiCommandTimeout();
         this._kimiCommandTimer = setTimeout(() => {
             this._kimiCommandTimer = null;
-            // No command utterance captured in time — self-heal a false wake
-            // (or a wake whose command was missed).
-            if (this._kimiState !== 'command' || this._kimiCommandFinal) return;
+            if (this._kimiState !== 'command') return;
+            // A final was captured but classify never fired (no idle telemetry) —
+            // force-classify now so a command isn't stuck and the flow continues.
+            if (this._kimiCommandFinal) { this._kimiClassifyCommand(); return; }
             if (this._kimiInterruptedTranscribing) {
+                // False wake with no command captured — resume transcribing and
+                // re-surface any text swallowed into the command capture so it
+                // does NOT vanish from the transcript panel.
+                const t = (this._kimiCommandText || '').trim();
+                if (t) {
+                    this._kimiDictationText = (this._kimiDictationText + ' ' + t).trim();
+                    this.emit('kimiDictation', { text: this._kimiDictationText });
+                    this.emit('transcript', { type: 'transcript', text: t + ' ', is_final: true });
+                }
                 this._kimiState = 'transcribing';
                 this._kimiIdleCount = 0;
                 this._kimiInterruptedTranscribing = false;
@@ -862,10 +876,14 @@ class nVoiceClient {
             // commands. No match = false wake (it was dictation) → resume
             // transcribing, don't respond, don't lose the dictation.
             if (action === null && this._kimiInterruptedTranscribing) {
-                // Put the captured text back into the dictation (it wasn't a command).
+                // Put the captured text back into the dictation (it wasn't a command)
+                // AND re-surface it in the raw transcript — a false wake must NOT
+                // make dictation vanish from the panel.
                 if (text) {
                     this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim();
                     this.emit('kimiDictation', { text: this._kimiDictationText });
+                    this.emit('transcript', { type: 'transcript', text: text + ' ', is_final: true });
+                    console.log('[Kimi] false wake — dictation restored: "' + text + '"');
                 }
                 this._kimiState = 'transcribing';
                 this._kimiIdleCount = 0;
@@ -1046,9 +1064,10 @@ class nVoiceClient {
                                 return;
                             }
                         }
-                        // Suppress provisionals while a command is being captured so
-                        // "ok kimi stop" never flickers in the panel mid-speech.
-                        if (this.kimiWakeEnabled && this._kimiState === 'command' && !data.is_final) {
+                        // Suppress provisionals while a REAL command is being captured
+                        // (a wake from sleep). A false-wake interrupt is still
+                        // dictation, so its provisionals stay visible.
+                        if (this.kimiWakeEnabled && this._kimiState === 'command' && !this._kimiInterruptedTranscribing && !data.is_final) {
                             return;
                         }
                         this.emit('transcript', data);
