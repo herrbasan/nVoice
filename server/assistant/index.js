@@ -74,6 +74,10 @@ Clean the text into well-formed, natural language:
 - Where a Russian word is clearly a misfired transcription of the intended English or German word, replace it with the intended word. When unsure, keep it as-is.
 - Fix obvious STT errors, repetitions, and fillers only when the intent is unambiguous.
 - Add proper punctuation and capitalization.
+- The text may contain blank lines (double newlines) that mark real pauses the
+  speaker took — PRESERVE those as paragraph breaks. You may add further breaks
+  where the topic clearly shifts, but never merge paragraphs that were separated
+  by a blank line.
 - DO NOT add information, rephrase, or translate. Preserve the speaker's meaning exactly.
 
 Return ONLY the cleaned text — no quotes, no commentary, no markdown.`;

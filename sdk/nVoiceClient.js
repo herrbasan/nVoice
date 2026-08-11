@@ -243,6 +243,11 @@ class nVoiceClient {
         if (!this.segments) this.segments = [];
 
         if (data.type === 'cleanup' || data.type === 'paragraph') {
+            if (data.type === 'paragraph') {
+                // Server measured a long pause — record it so the dictation handed
+                // to "kimi stop/send" cleanup carries paragraph structure.
+                this._kimiDictationText = (this._kimiDictationText.replace(/\s+$/, '') + '\n\n').trimStart();
+            }
             // Pause-triggered cleanup + paragraph-break notice \u2014 no segment
             // bookkeeping, just relay to the page.
             this.emit('assistant', data);

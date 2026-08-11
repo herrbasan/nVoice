@@ -175,7 +175,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
     // latency stays flat no matter how long the session runs.
     let committedText = '';     // locked cleaned transcript (grows monotonically)
     let pendingRaw = '';        // raw tail awaiting settlement (bounded)
-    let pendingParagraph = false; // next commit starts a new paragraph
+    let pendingParagraph = false; // long pause detected before the pending block
     let lastFinalAt = null;     // Date.now() of the previous final transcript
     let pauseTimer = null;
 
@@ -194,15 +194,25 @@ export function attachRealtimeWebSocket(app, engineManager) {
       if (!snapshot || browserWs.readyState !== WebSocket.OPEN) return;
       const startedAt = Date.now();
       try {
-        const cleaned = ((await assistant.cleanTranscript(snapshot)) || '').trim();
+        // Feed the measured-pause marker to the LLM explicitly (prepended AFTER
+        // trim so a leading paragraph break survives). The LLM is instructed to
+        // preserve blank lines and refine them by topic.
+        const input = pendingParagraph ? ('\n\n' + snapshot) : snapshot;
+        const cleaned = ((await assistant.cleanTranscript(input)) || '').trim();
+        const hadParagraph = pendingParagraph;
+        pendingParagraph = false;
         const elapsedMs = Date.now() - startedAt;
         // Sentence settled only if the block ends in terminal punctuation.
         const terminated = /[.!?…]["')\]]*$/.test(cleaned);
         let provisional = '';
         if (terminated) {
-          const sep = pendingParagraph ? '\n\n' : ' ';
-          pendingParagraph = false;
-          committedText = (committedText ? committedText.replace(/\s+$/, '') + sep : '') + cleaned;
+          // Blocks are separated by a newline; a paragraph pause guarantees at
+          // least one blank line in the committed output even if the LLM trimmed
+          // the leading marker. Internal blank lines (mid-block pauses) survive
+          // because they're inside `cleaned`.
+          let block = cleaned.trimStart();
+          if (hadParagraph && !block.startsWith('\n')) block = '\n' + block;
+          committedText = (committedText ? committedText.replace(/\s+$/, '') + '\n' : '') + block;
           pendingRaw = '';
         } else {
           // Sentence still incomplete — hold the raw, show the working version.
@@ -255,8 +265,10 @@ export function attachRealtimeWebSocket(app, engineManager) {
 
       // LLM-cleanup path — only when the assistant session exists.
       if (assistant) {
+        // Measured pause since the previous final — real, free paragraph signal.
+        // Mark the next committed block as starting a new paragraph.
         if (lastFinalAt !== null && (now - lastFinalAt) >= paragraphPauseMs) pendingParagraph = true;
-        pendingRaw += event.text.trim() + ' ';
+        pendingRaw += (pendingRaw ? ' ' : '') + event.text.trim();
         lastFinalAt = now;
 
         if (pauseTimer) clearTimeout(pauseTimer);
