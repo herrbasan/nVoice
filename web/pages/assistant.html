@@ -248,6 +248,11 @@ function init(element, params, nui) {
         client.on('kimiCommand', async (evt) => {
             console.log('[Assistant] kimiCommand', JSON.stringify(evt));
             if (evt.action === 'listen') {
+                // Fresh dictation cycle — clear the previous transcript panels
+                // so the new dictation starts clean.
+                rawDiv.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+                cleanedDiv.textContent = '';
+                cleanupLatencyDiv.textContent = '';
                 setStatus('Transcribing — say "ok kimi stop/send" to finish', 'success');
             } else if (evt.action === 'stop' || evt.action === 'send') {
                 // Stop transcribing and clean up the captured dictation via the LLM

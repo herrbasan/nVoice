@@ -130,6 +130,17 @@ export function attachRealtimeWebSocket(app, engineManager) {
     const qs = url.searchParams.toString();
     logger.info('Realtime WS connected', { model, qs }, 'Realtime', { console: true });
 
+    // Assistant segmented-cleanup state. Declared here (above the message
+    // handler below) so the assistant_reset control path can always reference
+    // them — a reset arriving during worker warmup must not hit a TDZ error.
+    let committedText = '';       // locked cleaned transcript (grows monotonically)
+    let pendingRaw = '';          // raw tail awaiting settlement (bounded)
+    let pendingParagraph = false; // long pause detected before the pending block
+    let lastFinalAt = null;       // Date.now() of the previous final transcript
+    let pauseTimer = null;
+    const paragraphPauseMs = config.raw?.realtime?.paragraph_pause_ms ?? config.assistant.paragraph_pause_ms;
+    let paragraphTimer = null;
+
     // Pipe browser → worker (binary PCM). Registered BEFORE the worker spawn so
     // audio arriving while the worker loads (~15s on first connect) is buffered
     // and flushed on connect — never dropped. This is what made a cold server
@@ -138,6 +149,23 @@ export function attachRealtimeWebSocket(app, engineManager) {
     const pendingFrames = [];
     let workerWs = null;
     browserWs.on('message', (data, isBinary) => {
+      // Control channel: the client signals a fresh dictation cycle ("kimi
+      // listen"). Reset the segmented-cleanup state so a new session starts
+      // clean instead of appending to the previous committed transcript.
+      if (!isBinary) {
+        let ctrl = null;
+        try { ctrl = JSON.parse(data.toString()); } catch { ctrl = null; }
+        if (ctrl && ctrl.type === 'assistant_reset') {
+          committedText = '';
+          pendingRaw = '';
+          pendingParagraph = false;
+          lastFinalAt = null;
+          if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
+          if (paragraphTimer) { clearTimeout(paragraphTimer); paragraphTimer = null; }
+          logger.info('Assistant session reset (kimi listen)', {}, 'Assistant', { console: true });
+          return;
+        }
+      }
       if (workerWs && workerWs.readyState === WebSocket.OPEN) {
         workerWs.send(data, { binary: isBinary });
       } else if (isBinary) {
@@ -173,20 +201,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
     // terminal punctuation it is locked into committedText and the tail resets —
     // locked sentences are never reprocessed, so LLM input stays bounded and
     // latency stays flat no matter how long the session runs.
-    let committedText = '';     // locked cleaned transcript (grows monotonically)
-    let pendingRaw = '';        // raw tail awaiting settlement (bounded)
-    let pendingParagraph = false; // long pause detected before the pending block
-    let lastFinalAt = null;     // Date.now() of the previous final transcript
-    let pauseTimer = null;
-
     const assistantPage = !!assistantParam;
-
-    // Automatic paragraph breaks from LONG pauses (independent of LLM cleanup):
-    // a gap longer than paragraph_pause_ms after the last settled utterance
-    // inserts a paragraph break. Timer-based so the break lands DURING the
-    // pause (before the next utterance is forwarded), not after it.
-    const paragraphPauseMs = config.raw?.realtime?.paragraph_pause_ms ?? config.assistant.paragraph_pause_ms;
-    let paragraphTimer = null;
 
     async function runPauseCleanup() {
       pauseTimer = null;

@@ -906,6 +906,14 @@ class nVoiceClient {
                     this._kimiState = 'transcribing';
                     this._kimiIdleCount = 0;
                     this._kimiInterruptedTranscribing = false;
+                    // Fresh dictation cycle — clear the previous session's
+                    // accumulated text and tell the server to reset its
+                    // segmented-cleanup state, so the new transcript starts
+                    // clean instead of appending to the last one.
+                    this._kimiDictationText = '';
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({ type: 'assistant_reset' }));
+                    }
                     this.emit('kimiState', { state: 'transcribing' });
                     this.emit('kimiCommand', { action: 'listen', text });
                     break;
