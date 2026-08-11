@@ -65,17 +65,6 @@
             </div>
         </div>
 
-        <!-- Conversation — user dictation bubbles (right) + assistant reply bubbles (left) -->
-        <h3 style="margin: var(--nui-space-double) 0 0 0; font-size: 1em;">Conversation</h3>
-        <div id="asst-chat" class="nv-chat"></div>
-
-        <!-- Handsfree Phase 1 harness: button stands in for the "ok kimi" wake word -->
-        <div style="margin-top: var(--nui-space); display: flex; gap: var(--nui-space); align-items: flex-start;">
-            <nui-button variant="primary" id="asst-btn-send">
-                <button type="button" disabled>Send (handsfree)</button>
-            </nui-button>
-            <div id="asst-reply" class="nv-log" style="flex: 1; min-height: 4rem; max-height: 10rem; margin-top: 0;"></div>
-        </div>
     </nui-card>
 </div>
 
@@ -99,13 +88,8 @@ function init(element, params, nui) {
     const wakeWordToggle = element.querySelector('#asst-wake-word-toggle');
     const kimiToggle = element.querySelector('#asst-kimi-toggle');
     const rawAudioToggle = element.querySelector('#asst-raw-audio-toggle');
-    const sendBtn = element.querySelector('#asst-btn-send');
-    const sendInnerBtn = sendBtn.querySelector('button');
-    const replyDiv = element.querySelector('#asst-reply');
-    const chatDiv = element.querySelector('#asst-chat');
 
     let client = null;
-    let rawText = '';  // accumulated final transcripts, sent on handsfree Send
 
     async function loadInputSources() {
         try {
@@ -157,7 +141,6 @@ function init(element, params, nui) {
             stopInnerBtn.disabled = false;
             startInnerBtn.disabled = true;
             copyInnerBtn.disabled = false;
-            sendInnerBtn.disabled = false;
             // Go to Sleep is only meaningful while connected & wake-armed.
             sleepInnerBtn.disabled = !client.wakeWordEnabled || !client.isAwake;
             setMicEnabled(false);
@@ -170,7 +153,6 @@ function init(element, params, nui) {
             startInnerBtn.disabled = false;
             stopInnerBtn.disabled = true;
             sleepInnerBtn.disabled = true;
-            sendInnerBtn.disabled = true;
             setMicEnabled(true);
         });
         client.on('disconnected', () => {
@@ -178,7 +160,6 @@ function init(element, params, nui) {
             stopInnerBtn.disabled = true;
             startInnerBtn.disabled = false;
             sleepInnerBtn.disabled = true;
-            sendInnerBtn.disabled = true;
             setMicEnabled(true);
         });
         client.on('error', (err) => { console.error('[Assistant] Error:', err); });
@@ -200,7 +181,6 @@ function init(element, params, nui) {
             }
             if (msg.is_final) {
                 finalSpan.textContent += msg.text + ' ';
-                rawText += msg.text.trim() + ' ';
                 provSpan.textContent = '';
             } else {
                 provSpan.textContent = msg.text + ' …';
@@ -268,21 +248,13 @@ function init(element, params, nui) {
         client.on('kimiCommand', async (evt) => {
             console.log('[Assistant] kimiCommand', JSON.stringify(evt));
             if (evt.action === 'listen') {
-                setStatus('Transcribing — say "ok kimi stop" to finish', 'success');
-            } else if (evt.action === 'stop') {
-                // Stop transcribing and clean up the captured dictation via the LLM.
+                setStatus('Transcribing — say "ok kimi stop/send" to finish', 'success');
+            } else if (evt.action === 'stop' || evt.action === 'send') {
+                // Stop transcribing and clean up the captured dictation via the LLM
+                // (remove voice-command remnants + Russian misfires).
                 const text = (evt.dictation || '').trim();
-                setStatus(text ? 'Stopped — cleaning…' : 'Stopped — nothing to clean. Asleep — waiting for "ok kimi"', text ? 'info' : 'warning');
+                setStatus(text ? 'Cleaning…' : 'Nothing to clean. Asleep — waiting for "ok kimi"', text ? 'info' : 'warning');
                 if (text) await cleanDictation(text);
-            } else if (evt.action === 'send') {
-                // Submit the accumulated dictation to the LLM and speak the reply.
-                const text = (evt.dictation || rawText).trim();
-                setStatus('Sending…', 'info');
-                if (text) {
-                    await sendToAssistant(text);
-                } else {
-                    setStatus('Nothing to send. Asleep — waiting for "ok kimi"', 'warning');
-                }
             }
         });
     }
@@ -291,7 +263,6 @@ function init(element, params, nui) {
         initClient();
         startInnerBtn.disabled = true;
         setMicEnabled(false);
-        ensureTtsCtx();   // create AudioContext during this gesture so TTS can autoplay later
 
         const selectedEngine = window.nvoice.activeEngine;
 
@@ -351,92 +322,11 @@ function init(element, params, nui) {
         }
     });
 
-    // Handsfree Phase 1 harness: send the accumulated utterance to the LLM
-    // and speak the reply. The button stands in for the "ok kimi" wake word
-    // until the acoustic model lands (Phase 2/3). Reused by the kimi state
-    // machine for "send" and "message" commands.
-    // TTS: nSpeech SDK (nspeech-client.js) on :2233 + AudioContext playback.
-    // The AudioContext is created on the Start click (a real user gesture) so
-    // the browser autoplay policy does not block the spoken reply — a plain
-    // new Audio().play() after the transient activation expires is rejected.
-    let _ttsCtx = null;
-    let _ttsSrc = null;
-    let _nspeechClient = null;
-    async function getNSpeechClient() {
-        if (!_nspeechClient) {
-            const mod = await import('/sdk/nspeech-client.js');
-            _nspeechClient = new mod.NSpeechClient({ baseUrl: 'http://127.0.0.1:2233' });
-        }
-        return _nspeechClient;
-    }
-    function ensureTtsCtx() {
-        if (!_ttsCtx) _ttsCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (_ttsCtx.state === 'suspended') _ttsCtx.resume().catch(() => {});
-        return _ttsCtx;
-    }
-    async function speak(text) {
-        if (!text) return;
-        try {
-            const nspeech = await getNSpeechClient();
-            const res = await nspeech.speech({ model: 'nspeech', input: text, voice: 'default', format: 'mp3', speed: 1.0 });
-            const ctx = ensureTtsCtx();
-            const audioBuf = await ctx.decodeAudioData(await res.arrayBuffer());
-            // Cut off any currently-playing reply when a new one starts.
-            if (_ttsSrc) { try { _ttsSrc.stop(); } catch (_) {} }
-            const src = ctx.createBufferSource();
-            src.buffer = audioBuf;
-            src.connect(ctx.destination);
-            _ttsSrc = src;
-            src.start();
-        } catch (e) {
-            console.error('[Assistant] nSpeech TTS failed:', e);
-        }
-    }
-
-    function addChatBubble(role, text) {
-        const b = document.createElement('div');
-        b.className = 'nv-chat-bubble ' + role;
-        b.textContent = text;
-        chatDiv.appendChild(b);
-        chatDiv.scrollTop = chatDiv.scrollHeight;
-        return b;
-    }
-
-    async function sendToAssistant(text) {
-        if (!text) return;
-        sendInnerBtn.disabled = true;
-        // Render the conversation: user bubble (right) + reply bubble (left).
-        addChatBubble('user', text);
-        const replyBubble = addChatBubble('assistant', '…');
-        try {
-            const resp = await fetch('/v1/assistant/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
-            });
-            const data = await resp.json();
-            const reply = (data && data.reply) || (data && data.error && data.error.message) || 'No reply';
-            replyBubble.textContent = reply;
-            replyDiv.textContent = reply;
-            speak(reply);
-            return reply;
-        } catch (e) {
-            replyBubble.textContent = 'Error: ' + e.message;
-            replyDiv.textContent = 'Error: ' + e.message;
-            return null;
-        } finally {
-            sendInnerBtn.disabled = false;
-        }
-    }
-
-    // "ok kimi stop" flow: clean raw STT dictation with the local LLM (remove
-    // voice-command remnants + Russian misfires) and show the cleaned result.
+    // "ok kimi stop/send" flow: clean raw STT dictation with the local LLM
+    // (remove voice-command remnants + Russian misfires) and show the cleaned
+    // result in the Cleaned Transcript panel. No TTS.
     async function cleanDictation(text) {
         if (!text) return;
-        sendInnerBtn.disabled = true;
-        // Raw dictation as user bubble, cleaned result as assistant bubble.
-        addChatBubble('user', text);
-        const replyBubble = addChatBubble('assistant', '…');
         try {
             const resp = await fetch('/v1/assistant/clean', {
                 method: 'POST',
@@ -445,20 +335,12 @@ function init(element, params, nui) {
             });
             const data = await resp.json();
             const cleaned = (data && data.reply) || (data && data.error && data.error.message) || 'No reply';
-            replyBubble.textContent = cleaned;
-            replyDiv.textContent = cleaned;
             cleanedDiv.textContent = cleaned;
-            speak(cleaned);
             return cleaned;
         } catch (e) {
-            replyBubble.textContent = 'Error: ' + e.message;
-            replyDiv.textContent = 'Error: ' + e.message;
+            cleanedDiv.textContent = 'Error: ' + e.message;
             return null;
-        } finally {
-            sendInnerBtn.disabled = false;
         }
     }
-
-    sendBtn.addEventListener('click', () => sendToAssistant(rawText.trim()));
 }
 </script>
