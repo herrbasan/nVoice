@@ -946,7 +946,11 @@ class nVoiceClient {
         this._kimiCommandFinal = false;
         this._kimiIdleCount = 0;
         this.emit('kimiState', { state: 'sleep' });
-        if (this.isAwake) this.sleep();
+        // Keep the mic open — do NOT call this.sleep(). The keep-awake
+        // policy says once awake, stay awake. If the STT final arrives
+        // late (after timeout), _kimiOnFinal's text-command fallback
+        // will still pick up "ok kimi listen" and re-enter the loop
+        // instead of the user having to repeat themselves.
     }
 
     async start() {
