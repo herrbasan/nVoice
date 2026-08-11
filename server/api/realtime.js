@@ -130,11 +130,28 @@ export function attachRealtimeWebSocket(app, engineManager) {
     const qs = url.searchParams.toString();
     logger.info('Realtime WS connected', { model, qs }, 'Realtime', { console: true });
 
-    let workerWs;
+    // Pipe browser → worker (binary PCM). Registered BEFORE the worker spawn so
+    // audio arriving while the worker loads (~15s on first connect) is buffered
+    // and flushed on connect — never dropped. This is what made a cold server
+    // "never work on first start" until a reload (worker already resident) fixed
+    // it.
+    const pendingFrames = [];
+    let workerWs = null;
+    browserWs.on('message', (data, isBinary) => {
+      if (workerWs && workerWs.readyState === WebSocket.OPEN) {
+        workerWs.send(data, { binary: isBinary });
+      } else if (isBinary) {
+        pendingFrames.push(data);
+      }
+    });
+
     try {
       const worker = await engineManager.getWorker(model);
       const workerWsUrl = `ws://127.0.0.1:${worker.port}/v1/realtime/ws${qs ? '?' + qs : ''}`;
       workerWs = new WebSocket(workerWsUrl);
+      workerWs.on('open', () => {
+        while (pendingFrames.length) workerWs.send(pendingFrames.shift(), { binary: true });
+      });
     } catch (e) {
       logger.error('Realtime WS: failed to reach worker', e, { model }, 'Realtime', { console: true });
       browserWs.close(1011, 'worker unavailable');
@@ -247,12 +264,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
       }
     });
 
-    // Pipe browser → worker (binary PCM). Only after the worker socket is open.
-    browserWs.on('message', (data, isBinary) => {
-      if (workerWs.readyState === WebSocket.OPEN) {
-        workerWs.send(data, { binary: isBinary });
-      }
-    });
+
 
     // Close codes 1005/1006 (and any non-sendable code) are receive-only; the `ws`
     // library throws when you try to SEND them. Map anything that isn't a valid
@@ -318,26 +330,35 @@ export function attachWakeWordWebSocket(app, engineManager) {
     const qs = url.searchParams.toString();
     logger.info('Wake-word WS connected', { model, qs }, 'WakeWord', { console: true });
 
-    let workerWs;
+    // Pipe browser → worker (bytes), buffered while the worker loads so the
+    // first frames (the wake word itself) are never dropped on a cold start.
+    const pendingFrames = [];
+    let workerWs = null;
+    browserWs.on('message', (data, isBinary) => {
+      if (workerWs && workerWs.readyState === WebSocket.OPEN) {
+        workerWs.send(data, { binary: isBinary });
+      } else if (isBinary) {
+        pendingFrames.push(data);
+      }
+    });
+
     try {
       const worker = await engineManager.getWorker(model);
       const workerWsUrl = `ws://127.0.0.1:${worker.port}/v1/wakeword/ws${qs ? '?' + qs : ''}`;
       workerWs = new WebSocket(workerWsUrl);
+      workerWs.on('open', () => {
+        while (pendingFrames.length) workerWs.send(pendingFrames.shift(), { binary: true });
+      });
     } catch (e) {
       logger.error('Wake-word WS: failed to reach worker', e, { model }, 'WakeWord', { console: true });
       browserWs.close(1011, 'worker unavailable');
       return;
     }
 
-    // Pipe worker → browser (JSON events) and browser → worker (bytes).
+    // Pipe worker → browser (JSON events).
     workerWs.on('message', (data, isBinary) => {
       if (browserWs.readyState !== WebSocket.OPEN) return;
       browserWs.send(data, { binary: isBinary });
-    });
-
-    browserWs.on('message', (data, isBinary) => {
-      if (workerWs.readyState !== WebSocket.OPEN) return;
-      workerWs.send(data, { binary: isBinary });
     });
 
     const sendableCloseCode = (code) =>

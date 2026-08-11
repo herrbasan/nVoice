@@ -21,6 +21,8 @@ export class EngineManager {
   constructor() {
     /** @type {Map<string, WorkerProcess>} engineName → worker */
     this.workers = new Map();
+    /** @type {Map<string, Promise<WorkerProcess>>} in-flight spawns (dedup) */
+    this._pendingSpawns = new Map();
     /** @type {string|null} */
     this.activeEngine = config.defaultEngine;
     /** Switch mutex */
@@ -35,6 +37,12 @@ export class EngineManager {
     // Check if already loaded and ready
     let worker = this.workers.get(engineName);
     if (worker && worker.state === 'ready') return worker;
+
+    // A spawn is already in flight for this engine (eager warmup, or another
+    // connection racing the first) — await it instead of spawning a duplicate.
+    if (this._pendingSpawns.has(engineName)) {
+      return this._pendingSpawns.get(engineName);
+    }
 
     const entry = getEngine(engineName);
     if (!entry) {
@@ -52,12 +60,18 @@ export class EngineManager {
       }
     }
 
-    // Spawn the worker
+    // Spawn the worker, deduplicating concurrent spawns for the same engine.
     worker = new WorkerProcess(engineName);
     this.workers.set(engineName, worker);
-    await worker.spawn();
-    this.activeEngine = engineName;
-    return worker;
+    const spawnPromise = worker.spawn();
+    this._pendingSpawns.set(engineName, spawnPromise);
+    try {
+      await spawnPromise;
+      this.activeEngine = engineName;
+      return worker;
+    } finally {
+      this._pendingSpawns.delete(engineName);
+    }
   }
 
   /**

@@ -206,3 +206,11 @@ if (tlsCreds) {
 } else {
   logger.warn('Running HTTP-only. Mobile browsers will not have mic access.', {}, 'Server', { console: true });
 }
+
+// Eager warmup: spawn the default engine worker at boot so the first
+// realtime/wakeword connection doesn't pay the ~15s model load (which dropped
+// the first audio frames — the "never works on first start" symptom). The
+// server stays up regardless; a failure logs loudly.
+engineManager.getWorker(config.defaultEngine)
+  .then(() => logger.info('Default engine worker ready', { engine: config.defaultEngine }, 'Server', { console: true }))
+  .catch((e) => logger.error('Default engine warmup failed', e, { engine: config.defaultEngine }, 'Server', { console: true }));
