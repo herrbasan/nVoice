@@ -36,6 +36,33 @@ export function registerAssistantRoutes(app) {
   });
 
   /**
+   * POST /v1/assistant/clean
+   * Clean raw STT dictation with the local LLM: remove voice-command remnants
+   * and mis-transcribed (e.g. Russian) words. Used by the "ok kimi stop" flow.
+   */
+  app.post('/v1/assistant/clean', async (request, reply) => {
+    const g = config.assistant;
+    if (!g?.gateway_url || !g?.gateway_key) {
+      logger.warn('Assistant clean: gateway not configured', {}, 'Assistant', { console: true });
+      return reply.code(503).send({ error: { message: 'Assistant gateway not configured', type: 'assistant_unavailable' } });
+    }
+
+    const { text } = request.body || {};
+    if (typeof text !== 'string' || !text.trim()) {
+      return reply.code(400).send({ error: { message: 'text required', type: 'invalid_request_error' } });
+    }
+
+    const session = new AssistantSession({ gatewayUrl: g.gateway_url, gatewayKey: g.gateway_key, model: g.model });
+    const cleaned = await session.cleanStt(text);
+    if (cleaned === null) {
+      return reply.code(502).send({ error: { message: 'Gateway call failed', type: 'gateway_error' } });
+    }
+
+    logger.info('Assistant clean reply', { inLen: text.length, replyLen: cleaned.length }, 'Assistant', { console: true });
+    return { reply: cleaned };
+  });
+
+  /**
    * POST /v1/assistant/command
    * Classify the utterance spoken right after "ok kimi" into an action.
    * The client uses the action to drive its wake-word state machine:

@@ -72,7 +72,7 @@ function makeClient() {
         // Not a command and nothing was being dictated → silent sleep.
         if (action === null) { this._kimiToSleep('not a command'); return; }
         if (action === 'listen') { this._kimiState = 'transcribing'; this._kimiIdleCount = 0; this._kimiInterruptedTranscribing = false; this.emit('kimiState', { state: 'transcribing' }); this.emit('kimiCommand', { action: 'listen', text }); }
-        else if (action === 'stop') { this._kimiState = 'sleep'; this._kimiDictationText = ''; this._kimiInterruptedTranscribing = false; this.emit('kimiCommand', { action: 'stop', text }); this.sleep(); }
+        else if (action === 'stop') { this._kimiState = 'sleep'; this._kimiInterruptedTranscribing = false; this.emit('kimiCommand', { action: 'stop', text, dictation: this._kimiDictationText }); this.sleep(); }
         else if (action === 'send') { this._kimiState = 'sleep'; this._kimiInterruptedTranscribing = false; this.emit('kimiCommand', { action: 'send', text, dictation: this._kimiDictationText }); this.sleep(); }
       } finally { this._kimiClassifying = false; }
     },
@@ -87,7 +87,7 @@ function makeClient() {
       if (!_kimiMatchCommand(text)) return false;
       const norm = _kimiNormalize(text);
       const words = norm.split(' ').filter(Boolean).length;
-      if (words <= 2) return true;
+      if (words === 1) return true;
       return /\b(kimi|kimmy|kyumi)\b/.test(norm);
     },
     _kimiOnFinal(text) {
@@ -161,7 +161,7 @@ c2._onKimiWake(); c2._kimiOnFinal('listen'); idle3(c2);
 c2._kimiOnFinal('draft a note');
 c2._onKimiWake(); c2._kimiOnFinal('stop'); idle3(c2);
 check('s2: stop -> sleep', c2._kimiState === 'sleep');
-check('s2: dictation discarded', c2._kimiDictationText === '');
+check('s2: dictation kept for cleanup', c2._kimiDictationText === 'draft a note');
 
 // Scenario 3: wake -> non-command -> silent sleep (NO gateway, NO message event)
 const c3 = makeClient();
@@ -225,7 +225,7 @@ c9._onKimiWake(); c9._kimiOnFinal('listen'); idle3(c9);
 c9._kimiOnFinal('do not actually save this');
 c9._onKimiWake(); c9._kimiOnFinal('stop'); idle3(c9);
 check('s9: stop interrupt -> sleep', c9._kimiState === 'sleep');
-check('s9: dictation discarded', c9._kimiDictationText === '');
+check('s9: dictation kept for cleanup', c9._kimiDictationText === 'do not actually save this');
 
 // Scenario 10: wake MISSES but STT captures "ok kimi send" -> text-command fallback
 const c10 = makeClient();
@@ -263,9 +263,9 @@ c13._kimiOnFinal('do not save this');
 c13._kimiOnFinal('stop');
 idle3(c13);
 check('t13: bare stop -> sleep', c13._kimiState === 'sleep');
-check('t13: dictation discarded', c13._kimiDictationText === '');
+check('t13: dictation kept for cleanup', c13._kimiDictationText === 'do not save this');
 
-// Scenario 14: "и сен" (2 words, wake missed) is a send command
+// Scenario 14: "и сен" (2 words, no wake token) is dictation now, NOT a command
 const c14 = makeClient();
 events.length = 0;
 c14._onKimiWake(); c14._kimiOnFinal('listen'); idle3(c14);
@@ -273,8 +273,19 @@ c14._kimiOnFinal('the report is on the desk');
 c14._kimiOnFinal('и сен');
 idle3(c14);
 const ev14 = events.find(e => e[0] === 'kimiCommand' && e[1].action === 'send');
-check('t14: "и сен" -> send', !!ev14);
-check('t14: dictation carried', ev14 && ev14[1].dictation === 'the report is on the desk');
+check('t14: "и сен" stays dictation (no wake token)', !ev14 && c14._kimiState === 'transcribing');
+check('t14: dictation includes it', c14._kimiDictationText === 'the report is on the desk и сен');
+
+// Scenario 15: "okay kimi send" (carries wake token) IS a send command
+const c15 = makeClient();
+events.length = 0;
+c15._onKimiWake(); c15._kimiOnFinal('listen'); idle3(c15);
+c15._kimiOnFinal('the report is on the desk');
+c15._kimiOnFinal('okay kimi send');
+idle3(c15);
+const ev15 = events.find(e => e[0] === 'kimiCommand' && e[1].action === 'send');
+check('t15: "okay kimi send" -> send', !!ev15);
+check('t15: dictation carried', ev15 && ev15[1].dictation === 'the report is on the desk');
 
 // Scenario 7: re-entrancy — extra idle beats during classify don't re-fire
 const c7 = makeClient();

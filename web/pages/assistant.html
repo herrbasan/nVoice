@@ -268,9 +268,12 @@ function init(element, params, nui) {
         client.on('kimiCommand', async (evt) => {
             console.log('[Assistant] kimiCommand', JSON.stringify(evt));
             if (evt.action === 'listen') {
-                setStatus('Transcribing — say "ok kimi stop/send" to finish', 'success');
+                setStatus('Transcribing — say "ok kimi stop" to finish', 'success');
             } else if (evt.action === 'stop') {
-                setStatus('Stopped — discarded. Asleep — waiting for "ok kimi"', 'warning');
+                // Stop transcribing and clean up the captured dictation via the LLM.
+                const text = (evt.dictation || '').trim();
+                setStatus(text ? 'Stopped — cleaning…' : 'Stopped — nothing to clean. Asleep — waiting for "ok kimi"', text ? 'info' : 'warning');
+                if (text) await cleanDictation(text);
             } else if (evt.action === 'send') {
                 // Submit the accumulated dictation to the LLM and speak the reply.
                 const text = (evt.dictation || rawText).trim();
@@ -417,6 +420,36 @@ function init(element, params, nui) {
             replyDiv.textContent = reply;
             speak(reply);
             return reply;
+        } catch (e) {
+            replyBubble.textContent = 'Error: ' + e.message;
+            replyDiv.textContent = 'Error: ' + e.message;
+            return null;
+        } finally {
+            sendInnerBtn.disabled = false;
+        }
+    }
+
+    // "ok kimi stop" flow: clean raw STT dictation with the local LLM (remove
+    // voice-command remnants + Russian misfires) and show the cleaned result.
+    async function cleanDictation(text) {
+        if (!text) return;
+        sendInnerBtn.disabled = true;
+        // Raw dictation as user bubble, cleaned result as assistant bubble.
+        addChatBubble('user', text);
+        const replyBubble = addChatBubble('assistant', '…');
+        try {
+            const resp = await fetch('/v1/assistant/clean', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            });
+            const data = await resp.json();
+            const cleaned = (data && data.reply) || (data && data.error && data.error.message) || 'No reply';
+            replyBubble.textContent = cleaned;
+            replyDiv.textContent = cleaned;
+            cleanedDiv.textContent = cleaned;
+            speak(cleaned);
+            return cleaned;
         } catch (e) {
             replyBubble.textContent = 'Error: ' + e.message;
             replyDiv.textContent = 'Error: ' + e.message;

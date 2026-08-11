@@ -62,6 +62,23 @@ function buildSystemPrompt(customActions) {
 }
 
 /**
+ * System prompt for dictation cleanup ("ok kimi stop" flow).
+ * The input is raw STT output: it may contain remnants of voice commands and
+ * random Russian words from the STT misfiring while the speaker spoke English
+ * or German. The LLM removes the artifacts and returns clean text.
+ */
+const CLEAN_STT_PROMPT = `You are a dictation cleanup assistant. You receive text that was recorded via speech-to-text (STT). It is raw and noisy: it may contain remnants of voice commands like "ok kimi", "kimi listen", "kimi stop", "kimi send", and mis-transcribed words — including random Russian words that appeared because the STT misfired while the speaker was actually speaking English or German.
+
+Clean the text into well-formed, natural language:
+- Remove all voice-command remnants and control words ("ok kimi", "listen", "stop", "send", and similar) that are NOT part of the actual content.
+- Where a Russian word is clearly a misfired transcription of the intended English or German word, replace it with the intended word. When unsure, keep it as-is.
+- Fix obvious STT errors, repetitions, and fillers only when the intent is unambiguous.
+- Add proper punctuation and capitalization.
+- DO NOT add information, rephrase, or translate. Preserve the speaker's meaning exactly.
+
+Return ONLY the cleaned text — no quotes, no commentary, no markdown.`;
+
+/**
  * Extract JSON from an LLM response that may contain markdown fences
  * or surrounding text. Finds the first { ... } block.
  *
@@ -228,6 +245,51 @@ Rules:
       return content.trim();
     } catch (err) {
       logger.error('Assistant chatReply failed', err, 'Assistant');
+      return null;
+    }
+  }
+
+  /**
+   * Clean raw STT dictation with the local LLM ("ok kimi stop" flow).
+   * Removes voice-command remnants and mis-transcribed (e.g. Russian) words.
+   *
+   * @param {string} text - Raw accumulated dictation from STT
+   * @returns {Promise<string|null>} Cleaned text, or null on failure
+   */
+  async cleanStt(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return null;
+
+    const body = JSON.stringify({
+      model: this.model,
+      messages: [
+        { role: 'system', content: CLEAN_STT_PROMPT },
+        { role: 'user', content: trimmed },
+      ],
+      max_tokens: 400,
+      temperature: 0.0,
+      stream: false,
+    });
+
+    try {
+      const res = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.gatewayKey}`,
+        },
+        body,
+      });
+      if (!res.ok) {
+        logger.warn('Assistant cleanStt HTTP error', { status: res.status }, 'Assistant');
+        return null;
+      }
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) return null;
+      return content.trim();
+    } catch (err) {
+      logger.error('Assistant cleanStt failed', err, 'Assistant');
       return null;
     }
   }

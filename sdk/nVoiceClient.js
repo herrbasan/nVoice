@@ -798,8 +798,8 @@ class nVoiceClient {
         if (!_kimiMatchCommand(text)) return false;
         const norm = _kimiNormalize(text);
         const words = norm.split(' ').filter(Boolean).length;
-        if (words <= 2) return true;
-        return /\b(kimi|kimmy|kyumi)\b/.test(norm);
+        if (words === 1) return true;  // bare single-word command ("stop", "listen")
+        return /\b(kimi|kimmy|kyumi)\b/.test(norm);  // carries a wake token
     }
 
     _clearKimiCommandTimeout() {
@@ -887,10 +887,11 @@ class nVoiceClient {
                     this.emit('kimiCommand', { action: 'listen', text });
                     break;
                 case 'stop':
+                    // Stop transcribing. The dictation is KEPT and handed to the
+                    // page for LLM cleanup ("ok kimi stop" flow) — not discarded.
                     this._kimiState = 'sleep';
-                    this._kimiDictationText = '';
                     this._kimiInterruptedTranscribing = false;
-                    this.emit('kimiCommand', { action: 'stop', text });
+                    this.emit('kimiCommand', { action: 'stop', text, dictation: this._kimiDictationText });
                     this.sleep();
                     break;
                 case 'send':
