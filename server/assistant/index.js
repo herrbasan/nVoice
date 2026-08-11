@@ -196,6 +196,63 @@ Rules:
   }
 
   /**
+   * Call the LLM Gateway with the chat app's proven reliability pattern:
+   * AbortSignal timeout + retry on network errors and 5xx with exponential
+   * backoff (1s→2s→4s, cap 10s). 4xx is NOT retried (a bad request won't heal).
+   * The gateway itself is healthy (0 failures on badkid-llama-chat) — the
+   * intermittent 502s were connection-level blips that this absorbs.
+   *
+   * @param {Array<{role:string, content:string}>} messages
+   * @param {{maxTokens?:number, temperature?:number, timeoutMs?:number, retries?:number}} [opts]
+   * @returns {Promise<string|null>} Assistant text, or null after retries exhausted
+   */
+  async _gatewayChat(messages, { maxTokens = 200, temperature = 0.4, timeoutMs = 60000, retries = 3 } = {}) {
+    const body = JSON.stringify({
+      model: this.model,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+      stream: false,
+    });
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.gatewayKey}` };
+    const url = `${this.gatewayUrl}/v1/chat/completions`;
+
+    let lastErr = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(timeoutMs) });
+        if (!res.ok) {
+          if (res.status >= 400 && res.status < 500) {
+            logger.warn('Assistant gateway 4xx', { status: res.status }, 'Assistant');
+            return null;  // no point retrying a bad request
+          }
+          lastErr = new Error(`gateway HTTP ${res.status}`);
+        } else {
+          const data = await res.json();
+          const content = data?.choices?.[0]?.message?.content;
+          if (content) {
+            // Strip any markdown fences the LLM might add despite instructions.
+            let cleaned = content.trim();
+            if (cleaned.startsWith('```')) {
+              cleaned = cleaned.replace(/^```(?:\w*)?\s*/i, '').replace(/\s*```$/, '');
+            }
+            return cleaned.trim();
+          }
+          lastErr = new Error('gateway empty content');
+        }
+      } catch (err) {
+        lastErr = err;  // network error / timeout — retry
+      }
+      if (attempt < retries) {
+        const wait = Math.min(1000 * Math.pow(2, attempt), 10000);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    logger.error('Assistant gateway call failed after retries', { lastErr: lastErr?.message }, 'Assistant');
+    return null;
+  }
+
+  /**
    * Handsfree one-shot reply (Phase 1 harness). The driver's spoken utterance
    * (raw STT, imperfect) gets a short, TTS-friendly reply from the LLM.
    * Stateless — conversation context lives in the chat app later (handsfree
@@ -215,38 +272,13 @@ Rules:
 - Be direct, natural, and conversational. No markdown, no bullets, no prefixes like "Assistant:".
 - If the user's message is a command (stop, pause, resume, send), acknowledge it in one short sentence.`;
 
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
+    return this._gatewayChat(
+      [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: trimmed },
       ],
-      max_tokens: 200,
-      temperature: 0.4,
-      stream: false,
-    });
-
-    try {
-      const res = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.gatewayKey}`,
-        },
-        body,
-      });
-      if (!res.ok) {
-        logger.warn('Assistant chatReply HTTP error', { status: res.status }, 'Assistant');
-        return null;
-      }
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) return null;
-      return content.trim();
-    } catch (err) {
-      logger.error('Assistant chatReply failed', err, 'Assistant');
-      return null;
-    }
+      { maxTokens: 200, temperature: 0.4 }
+    );
   }
 
   /**
@@ -260,38 +292,13 @@ Rules:
     const trimmed = (text || '').trim();
     if (!trimmed) return null;
 
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
+    return this._gatewayChat(
+      [
         { role: 'system', content: CLEAN_STT_PROMPT },
         { role: 'user', content: trimmed },
       ],
-      max_tokens: 400,
-      temperature: 0.0,
-      stream: false,
-    });
-
-    try {
-      const res = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.gatewayKey}`,
-        },
-        body,
-      });
-      if (!res.ok) {
-        logger.warn('Assistant cleanStt HTTP error', { status: res.status }, 'Assistant');
-        return null;
-      }
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) return null;
-      return content.trim();
-    } catch (err) {
-      logger.error('Assistant cleanStt failed', err, 'Assistant');
-      return null;
-    }
+      { maxTokens: 400, temperature: 0.0, timeoutMs: 90000 }
+    );
   }
 
   /**
