@@ -864,8 +864,13 @@ class nVoiceClient {
                     this._assistantEnd('cancel');
                     return true;
                 }
-                if (this._assistantMatchPhrase(text, this._assistantEndPhrases)) {
-                    console.log('[Assistant] end: "' + text + '"');
+                if (this._assistantMatchPhrase(text, this._assistantStopPhrases)) {
+                    console.log('[Assistant] stop (hold): "' + text + '"');
+                    this._assistantEnd('stop');
+                    return true;
+                }
+                if (this._assistantMatchPhrase(text, this._assistantSendPhrases)) {
+                    console.log('[Assistant] send: "' + text + '"');
                     this._assistantEnd('send');
                     return true;
                 }
@@ -904,16 +909,20 @@ class nVoiceClient {
     // processing = cleanup in flight. Mic stays open throughout (keep-awake
     // policy) — the wakeword WS keeps feeding the detector.
 
-    async enableAssistantMode({ endCommands = null, cancelCommands = null, cleanup = 'clean', autoListen = true } = {}) {
+    async enableAssistantMode({ endCommands = null, stopCommands = null, cancelCommands = null, cleanup = 'clean', autoListen = false } = {}) {
         this.assistantMode = true;
         this._assistantCleanupMode = cleanup;   // 'clean'|'format'|'compact'|false
         this._assistantAutoListen = autoListen;
-        this._assistantEndPhrases = endCommands ?? ['send', 'sende', 'send it', 'stop', 'stopp', 'stoppen', 'halt', 'abschicken'];
+        // End-vocabulary split: send-words deliver, stop-words HOLD (nothing
+        // sent — "ok kimi stop" is the "wait, don't send yet" escape).
+        this._assistantSendPhrases = endCommands ?? ['send', 'sende', 'send it', 'abschicken'];
+        this._assistantStopPhrases = stopCommands ?? ['stop', 'stopp', 'stoppen', 'halt'];
         this._assistantCancelPhrases = cancelCommands ?? ['cancel', 'abort', 'never mind', 'forget it', 'abbrechen', 'vergiss es'];
+        this._assistantHeldText = null;   // set when a capture was stopped (held, unsent)
         // R4: assistant mode plays TTS with the mic open — AEC is not optional.
         this.audioProcessing = true;
         await this.enableKimiWakeWord();
-        this.emit('assistantState', { state: 'listening' });
+        this.emit('assistantState', { state: this._assistantHeldText ? 'held' : 'listening' });
     }
 
     _assistantMatchPhrase(text, phrases) {
@@ -952,29 +961,56 @@ class nVoiceClient {
 
     async _assistantEnd(action) {
         const raw = (this._kimiDictationText || '').trim();
-        this._kimiState = 'sleep';
-        this._kimiInterruptedTranscribing = false;
-        this._clearKimiCommandTimeout();
-        if (action === 'cancel' || !raw) {
+        if (action === 'send' && !raw && !this._assistantHeldText) {
+            // nothing to send at all
+            this._kimiState = 'sleep';
+            this.emit('assistantCancel', { reason: 'empty' });
+            this.emit('assistantState', { state: this._assistantHeldText ? 'held' : 'listening' });
+            return;
+        }
+        if (action === 'stop') {
+            // HOLD: keep the text, send nothing. "ok kimi stop" = wait, don't
+            // send yet. From held, "ok kimi send" delivers it.
+            this._kimiState = 'sleep';
+            this._kimiInterruptedTranscribing = false;
+            this._clearKimiCommandTimeout();
+            if (raw) this._assistantHeldText = raw;
             this._kimiDictationText = '';
-            this.emit('assistantCancel', { reason: action === 'cancel' ? 'cancel' : 'empty' });
+            this.emit('assistantHold', { text: this._assistantHeldText });
+            this.emit('assistantState', { state: 'held' });
+            this.emit('kimiState', { state: 'sleep' });
+            return;
+        }
+        if (action === 'cancel') {
+            this._kimiState = 'sleep';
+            this._kimiInterruptedTranscribing = false;
+            this._clearKimiCommandTimeout();
+            this._kimiDictationText = '';
+            this._assistantHeldText = null;   // cancel discards held text too
+            this.emit('assistantCancel', { reason: 'cancel' });
             this.emit('assistantState', { state: 'listening' });
             this.emit('kimiState', { state: 'sleep' });
             return;
         }
+        // 'send': deliver current capture, or the held text if capture is empty
+        const toSend = raw || this._assistantHeldText;
+        this._kimiState = 'sleep';
+        this._kimiInterruptedTranscribing = false;
+        this._clearKimiCommandTimeout();
+        this._kimiDictationText = '';
+        this._assistantHeldText = null;
         this.emit('assistantState', { state: 'processing' });
-        let text = raw;
+        let text = toSend;
         if (this._assistantCleanupMode !== false) {
             try {
-                text = await this.cleanup(raw, this._assistantCleanupMode);
+                text = await this.cleanup(toSend, this._assistantCleanupMode);
             } catch (err) {
                 // Fail-loud but still deliver: the app shows the error and gets raw.
-                this.emit('assistantError', { error: err.message, raw });
-                text = raw;
+                this.emit('assistantError', { error: err.message, raw: toSend });
+                text = toSend;
             }
         }
-        this._kimiDictationText = '';
-        this.emit('assistantMessage', { raw, text });
+        this.emit('assistantMessage', { raw: toSend, text });
         this.emit('assistantState', { state: 'listening' });
         this.emit('kimiState', { state: 'sleep' });
     }
@@ -1093,7 +1129,9 @@ class nVoiceClient {
             switch (action) {
                 case 'listen':
                     if (this.assistantMode) {
-                        // Fresh capture cycle (also the resume path after an interrupt)
+                        // Fresh capture cycle. Any HELD text is discarded — the
+                        // user chose to start over instead of sending it.
+                        this._assistantHeldText = null;
                         this._assistantStartCapture();
                         break;
                     }
@@ -1113,8 +1151,8 @@ class nVoiceClient {
                     break;
                 case 'stop':
                     if (this.assistantMode) {
-                        // End command via interrupt ("ok kimi stop") — deliver semantics
-                        this._assistantEnd('send');
+                        // "ok kimi stop": HOLD the capture — nothing is sent.
+                        this._assistantEnd('stop');
                         break;
                     }
                     // Stop transcribing. The dictation is KEPT and handed to the
@@ -1126,7 +1164,7 @@ class nVoiceClient {
                     break;
                 case 'send':
                     if (this.assistantMode) {
-                        // End command via interrupt ("ok kimi send") — deliver semantics
+                        // "ok kimi send": deliver current capture (or held text).
                         this._assistantEnd('send');
                         break;
                     }
@@ -1150,6 +1188,11 @@ class nVoiceClient {
         this._kimiCommandFinal = false;
         this._kimiIdleCount = 0;
         this.emit('kimiState', { state: 'sleep' });
+        // Assistant mode: unsent held text survives; the visible state is
+        // 'held', not 'listening'.
+        if (this.assistantMode) {
+            this.emit('assistantState', { state: this._assistantHeldText ? 'held' : 'listening' });
+        }
         // Keep the mic open — do NOT call this.sleep(). The keep-awake
         // policy says once awake, stay awake. If the STT final arrives
         // late (after timeout), _kimiOnFinal's text-command fallback

@@ -20,12 +20,24 @@
   .tag { display: inline-block; font-size: 11px; border-radius: 3px; padding: 1px 6px; margin-left: 6px; }
   .tag.pending { background: #4a3b14; color: #fdd663; }
   .tag.r1 { background: #4a1420; color: #f28b82; }
+  #stateBar { position: fixed; top: 0; left: 0; right: 0; padding: 8px 20px; background: #101216; border-bottom: 1px solid #2a2e35; font-size: 15px; z-index: 10; display: flex; gap: 14px; align-items: center; }
+  #stateBar .st { font-weight: 700; padding: 2px 12px; border-radius: 4px; min-width: 110px; text-align: center; }
+  .st.listening { background: #1d3a1d; color: #81c995; }
+  .st.capturing { background: #4a3b14; color: #fdd663; }
+  .st.processing { background: #14324a; color: #8ab4f8; }
+  .st.held { background: #4a1420; color: #f28b82; }
+  .st.idle { background: #333944; color: #9aa0a6; }
+  body { padding-top: 52px; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   td, th { border: 1px solid #2a2e35; padding: 4px 8px; text-align: left; }
   code { color: #fdd663; }
 </style>
 </head>
 <body>
+<div id="stateBar">
+  <span class="st idle" id="statePill">idle</span>
+  <span id="stateHint" class="sub">assistant not enabled</span>
+</div>
 <h1>nVoice SDK — chat-integration test bench</h1>
 <div class="sub">Issue #1 / R1–R8 manual bench. Serve this page from BOTH origins:
   nVoice (<code>/pages/sdk-test.html</code>) and the chat relay (<code>node tests/e2e/chat-relay.mjs</code> → <code>http://127.0.0.1:8899/</code>).
@@ -208,15 +220,27 @@
     if (typeof client.enableAssistantMode !== 'function') { log('assistant', 'SDK enableAssistantMode() missing — R3 pending', true); return; }
     try {
       const mode = $('cleanupMode').value;
-      await client.enableAssistantMode({ autoListen: true, cleanup: mode });
+      await client.enableAssistantMode({ autoListen: false, cleanup: mode });
       client.on('assistantState', (d) => { $('assistantState').textContent = d.state; });
+      const hints = {
+        listening: 'say "ok kimi listen" to capture · "ok kimi send" sends held text',
+        capturing: 'speak · bare "send it" delivers · bare "stop" holds · "cancel" discards',
+        processing: 'cleanup running…',
+        held: 'text held (unsent) · "ok kimi send" delivers · "ok kimi listen" starts fresh',
+      };
+      client.on('assistantState', (d) => {
+        $('statePill').textContent = d.state;
+        $('statePill').className = 'st ' + d.state;
+        $('stateHint').textContent = hints[d.state] || '';
+      });
       client.on('assistantMessage', (d) => {
         $('raw').textContent = d.raw;
         $('cleaned').textContent = d.text + '\n\n(assistantMessage — R3)';
       });
+      client.on('assistantHold', (d) => { $('raw').textContent = '(held) ' + d.text; });
       await client.start();
       $('btnPause').disabled = false; $('btnResume').disabled = false;
-      log('assistant', `enabled (cleanup=${mode}) — say "ok kimi", speak, then "send it" or "cancel"`);
+      log('assistant', `enabled (cleanup=${mode}) — "ok kimi listen" to capture, "send"/"stop" to end`);
     } catch (e) { log('assistant', e.message, true); }
   };
 
