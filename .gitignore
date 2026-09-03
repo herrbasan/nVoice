@@ -50,3 +50,5 @@ setup_npu.py
 test_npu.py
 start_server.ps1
 package-lock.json
+
+dist/
