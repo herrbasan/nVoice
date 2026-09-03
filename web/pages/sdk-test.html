@@ -103,12 +103,28 @@
     if ($('cfgEngine').value) cfg.engine = $('cfgEngine').value;
     if ($('cfgAudioProcessing').checked) cfg.audioProcessing = true; // R4: today ignored
     client = new window.nVoiceClient(cfg);
-    for (const ev of ['connected', 'disconnected', 'standby', 'transcript', 'telemetry', 'error', 'wakeWordDetected', 'asleep', 'kimiState', 'assistantMessage', 'assistantCancel', 'assistantError', 'ready']) {
+    for (const ev of ['connected', 'disconnected', 'standby', 'transcript', 'error', 'wakeWordDetected', 'asleep', 'kimiState', 'assistantMessage', 'assistantCancel', 'assistantError', 'ready']) {
       client.on(ev, (data) => log(ev, typeof data === 'object' ? JSON.stringify(data).slice(0, 300) : (data || '')));
     }
+    // Telemetry: log only state CHANGES (idle/silence beats spam the log)
+    let lastTelState = null;
+    client.on('telemetry', (d) => {
+      if (d && d.state && d.state !== lastTelState) {
+        lastTelState = d.state;
+        log('telemetry', `state → ${d.state}`);
+      }
+    });
     client.on('transcript', (d) => {
-      $('live').textContent = (d.is_final ? 'FINAL: ' : 'prov:  ') + d.text;
-      if (d.is_final) $('live').dataset.finals = (($('live').dataset.finals || '') + ' ' + d.text).trim();
+      // Finals accumulate (dictation builds up across pauses); the current
+      // provisional shows appended after them so the preview never "clears".
+      if (d.is_final) {
+        if (d.text && d.text.trim()) {
+          $('live').dataset.finals = (($('live').dataset.finals || '') + ' ' + d.text.trim()).trim();
+        }
+        $('live').textContent = $('live').dataset.finals;
+      } else {
+        $('live').textContent = (($('live').dataset.finals || '') + ' ' + d.text).trim();
+      }
     });
     return client;
   }

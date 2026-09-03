@@ -853,6 +853,10 @@ class nVoiceClient {
         // Guard: ≤3 words AND matching the vocabulary — real dictation that
         // merely mentions "send" must survive as content.
         if (this.assistantMode && this._kimiState === 'transcribing' && !this._kimiInterruptedTranscribing) {
+            if (this._assistantIsWakeResidue(text)) {
+                console.log('[Assistant] wake residue suppressed: "' + text + '"');
+                return true;  // consumed, not dictation
+            }
             const words = _kimiNormalize(text).split(' ').filter(Boolean).length;
             if (words <= 3) {
                 if (this._assistantMatchPhrase(text, this._assistantCancelPhrases)) {
@@ -927,8 +931,23 @@ class nVoiceClient {
         this._kimiIdleCount = 0;
         this._kimiInterruptedTranscribing = false;
         if (!this.isAwake) this.wake();
+        // Wake fires MID-phrase: the tail of "ok kimi" can land as the first
+        // dictation final ("Me.", "kimi"). Suppress a short wake-ish final
+        // arriving right after capture opens (see _kimiOnFinal).
+        this._assistantCaptureAt = Date.now();
         this.emit('assistantState', { state: 'capturing' });
         this.emit('kimiState', { state: 'transcribing' });
+    }
+
+    // Is this final wake-word residue? Only plausible in the first second of a
+    // capture, only if short, only if it reads like the wake phrase tail.
+    _assistantIsWakeResidue(text) {
+        if (!this._assistantCaptureAt) return false;
+        if (Date.now() - this._assistantCaptureAt > 1000) return false;
+        const norm = _kimiNormalize(text);
+        const words = norm.split(' ').filter(Boolean);
+        if (words.length > 2) return false;
+        return words.every((w) => /^(ok|okay|kimi|kimmy|kyumi|me|hey|hi|ja|yes)$/.test(w));
     }
 
     async _assistantEnd(action) {
