@@ -864,6 +864,27 @@ class nVoiceClient {
         // recognize it from text ("ok kimi listen/send/stop", or a bare short
         // command). This is what makes the flow work when the wake detector
         // fails to fire on the live voice ("3 attempts" symptom).
+        if (this.assistantMode) {
+            // Assistant mode: the wake token alone ("okay kimi", ≤3 words) opens
+            // a command window — the actual command word typically arrives as
+            // the NEXT final after a pause. Complete commands ("ok kimi send")
+            // fall through to the normal text-command path below.
+            const normOnly = _kimiNormalize(text);
+            const wakeOnly = /\b(kimi|kimmy|kyumi)\b/.test(normOnly)
+                && normOnly.split(' ').filter(Boolean).length <= 3
+                && !/\b(send|sende|stop|stopp|halt|listen|cancel|abort|abbrechen|forget|never)\b/.test(normOnly);
+            if (wakeOnly && this._kimiState === 'sleep') {
+                console.log('[Kimi] text-wake (command word pending): "' + text + '"');
+                this._kimiState = 'command';
+                this._kimiCommandText = '';
+                this._kimiCommandFinal = false;
+                this._kimiIdleCount = 0;
+                this._kimiInterruptedTranscribing = false;
+                this.emit('kimiState', { state: 'command' });
+                this._armKimiCommandTimeout();
+                return true;
+            }
+        }
         if (this._kimiShouldTreatAsCommand(text)) {
             const wasTranscribing = this._kimiState === 'transcribing';
             this._kimiState = 'command';
