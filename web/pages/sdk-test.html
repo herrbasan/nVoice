@@ -232,12 +232,21 @@
         $('statePill').textContent = d.state;
         $('statePill').className = 'st ' + d.state;
         $('stateHint').textContent = hints[d.state] || '';
+        // New capture = fresh transcript display; delivery/hold/cancel = the
+        // boxes below keep their content, only the live preview resets.
+        if (d.state === 'capturing') {
+          $('live').dataset.finals = '';
+          $('live').textContent = '(capturing… speak)';
+        }
+        if (d.state === 'listening' || d.state === 'held') {
+          $('live').textContent = '(idle — previous text below)';
+        }
       });
       client.on('assistantMessage', (d) => {
         $('raw').textContent = d.raw;
         $('cleaned').textContent = d.text + '\n\n(assistantMessage — R3)';
       });
-      client.on('assistantHold', (d) => { $('raw').textContent = '(held) ' + d.text; });
+      client.on('assistantHold', (d) => { $('raw').textContent = '(held, unsent) ' + d.text; $('cleaned').textContent = '(held — say "ok kimi send" to deliver, "ok kimi listen" to start fresh)'; });
       await client.start();
       $('btnPause').disabled = false; $('btnResume').disabled = false;
       log('assistant', `enabled (cleanup=${mode}) — "ok kimi listen" to capture, "send"/"stop" to end`);
