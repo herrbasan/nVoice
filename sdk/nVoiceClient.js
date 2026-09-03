@@ -55,11 +55,20 @@ function _kimiMatchCommand(text) {
 class nVoiceClient {
     constructor(config = {}) {
         this.serverUrl = config.serverUrl || '';
+        // R1: basePath allows the SDK to run behind a same-origin relay
+        // (chat app /api/stt/*). All request URLs derive from serverUrl+basePath.
+        this.basePath = (config.basePath || '').replace(/\/+$/, '');
         this.audioDeviceId = config.audioDeviceId || null;
         this.rawAudio = config.rawAudio || false;
+        // R4: force browser AEC/NS/AGC on every platform (assistant mode plays
+        // TTS with the mic open — without AEC the assistant transcribes itself).
+        this.audioProcessing = config.audioProcessing || false;
         this.engine = config.engine || null;
         this.recordDebug = config.recordDebug || false;  // worker captures engine-received audio
         this.assistantEnabled = config.assistantEnabled || false;  // opt into LLM post-processing
+
+        // R2: raw transcript buffer — every non-command final, in speak order.
+        this._rawFinals = '';
 
         this.ws = null;             // local realtime WebSocket (browser → Node → worker)
         this.audioStream = null;
@@ -132,6 +141,62 @@ class nVoiceClient {
         this._actions = {};
 
         this.listeners = {};
+    }
+
+    /**
+     * R1: one derivation for every request URL.
+     * httpBase — for fetch() calls (session, cleanup).
+     * wsBase  — protocol+host part for WebSocket URLs.
+     * serverUrl set → derive ws proto from it; serverUrl '' (same-origin,
+     * possibly behind a relay) → derive from window.location.
+     */
+    _apiBase() {
+        const bp = this.basePath;
+        if (this.serverUrl) {
+            const wsProto = this.serverUrl.startsWith('https') ? 'wss:'
+                : this.serverUrl.startsWith('http') ? 'ws:' : null;
+            if (!wsProto) throw new Error(`serverUrl must start with http:// or https:// (got "${this.serverUrl}")`);
+            let host = this.serverUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+            return { httpBase: this.serverUrl + bp, wsBase: `${wsProto}//${host}${bp}` };
+        }
+        const proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+        return { httpBase: bp, wsBase: `${proto}//${window.location.host}${bp}` };
+    }
+
+    /**
+     * R2: the accumulated raw transcript (every non-command final in speak
+     * order). Reset with clearRawText(). The dictation flow cleans this on Done.
+     */
+    getRawText() {
+        return this._rawFinals.trim();
+    }
+
+    clearRawText() {
+        this._rawFinals = '';
+    }
+
+    /**
+     * R2: one-shot LLM cleanup via POST /v1/audio/cleanup.
+     * Fail-loud: throws on HTTP errors — the app shows the error and keeps
+     * the raw text. Returns the cleaned string.
+     */
+    async cleanup(text, mode = 'clean') {
+        const trimmed = (text || '').trim();
+        if (!trimmed) throw new Error('cleanup: text required');
+        const { httpBase } = this._apiBase();
+        const resp = await fetch(`${httpBase}/v1/audio/cleanup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: trimmed, mode }),
+        });
+        if (!resp.ok) {
+            let msg = `cleanup failed: HTTP ${resp.status}`;
+            try { const j = await resp.json(); if (j?.error?.message) msg += ` — ${j.error.message}`; } catch {}
+            throw new Error(msg);
+        }
+        const data = await resp.json();
+        if (typeof data.text !== 'string') throw new Error('cleanup: malformed response (missing text)');
+        return data.text;
     }
 
     /**
@@ -369,10 +434,9 @@ class nVoiceClient {
         this._kimiInterruptedTranscribing = false;
         this._kimiCommandTimer = null;
 
-        const base = this.serverUrl || '';
         const model = this.engine ? `?model=${encodeURIComponent(this.engine)}` : '';
-        const proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
-        this._kimiWs = new WebSocket(`${proto}//${window.location.host}/v1/wakeword/ws${model}${model ? '&' : '?'}telemetry=1`);
+        const { wsBase } = this._apiBase();
+        this._kimiWs = new WebSocket(`${wsBase}/v1/wakeword/ws${model}${model ? '&' : '?'}telemetry=1`);
 
         this._kimiWs.onmessage = (event) => {
             let evt;
@@ -967,7 +1031,10 @@ class nVoiceClient {
             // is far from the mouth. Desktop with a good mic benefits from raw audio.
             // User can override with the "Raw Audio" toggle.
             const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-            const useProcessing = this.rawAudio ? false : isMobile;
+            // R4: audioProcessing forces AEC/NS/AGC on any platform (assistant
+            // mode needs it — TTS plays with the mic open). rawAudio still wins
+            // only when the user explicitly toggles it.
+            const useProcessing = this.audioProcessing || (this.rawAudio ? false : isMobile);
 
             const constraints = {
                 audio: {
@@ -1029,8 +1096,8 @@ class nVoiceClient {
 
             // Open the realtime WebSocket (ws on http, wss on https).
             // recordDebug → worker captures engine-received audio to a WAV (output/).
-            const proto = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
-            let wsUrl = `${proto}//${window.location.host}${session.ws_endpoint}`;
+            const { wsBase } = this._apiBase();
+            let wsUrl = `${wsBase}${session.ws_endpoint}`;
             if (this.recordDebug) {
                 wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'record=1';
             }
@@ -1080,6 +1147,10 @@ class nVoiceClient {
                                 this.emit('transcript', { type: 'transcript', text: '', is_final: true, is_command: true });
                                 return;
                             }
+                        }
+                        // R2: accumulate every non-command final into the raw buffer
+                        if (data.is_final && data.text && data.text.trim()) {
+                            this._rawFinals = (this._rawFinals + ' ' + data.text.trim()).trim();
                         }
                         // Suppress provisionals while a REAL command is being captured
                         // (a wake from sleep). A false-wake interrupt is still
