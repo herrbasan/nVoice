@@ -116,6 +116,15 @@
   // Forward-declared transcript accumulation (R2 fallback until getRawText lands)
   function fallbackRaw() { return $('live').dataset.finals || '(no finals captured)'; }
 
+  // Auto-config by origin: on the nVoice origin there is no /api/stt prefix;
+  // on any other origin (relay/chat) the prefix is the deployment shape.
+  (function autoConfig() {
+    const onNvoice = ['2244', '2245'].includes(location.port);
+    $('cfgBasePath').value = onNvoice ? '' : '/api/stt';
+    $('cfgServerUrl').value = '';
+    log('bench', `auto-config: origin ${location.origin} → basePath '${$('cfgBasePath').value}' (override freely)`);
+  })();
+
   $('originInfo').textContent = `page origin: ${location.origin}`;
 
   $('btnLoadEngines').onclick = async () => {
@@ -132,6 +141,9 @@
   $('btnStart').onclick = async () => {
     try {
       if (!client) client = makeClient();
+      const b = client._apiBase ? client._apiBase() : null;
+      if (b) log('urls', `httpBase='${b.httpBase}' wsBase='${b.wsBase}'`);
+      else log('urls', 'SDK has no _apiBase — STALE pre-R1 build, hard-reload (Ctrl+F5)!', true);
       $('live').dataset.finals = '';
       await client.start();
       $('urlInfo').textContent =

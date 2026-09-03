@@ -1072,10 +1072,10 @@ class nVoiceClient {
             // Local engines: realtime audio over WebSocket (browser → Node → worker).
             // Cloud engines: handled separately via their own WebSocket flow below.
             console.log('[nVoice] Creating realtime session... (engine=' + (this.engine || 'default') + ')');
-            const base = this.serverUrl || '';
+            const { httpBase } = this._apiBase();
             const sessionUrl = this.engine
-                ? `${base}/v1/realtime/sessions?model=${encodeURIComponent(this.engine)}`
-                : `${base}/v1/realtime/sessions`;
+                ? `${httpBase}/v1/realtime/sessions?model=${encodeURIComponent(this.engine)}`
+                : `${httpBase}/v1/realtime/sessions`;
             const sessionResp = await fetch(sessionUrl);
             if (!sessionResp.ok) {
                 throw new Error('Failed to create realtime session: ' + sessionResp.status);
@@ -1194,10 +1194,10 @@ class nVoiceClient {
      * Transcript events are received via the WebSocket and emitted as normal events.
      */
     async _startCloudRealtime(session, audioStream) {
-        const base = this.serverUrl || '';
+        const { httpBase } = this._apiBase();
 
         // 1. Fetch a single-use token from our server
-        const tokenUrl = `${base}${session.token_endpoint}?model=${encodeURIComponent(session.model)}`;
+        const tokenUrl = `${httpBase}${session.token_endpoint}?model=${encodeURIComponent(session.model)}`;
         console.log('[nVoice] Fetching cloud token from', tokenUrl);
         const tokenResp = await fetch(tokenUrl);
         if (!tokenResp.ok) {
