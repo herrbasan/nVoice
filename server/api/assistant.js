@@ -10,7 +10,7 @@
  */
 import { logger } from '../logger.js';
 import { config } from '../config.js';
-import { AssistantSession } from '../assistant/index.js';
+import { AssistantSession, CLEANUP_MODES } from '../assistant/index.js';
 
 export function registerAssistantRoutes(app) {
   app.post('/v1/assistant/chat', async (request, reply) => {
@@ -60,6 +60,43 @@ export function registerAssistantRoutes(app) {
 
     logger.info('Assistant clean reply', { inLen: text.length, replyLen: cleaned.length }, 'Assistant', { console: true });
     return { reply: cleaned };
+  });
+
+  /**
+   * POST /v1/audio/cleanup
+   * Transcript cleanup as a standalone endpoint for app integration.
+   * App flow: live transcription preview shows raw text; on "send" the app
+   * POSTs the accumulated transcript here and displays the cleaned result.
+   * Uses the validated two-tier cleanup prompt (v4): safe surface fixes always
+   * (fillers EN+DE, punctuation, spoken numbers, filler-fusion repair), semantic
+   * corrections (self-corrections, "strike that" replacements) only when
+   * unambiguous. Runs on the LLM Gateway (config.assistant.model).
+   * Independent of assistant.enabled — that flag only gates realtime interception.
+   */
+  app.post('/v1/audio/cleanup', async (request, reply) => {
+    const g = config.assistant;
+    if (!g?.gateway_url || !g?.gateway_key) {
+      logger.warn('Audio cleanup: gateway not configured', {}, 'Assistant', { console: true });
+      return reply.code(503).send({ error: { message: 'Cleanup gateway not configured', type: 'assistant_unavailable' } });
+    }
+
+    const { text, mode } = request.body || {};
+    if (typeof text !== 'string' || !text.trim()) {
+      return reply.code(400).send({ error: { message: 'text required', type: 'invalid_request_error' } });
+    }
+    if (mode !== undefined && !CLEANUP_MODES.includes(mode)) {
+      return reply.code(400).send({ error: { message: `mode must be one of: ${CLEANUP_MODES.join(', ')}`, type: 'invalid_request_error' } });
+    }
+
+    const session = new AssistantSession({ gatewayUrl: g.gateway_url, gatewayKey: g.gateway_key, model: g.model });
+    const started = Date.now();
+    const cleaned = await session.cleanTranscript(text, mode ?? 'clean');
+    if (cleaned === null) {
+      return reply.code(502).send({ error: { message: 'Gateway call failed', type: 'gateway_error' } });
+    }
+
+    logger.info('Audio cleanup done', { mode: mode ?? 'clean', inLen: text.length, outLen: cleaned.length, ms: Date.now() - started }, 'Assistant', { console: true });
+    return { text: cleaned };
   });
 
   /**

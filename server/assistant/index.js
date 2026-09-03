@@ -18,69 +18,25 @@
  */
 import { logger } from '../logger.js';
 import { buildActionPrompt, parseCustomActions } from './actions.js';
-
-/**
- * System prompt for the transcription assistant.
- * Instructs the LLM to: detect commands/actions first, then correct text.
- */
-const SYSTEM_PROMPT = `You are a real-time transcription assistant. You receive settled sentences from speech-to-text. Return JSON only — no markdown, no commentary.
-
-Your jobs, in priority order:
-
-1. ACTION DETECTION: If the ENTIRE text is a spoken action trigger, return {"action": "<action_id>", "text": "", "original": "<raw>"}.
-
-2. COMMAND DETECTION: If the ENTIRE text is an editing command, return {"command": "<command_id>", "text": "", "original": "<raw>"}.
-
-3. CORRECTION: Otherwise, clean the text and return {"text": "<cleaned>", "original": "<raw>"}.
-   - Add proper punctuation and capitalization.
-   - Remove filler words (um, uh, like, you know, so, basically, I mean).
-   - Remove false starts and self-corrections — keep only the final version.
-     Example: "I think, no, we should meet on Tuesday" → "We should meet on Tuesday."
-   - Insert a double newline (paragraph break) if there is a clear topic shift within the text.
-   - PRESERVE MEANING EXACTLY. Do not add information. Do not remove content.
-   - If the text is already clean, return it as-is with punctuation fixed.
-
-Detected commands and actions:
-
-{{actions}}
-
-Rules:
-- Return ONLY valid JSON. No markdown fences, no explanation.
-- If unsure whether something is a command vs. dictation, treat it as dictation (correct it).
-- Never invent content. Never translate unless explicitly asked.
-- The "original" field must always contain the raw input verbatim.`;
+import { loadPrompt, CLEANUP_MODES } from './prompts.js';
 
 /**
  * Build the full system prompt with action/command list injected.
+ * Base prompt: prompts/assistant-sentence.md ({{actions}} placeholder required).
  *
  * @param {Array<{id: string, phrases: string[]}>} customActions
  * @returns {string}
  */
 function buildSystemPrompt(customActions) {
   const actionBlock = buildActionPrompt(customActions);
-  return SYSTEM_PROMPT.replace('{{actions}}', actionBlock);
+  return loadPrompt('assistant-sentence.md').replace('{{actions}}', actionBlock);
 }
 
 /**
- * System prompt for dictation cleanup ("ok kimi stop" flow).
- * The input is raw STT output: it may contain remnants of voice commands and
- * random Russian words from the STT misfiring while the speaker spoke English
- * or German. The LLM removes the artifacts and returns clean text.
+ * Cleanup modes are derived from prompts/cleanup-<mode>.md filenames
+ * (see server/assistant/prompts.js). Adding a mode = adding a file.
  */
-const CLEAN_STT_PROMPT = `You are a dictation cleanup assistant. You receive text that was recorded via speech-to-text (STT). It is raw and noisy: it may contain remnants of voice commands like "ok kimi", "kimi listen", "kimi stop", "kimi send", and mis-transcribed words — including random Russian words that appeared because the STT misfired while the speaker was actually speaking English or German.
-
-Clean the text into well-formed, natural language:
-- Remove all voice-command remnants and control words ("ok kimi", "listen", "stop", "send", and similar) that are NOT part of the actual content.
-- Where a Russian word is clearly a misfired transcription of the intended English or German word, replace it with the intended word. When unsure, keep it as-is.
-- Fix obvious STT errors, repetitions, and fillers only when the intent is unambiguous.
-- Add proper punctuation and capitalization.
-- The text may contain blank lines (double newlines) that mark real pauses the
-  speaker took — PRESERVE those as paragraph breaks. You may add further breaks
-  where the topic clearly shifts, but never merge paragraphs that were separated
-  by a blank line.
-- DO NOT add information, rephrase, or translate. Preserve the speaker's meaning exactly.
-
-Return ONLY the cleaned text — no quotes, no commentary, no markdown.`;
+export { CLEANUP_MODES };
 
 /**
  * Extract JSON from an LLM response that may contain markdown fences
@@ -126,6 +82,10 @@ export class AssistantSession {
     this.contextSentences = opts.contextSentences ?? 3;
     this.customActions = opts.customActions ?? [];
 
+    // Per-sentence prompt (prompts/assistant-sentence.md) + context history
+    this.systemPrompt = buildSystemPrompt(this.customActions);
+    this._contextHistory = [];
+
     // Monotonic segment id counter
     this._segmentCounter = 0;
   }
@@ -136,26 +96,17 @@ export class AssistantSession {
    * and paragraph breaks.
    *
    * @param {string} rawText - The full accumulated raw transcript
+   * @param {string} mode - Cleanup mode (prompts/cleanup-<mode>.md)
    * @returns {Promise<string>} Cleaned transcript text
    */
-  async cleanTranscript(rawText) {
+  async cleanTranscript(rawText, mode = 'clean') {
     const trimmed = rawText.trim();
     if (!trimmed) return '';
 
-    const systemPrompt = `You are a transcription cleanup assistant. You receive a raw speech-to-text transcript. Return ONLY the cleaned text — no JSON, no markdown, no commentary.
-
-Rules:
-- Add proper punctuation and capitalization.
-- Remove filler words (um, uh, like, you know, so, basically, I mean).
-- Remove false starts and self-corrections — keep only the final version.
-- If the speaker repeats the same sentence or phrase more than once (e.g. they
-  weren't sure it registered), keep only ONE occurrence — the clearest/last one.
-- The input may already contain blank-line breaks (paragraph pauses the speaker
-  took) — PRESERVE those as paragraph breaks. You may add further breaks where
-  the topic clearly shifts even without an existing blank line.
-- PRESERVE MEANING EXACTLY. Do not add, remove, or change information.
-- If text is already clean, return it as-is with punctuation fixed.
-- Return ONLY the cleaned text. Nothing else.`;
+    if (!CLEANUP_MODES.includes(mode)) {
+      throw new Error(`cleanTranscript: unknown cleanup mode "${mode}" (expected one of ${CLEANUP_MODES.join(', ')})`);
+    }
+    const systemPrompt = loadPrompt(`cleanup-${mode}.md`);
 
     const body = JSON.stringify({
       model: this.model,
@@ -269,12 +220,7 @@ Rules:
     const trimmed = text.trim();
     if (!trimmed) return null;
 
-    const systemPrompt = `You are a hands-free voice assistant for a driver. You receive raw speech-to-text output, so ignore dictation errors, fillers (um, uh), and repetitions and understand the intent.
-
-Rules:
-- Reply with SHORT, focused responses suitable for text-to-speech playback: at most 1-3 sentences.
-- Be direct, natural, and conversational. No markdown, no bullets, no prefixes like "Assistant:".
-- If the user's message is a command (stop, pause, resume, send), acknowledge it in one short sentence.`;
+    const systemPrompt = loadPrompt('handsfree-reply.md');
 
     return this._gatewayChat(
       [
@@ -298,7 +244,7 @@ Rules:
 
     return this._gatewayChat(
       [
-        { role: 'system', content: CLEAN_STT_PROMPT },
+        { role: 'system', content: loadPrompt('dictation-cleanup.md') },
         { role: 'user', content: trimmed },
       ],
       { maxTokens: 400, temperature: 0.0, timeoutMs: 90000 }
@@ -323,15 +269,7 @@ Rules:
     const trimmed = text.trim().toLowerCase();
     if (!trimmed) return null;
 
-    const systemPrompt = `You are the intent classifier for a hands-free voice assistant. The user said "ok kimi" and then the following (raw speech-to-text, may have errors like "okay" instead of "ok"). Classify their intent into EXACTLY one action.
-
-Allowed actions and their meanings:
-- "listen" — the user wants to start dictating/transcribing their speech (words like "listen", "start listening", "transcribe", "take a note", "note", "record")
-- "stop" — stop the current transcription WITHOUT keeping it (words like "stop", "stop listening", "cancel", "abort", "that's it", "done", "enough")
-- "send" — stop transcription AND submit/send the captured text (words like "send", "send it", "submit", "send message")
-- "message" — anything that is NOT one of the above; it's a normal request/utterance for the assistant
-
-Return JSON only: {"action": "<one of listen|stop|send|message>", "text": "<the raw input verbatim>"}. No markdown, no commentary. If unsure, prefer "message".`;
+    const systemPrompt = loadPrompt('command-classifier.md');
 
     const body = JSON.stringify({
       model: this.model,

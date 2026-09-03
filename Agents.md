@@ -40,6 +40,7 @@ venv/
 - `POST /v1/audio/translations` — speech-to-English
 - `POST /v1/audio/align` — word timestamps for known text
 - `POST /v1/audio/transcribe-archive` — long-audio STT + speaker diarization (SSE). File, **folder** (auto-concat), or **video** (audio extracted)
+- `POST /v1/audio/cleanup` — LLM transcript cleanup for app integration (raw dictation in → cleaned text out; modes: `clean` two-tier validated / `format` +paragraphs / `compact` maximal compression, all EN+DE)
 - `GET  /v1/realtime/sessions` — create realtime session (returns `ws_endpoint`)
 - `WS   /v1/realtime/ws?model=<id>` — realtime STT (binary float32 PCM in, JSON events out). Node relays to the worker, piping bytes only.
 - `GET  /v1/models` — list engines
@@ -118,3 +119,8 @@ Never push with a `+`-dirty submodule pin — that records a commit the rest of 
 - Do NOT pass the full `text` value as `initial_prompt`; long prompts consume decode context and caused long audio to truncate or jump timestamps around 30s.
 - Current working behavior is to transcribe the audio normally with `word_timestamps=True` and return `segments[].words[]`. The caller consumes raw segment/word timestamps directly.
 - Keep `/v1/audio/transcriptions` and `/v1/audio/align` timestamp behavior close. When changing settings, test both endpoints on the same long MP3 and compare word count, last segment end, and word continuity around the middle of the file.
+
+### Transcript Cleanup Pipeline
+- **Chosen approach (2026-09-02): LLM cleanup via the always-warm local Gateway model** (`badkid-llama-chat`, Gemma 4 12B QAT). Validated with A/B tests on real German STT output: fillers, false starts, self-corrections and spoken numbers are cleaned correctly in German and English at ~1.2s latency. Key prompt requirements: explicit multilingual filler lists (EN + DE: äh, ähm, halt, eben), few-shot examples, and a cleanup-is-mandatory framing ("surface form is yours to fix; preserve only semantic content") — pure preservation instructions make the model return text unchanged.
+- **All assistant prompts live as editable Markdown** in `server/assistant/prompts/*.md` (file content = system prompt). They are re-read on every LLM call — edit, save, retry, no restart. Cleanup modes for `POST /v1/audio/cleanup` are derived from `cleanup-<mode>.md` filenames (loader: `server/assistant/prompts.js`; required files validated at startup, fail fast). See `server/assistant/prompts/README.md`.
+- ~~[superwhisper/s1-mini](https://huggingface.co/superwhisper/s1-mini)~~ — rejected: release v1 is **English-only** (model card verbatim), but nVoice needs EN+DE. Kept as fallback reference for English-only cleanup; base model is Qwen3-0.6B (multilingual), so a German fine-tune remains theoretically possible.

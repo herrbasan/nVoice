@@ -46,6 +46,60 @@ Word-level timestamps for known text. multipart: `file`, `text` (required), `lan
 
 Response: `{ "text", "duration", "words": [{ "word", "start", "end" }] }`.
 
+### `POST /v1/audio/cleanup`
+LLM transcript cleanup (local Gateway model). For app integration: show the raw
+transcript as a live preview during dictation, then POST the accumulated text
+here on "send" and display the cleaned result. JSON body:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `text` | string | required — raw STT transcript (EN or DE, may mix) |
+| `mode` | string | `clean` (default) \| `format` \| `compact` |
+
+Modes:
+- `clean` — validated two-tier cleanup: safe surface fixes unconditionally
+  (filler removal EN+DE, punctuation/capitalization, spoken numbers → written
+  form, STT misfire and filler-fusion repair, e.g. "um later" → "umbrella" is
+  un-fused). Semantic corrections (self-corrections like "no wait X",
+  "strike that"/"streich das" followed by a clear replacement) only when
+  unambiguous. Sentence flow stays as spoken.
+- `format` — same cleanup, plus deliberate paragraph organization: related
+  sentences grouped, new paragraphs on topic shifts, existing blank lines kept.
+- `compact` — full rewrite for minimal length: removes redundancy and verbal
+  detours, merges fragments, compresses wordy phrasing. All facts, names,
+  numbers, dates, and stated opinions are preserved.
+
+Response: `{ "text": "<cleaned>" }`. Error codes: `400` missing text or unknown
+mode, `503` gateway not configured, `502` gateway call failed.
+
+> **Prompt files:** all assistant/cleanup prompts live in
+> `server/assistant/prompts/*.md` (file content = system prompt, sent verbatim).
+> They are **re-read on every request** — edit, save, retry, no restart.
+> Cleanup modes are derived from `cleanup-<mode>.md` filenames; adding a file
+> (after one restart) adds a mode. See `server/assistant/prompts/README.md`.
+
+### App integration (chat app)
+
+nVoice's LLM is a **transformer between the voice and the app's model** — it
+never responds to the user. Two patterns:
+
+**Dictation (primary).** Voice replaces typing; the user reviews before sending.
+1. Live raw-transcript preview while speaking (realtime WS / SDK).
+2. On "send": `POST /v1/audio/cleanup` `{ "text": raw }` (mode `clean`).
+3. The returned `text` is what goes into the chat input / chat model.
+
+**Assistant (occasional, on-the-go).** Voice drives an existing chat session;
+the chat app's own model responds.
+1. `POST /v1/audio/cleanup` on the settled utterance — conservative `clean`
+   mode; budget ~1s latency.
+2. Send the cleaned text to the chat session tagged as voice input. The chat
+   session's prompt instructs the model to answer TTS-friendly (prose, short,
+   no tables/markup — structured for a listener), and the app reads the reply
+   via its own TTS.
+
+nVoice is not in the reply path. `POST /v1/assistant/chat` (where nVoice's LLM
+answers) is a standalone handsfree harness, not part of this integration.
+
 ---
 
 ## Archival Transcription (SSE)
