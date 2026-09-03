@@ -220,7 +220,7 @@
     if (typeof client.enableAssistantMode !== 'function') { log('assistant', 'SDK enableAssistantMode() missing — R3 pending', true); return; }
     try {
       const mode = $('cleanupMode').value;
-      await client.enableAssistantMode({ autoListen: false, cleanup: mode });
+      await client.enableAssistantMode({ cleanup: mode });  // autoListen defaults false — capture is listen-gated
       client.on('assistantState', (d) => { $('assistantState').textContent = d.state; });
       const hints = {
         listening: 'say "ok kimi listen" to capture · "ok kimi send" sends held text',

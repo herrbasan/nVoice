@@ -881,6 +881,15 @@ class nVoiceClient {
             this._kimiDictationText = (this._kimiDictationText + ' ' + text).trim();
             this._kimiIdleCount = 0;
             this.emit('kimiDictation', { text: this._kimiDictationText });
+            return false;
+        }
+        // Assistant mode: 'sleep' (= listening) is QUIET. The mic stays open
+        // (the wake detector needs the stream), but speech between commands
+        // is neither emitted nor accumulated — capture starts on "listen".
+        // The wake-missed text fallback above still runs first, so a spoken
+        // "ok kimi listen" lands even without an acoustic wake.
+        if (this.assistantMode && this._kimiState === 'sleep') {
+            return true;  // consumed — not transcript, not raw buffer
         }
         return false;
     }
@@ -1330,7 +1339,11 @@ class nVoiceClient {
                         // Suppress provisionals while a REAL command is being captured
                         // (a wake from sleep). A false-wake interrupt is still
                         // dictation, so its provisionals stay visible.
-                        if (this.kimiWakeEnabled && this._kimiState === 'command' && !this._kimiInterruptedTranscribing && !data.is_final) {
+                        // Assistant mode: also quiet in 'sleep' (listening) —
+                        // nothing previews until "listen" starts the capture.
+                        const quietState = (this._kimiState === 'command' && !this._kimiInterruptedTranscribing)
+                            || (this.assistantMode && this._kimiState === 'sleep');
+                        if (this.kimiWakeEnabled && !data.is_final && quietState) {
                             return;
                         }
                         this.emit('transcript', data);
