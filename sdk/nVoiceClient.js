@@ -939,6 +939,30 @@ class nVoiceClient {
         this.emit('assistantState', { state: this._assistantHeldText ? 'held' : 'listening' });
     }
 
+    /**
+     * R3: leave assistant mode. Discards held text, closes the wake-word
+     * session, restores plain-dictation behavior (finals emit + accumulate
+     * again). The mic/realtime connection is untouched — stop() and
+     * disconnect() remain the controls for that layer.
+     */
+    disableAssistantMode() {
+        if (!this.assistantMode) return;
+        this.assistantMode = false;
+        this._assistantHeldText = null;
+        this._assistantCaptureAt = null;
+        this._clearKimiCommandTimeout();
+        this._kimiState = 'sleep';
+        this._kimiDictationText = '';
+        if (this._kimiWs) {
+            try { this._kimiWs.close(); } catch {}
+            this._kimiWs = null;
+        }
+        this.kimiWakeEnabled = false;
+        this.emit('assistantState', { state: 'disabled' });
+        this.emit('kimiState', { state: 'sleep' });
+        console.log('[Assistant] mode disabled');
+    }
+
     _assistantMatchPhrase(text, phrases) {
         const norm = _kimiNormalize(text);
         if (!norm) return false;

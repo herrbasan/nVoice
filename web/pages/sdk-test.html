@@ -216,9 +216,19 @@
   };
 
   $('btnAssistant').onclick = async () => {
+    if (client && client.assistantMode) {
+      client.disableAssistantMode();
+      $('statePill').textContent = 'idle';
+      $('statePill').className = 'st idle';
+      $('stateHint').textContent = 'assistant disabled — plain dictation';
+      $('btnPause').disabled = true; $('btnResume').disabled = true;
+      log('assistant', 'disabled');
+      return;
+    }
     if (!client) client = makeClient();
     if (typeof client.enableAssistantMode !== 'function') { log('assistant', 'SDK enableAssistantMode() missing — R3 pending', true); return; }
     try {
+      $('btnAssistant').textContent = 'disableAssistantMode()';
       const mode = $('cleanupMode').value;
       await client.enableAssistantMode({ cleanup: mode });  // autoListen defaults false — capture is listen-gated
       client.on('assistantState', (d) => { $('assistantState').textContent = d.state; });
