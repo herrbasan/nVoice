@@ -224,7 +224,7 @@
       client.on('assistantState', (d) => { $('assistantState').textContent = d.state; });
       const hints = {
         listening: 'say "ok kimi listen" to capture · "ok kimi send" sends held text',
-        capturing: 'speak · bare "send it" delivers · bare "stop" holds · "cancel" discards',
+        capturing: 'speak freely — bare words are dictation · end via "ok kimi send" / "ok kimi stop" (hold) / "ok kimi cancel"',
         processing: 'cleanup running…',
         held: 'text held (unsent) · "ok kimi send" delivers · "ok kimi listen" starts fresh',
       };

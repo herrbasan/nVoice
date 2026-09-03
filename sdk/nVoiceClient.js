@@ -849,31 +849,15 @@ class nVoiceClient {
             // client in command state.
             return true;
         }
-        // R3: end-by-voice-command during capture, without a new wake.
-        // Guard: ≤3 words AND matching the vocabulary — real dictation that
-        // merely mentions "send" must survive as content.
-        if (this.assistantMode && this._kimiState === 'transcribing' && !this._kimiInterruptedTranscribing) {
+        // R3: wake-word residue suppression at capture start (see below).
+        // NOTE: bare end commands ("stop" with no "ok kimi") are NOT honored in
+        // assistant mode — short content utterances ("...eventually say stop")
+        // are indistinguishable from commands. End commands are wake-gated:
+        // "ok kimi send" / "ok kimi stop" / "ok kimi cancel" only.
+        if (this.assistantMode && this._kimiState === 'transcribing') {
             if (this._assistantIsWakeResidue(text)) {
                 console.log('[Assistant] wake residue suppressed: "' + text + '"');
                 return true;  // consumed, not dictation
-            }
-            const words = _kimiNormalize(text).split(' ').filter(Boolean).length;
-            if (words <= 3) {
-                if (this._assistantMatchPhrase(text, this._assistantCancelPhrases)) {
-                    console.log('[Assistant] cancel: "' + text + '"');
-                    this._assistantEnd('cancel');
-                    return true;
-                }
-                if (this._assistantMatchPhrase(text, this._assistantStopPhrases)) {
-                    console.log('[Assistant] stop (hold): "' + text + '"');
-                    this._assistantEnd('stop');
-                    return true;
-                }
-                if (this._assistantMatchPhrase(text, this._assistantSendPhrases)) {
-                    console.log('[Assistant] send: "' + text + '"');
-                    this._assistantEnd('send');
-                    return true;
-                }
             }
         }
         // Acoustic wake missed — the STT still transcribed the command phrase, so
@@ -1020,10 +1004,16 @@ class nVoiceClient {
     // bare short command (<= 2 words, e.g. "send", "и сен") or carries a wake
     // token ("kimi"/"kimmy"/"кюми"). Longer dictation like "i listen to music"
     // or "eventually i will stop it" is left as dictation.
+    // ASSISTANT MODE: bare commands are disabled — the wake token is REQUIRED,
+    // because short content ("...say stop" landing as its own final) would
+    // otherwise end the capture.
     _kimiShouldTreatAsCommand(text) {
         if (!_kimiMatchCommand(text)) return false;
         const norm = _kimiNormalize(text);
         const words = norm.split(' ').filter(Boolean).length;
+        if (this.assistantMode) {
+            return /\b(kimi|kimmy|kyumi)\b/.test(norm);  // wake token required
+        }
         if (words === 1) return true;  // bare single-word command ("stop", "listen")
         return /\b(kimi|kimmy|kyumi)\b/.test(norm);  // carries a wake token
     }
@@ -1095,6 +1085,14 @@ class nVoiceClient {
             console.log('[Kimi] command action=' + (action || 'none') +
                         (this._kimiInterruptedTranscribing ? ' (interrupted transcription)' : ''));
 
+            // R3 assistant mode: cancel vocabulary ends the capture discarded.
+            // Checked BEFORE the false-wake restore — a cancel word after wake
+            // is deliberate, not dictation.
+            if (this.assistantMode && this._assistantMatchPhrase(text, this._assistantCancelPhrases)) {
+                this._assistantEnd('cancel');
+                return;
+            }
+
             // A wake that interrupted transcription is only honored for real
             // commands. No match = false wake (it was dictation) → resume
             // transcribing, don't respond, don't lose the dictation.
@@ -1119,12 +1117,6 @@ class nVoiceClient {
             // Not a command and nothing was being dictated — silently return to
             // sleep. No gateway call, no response.
             if (action === null) { this._kimiToSleep('not a command'); return; }
-
-            // R3 assistant mode: cancel vocabulary ends the capture discarded.
-            if (this.assistantMode && this._assistantMatchPhrase(text, this._assistantCancelPhrases)) {
-                this._assistantEnd('cancel');
-                return;
-            }
 
             switch (action) {
                 case 'listen':
