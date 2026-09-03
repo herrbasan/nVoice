@@ -796,8 +796,20 @@ class nVoiceClient {
     //   kimiState    {state}                     — sleep|command|transcribing
     //   kimiCommand  {action, text}              — a classified command action
     //   kimiDictation {text}                     — accumulated dictation text
+    //   assistantState {state}                   — R3: listening|capturing|processing
+    //   assistantMessage {raw, text}             — R3: one deliverable per capture
+    //   assistantCancel {reason}                 — R3: capture discarded
+    //   assistantError {error, raw}              — R3: cleanup failed (raw still delivered)
 
     _onKimiWake() {
+        // R3 assistant mode: wake from listening goes STRAIGHT to capturing —
+        // no "listen" gate (autoListen). A wake during capture falls through
+        // to the interrupt path below (end/cancel command capture).
+        if (this.assistantMode && this._kimiState === 'sleep' && this._assistantAutoListen) {
+            console.log('[Assistant] wake → capturing');
+            this._assistantStartCapture();
+            return;
+        }
         // "ok kimi" heard. From sleep → capture a command; from transcribing →
         // interrupt to capture a stop/send command. Already capturing a command?
         // Ignore (don't double-capture).
@@ -837,6 +849,24 @@ class nVoiceClient {
             // client in command state.
             return true;
         }
+        // R3: end-by-voice-command during capture, without a new wake.
+        // Guard: ≤3 words AND matching the vocabulary — real dictation that
+        // merely mentions "send" must survive as content.
+        if (this.assistantMode && this._kimiState === 'transcribing' && !this._kimiInterruptedTranscribing) {
+            const words = _kimiNormalize(text).split(' ').filter(Boolean).length;
+            if (words <= 3) {
+                if (this._assistantMatchPhrase(text, this._assistantCancelPhrases)) {
+                    console.log('[Assistant] cancel: "' + text + '"');
+                    this._assistantEnd('cancel');
+                    return true;
+                }
+                if (this._assistantMatchPhrase(text, this._assistantEndPhrases)) {
+                    console.log('[Assistant] end: "' + text + '"');
+                    this._assistantEnd('send');
+                    return true;
+                }
+            }
+        }
         // Acoustic wake missed — the STT still transcribed the command phrase, so
         // recognize it from text ("ok kimi listen/send/stop", or a bare short
         // command). This is what makes the flow work when the wake detector
@@ -860,6 +890,74 @@ class nVoiceClient {
             this.emit('kimiDictation', { text: this._kimiDictationText });
         }
         return false;
+    }
+
+    // ── R3: Assistant mode (chat-app hands-free wrapper) ──────────────
+    // Flow: "ok kimi" → immediately capturing → end command → internal
+    // cleanup → ONE assistantMessage {raw, text}. Cancel vocabulary →
+    // assistantCancel. Thin layer over the kimi machine: listening = kimi
+    // 'sleep', capturing = kimi 'transcribing' (entered directly on wake),
+    // processing = cleanup in flight. Mic stays open throughout (keep-awake
+    // policy) — the wakeword WS keeps feeding the detector.
+
+    async enableAssistantMode({ endCommands = null, cancelCommands = null, cleanup = 'clean', autoListen = true } = {}) {
+        this.assistantMode = true;
+        this._assistantCleanupMode = cleanup;   // 'clean'|'format'|'compact'|false
+        this._assistantAutoListen = autoListen;
+        this._assistantEndPhrases = endCommands ?? ['send', 'sende', 'send it', 'stop', 'stopp', 'stoppen', 'halt', 'abschicken'];
+        this._assistantCancelPhrases = cancelCommands ?? ['cancel', 'abort', 'never mind', 'forget it', 'abbrechen', 'vergiss es'];
+        // R4: assistant mode plays TTS with the mic open — AEC is not optional.
+        this.audioProcessing = true;
+        await this.enableKimiWakeWord();
+        this.emit('assistantState', { state: 'listening' });
+    }
+
+    _assistantMatchPhrase(text, phrases) {
+        const norm = _kimiNormalize(text);
+        if (!norm) return false;
+        return phrases.some((p) => {
+            const np = _kimiNormalize(p);
+            return np && new RegExp('(^|\\s)' + np.replace(/\s+/g, '\\s+') + '(\\s|$)').test(norm);
+        });
+    }
+
+    _assistantStartCapture() {
+        this._kimiState = 'transcribing';
+        this._kimiDictationText = '';
+        this._kimiIdleCount = 0;
+        this._kimiInterruptedTranscribing = false;
+        if (!this.isAwake) this.wake();
+        this.emit('assistantState', { state: 'capturing' });
+        this.emit('kimiState', { state: 'transcribing' });
+    }
+
+    async _assistantEnd(action) {
+        const raw = (this._kimiDictationText || '').trim();
+        this._kimiState = 'sleep';
+        this._kimiInterruptedTranscribing = false;
+        this._clearKimiCommandTimeout();
+        if (action === 'cancel' || !raw) {
+            this._kimiDictationText = '';
+            this.emit('assistantCancel', { reason: action === 'cancel' ? 'cancel' : 'empty' });
+            this.emit('assistantState', { state: 'listening' });
+            this.emit('kimiState', { state: 'sleep' });
+            return;
+        }
+        this.emit('assistantState', { state: 'processing' });
+        let text = raw;
+        if (this._assistantCleanupMode !== false) {
+            try {
+                text = await this.cleanup(raw, this._assistantCleanupMode);
+            } catch (err) {
+                // Fail-loud but still deliver: the app shows the error and gets raw.
+                this.emit('assistantError', { error: err.message, raw });
+                text = raw;
+            }
+        }
+        this._kimiDictationText = '';
+        this.emit('assistantMessage', { raw, text });
+        this.emit('assistantState', { state: 'listening' });
+        this.emit('kimiState', { state: 'sleep' });
     }
 
     // A final that wasn't captured in `command` state (acoustic wake missed) can
@@ -901,6 +999,7 @@ class nVoiceClient {
                 this._kimiIdleCount = 0;
                 this._kimiInterruptedTranscribing = false;
                 this.emit('kimiState', { state: 'transcribing' });
+                if (this.assistantMode) this.emit('assistantState', { state: 'capturing' });
             } else {
                 this._kimiToSleep('command timeout');
             }
@@ -958,6 +1057,7 @@ class nVoiceClient {
                 this._kimiIdleCount = 0;
                 this._kimiInterruptedTranscribing = false;
                 this.emit('kimiState', { state: 'transcribing' });
+                if (this.assistantMode) this.emit('assistantState', { state: 'capturing' });
                 return;
             }
 
@@ -965,8 +1065,19 @@ class nVoiceClient {
             // sleep. No gateway call, no response.
             if (action === null) { this._kimiToSleep('not a command'); return; }
 
+            // R3 assistant mode: cancel vocabulary ends the capture discarded.
+            if (this.assistantMode && this._assistantMatchPhrase(text, this._assistantCancelPhrases)) {
+                this._assistantEnd('cancel');
+                return;
+            }
+
             switch (action) {
                 case 'listen':
+                    if (this.assistantMode) {
+                        // Fresh capture cycle (also the resume path after an interrupt)
+                        this._assistantStartCapture();
+                        break;
+                    }
                     this._kimiState = 'transcribing';
                     this._kimiIdleCount = 0;
                     this._kimiInterruptedTranscribing = false;
@@ -982,6 +1093,11 @@ class nVoiceClient {
                     this.emit('kimiCommand', { action: 'listen', text });
                     break;
                 case 'stop':
+                    if (this.assistantMode) {
+                        // End command via interrupt ("ok kimi stop") — deliver semantics
+                        this._assistantEnd('send');
+                        break;
+                    }
                     // Stop transcribing. The dictation is KEPT and handed to the
                     // page for LLM cleanup ("ok kimi stop" flow) — not discarded.
                     this._kimiState = 'sleep';
@@ -990,6 +1106,11 @@ class nVoiceClient {
                     this.sleep();
                     break;
                 case 'send':
+                    if (this.assistantMode) {
+                        // End command via interrupt ("ok kimi send") — deliver semantics
+                        this._assistantEnd('send');
+                        break;
+                    }
                     this._kimiState = 'sleep';
                     this._kimiInterruptedTranscribing = false;
                     this.emit('kimiCommand', { action: 'send', text, dictation: this._kimiDictationText });

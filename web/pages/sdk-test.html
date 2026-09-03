@@ -191,8 +191,16 @@
     if (!client) client = makeClient();
     if (typeof client.enableAssistantMode !== 'function') { log('assistant', 'SDK enableAssistantMode() missing — R3 pending', true); return; }
     try {
-      await client.enableAssistantMode({ autoListen: true, cleanup: $('cleanupMode').value });
-      log('assistant', 'enabled');
+      const mode = $('cleanupMode').value;
+      await client.enableAssistantMode({ autoListen: true, cleanup: mode });
+      client.on('assistantState', (d) => { $('assistantState').textContent = d.state; });
+      client.on('assistantMessage', (d) => {
+        $('raw').textContent = d.raw;
+        $('cleaned').textContent = d.text + '\n\n(assistantMessage — R3)';
+      });
+      await client.start();
+      $('btnPause').disabled = false; $('btnResume').disabled = false;
+      log('assistant', `enabled (cleanup=${mode}) — say "ok kimi", speak, then "send it" or "cancel"`);
     } catch (e) { log('assistant', e.message, true); }
   };
 
