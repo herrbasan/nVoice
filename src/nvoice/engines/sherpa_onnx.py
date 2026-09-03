@@ -193,13 +193,51 @@ class SherpaOnnxAdapter(STTAdapter):
         stream.accept_waveform(sr, audio_data.tolist())
         self.recognizer.decode_stream(stream)
 
-        text = stream.result.text.strip()
+        result = stream.result
+        text = result.text.strip()
         duration = len(audio_data) / sample_rate
+
+        # Word-level timestamps: result.words is empty for nemo_transducer
+        # models, but tokens + timestamps are always populated. Rebuild words
+        # by grouping subword tokens: a new word starts ONLY at a token with
+        # a leading space (BPE convention). Punctuation tokens (no leading
+        # space) attach to the preceding word — so "living" + "." becomes one
+        # word "living.", matching whitespace-split word counts of clean text.
+        words = []
+        current_word = ""
+        word_start = None
+        word_end = None
+        for token, ts in zip(result.tokens, result.timestamps):
+            if token.startswith(" "):
+                if current_word.strip():
+                    words.append(STTWord(
+                        word=current_word.strip(),
+                        start=word_start,
+                        end=word_end,
+                        probability=1.0,
+                    ))
+                current_word = token
+                word_start = ts
+                word_end = ts
+            else:
+                if not current_word:
+                    current_word = token
+                    word_start = ts
+                else:
+                    current_word += token
+                word_end = ts
+        if current_word.strip():
+            words.append(STTWord(
+                word=current_word.strip(),
+                start=word_start,
+                end=word_end,
+                probability=1.0,
+            ))
 
         return [STTSegment(
             text=text,
             start=0.0,
             end=duration,
             probability=1.0,
-            words=[],
+            words=words,
         )]
