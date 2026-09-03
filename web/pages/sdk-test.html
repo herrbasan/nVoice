@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nVoice SDK — chat-integration test bench</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; background: #14161a; color: #d7dae0; margin: 0; padding: 24px; max-width: 1100px; margin-inline: auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; } h2 { font-size: 15px; margin: 28px 0 8px; color: #8ab4f8; border-bottom: 1px solid #2a2e35; padding-bottom: 4px; }
+  .sub { color: #7d8590; font-size: 12px; margin-bottom: 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+  input[type=text], select { background: #1d2026; color: #d7dae0; border: 1px solid #333944; border-radius: 4px; padding: 5px 8px; font: inherit; }
+  button { background: #2a4d8f; color: #fff; border: 0; border-radius: 4px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  button.secondary { background: #3a3f48; }
+  button:disabled { opacity: .4; cursor: default; }
+  .box { background: #1a1d22; border: 1px solid #2a2e35; border-radius: 6px; padding: 10px 12px; margin: 8px 0; white-space: pre-wrap; min-height: 1.5em; max-height: 220px; overflow: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  #log { max-height: 300px; }
+  #log .t { color: #7d8590; } #log .ev { color: #8ab4f8; } #log .err { color: #f28b82; }
+  .tag { display: inline-block; font-size: 11px; border-radius: 3px; padding: 1px 6px; margin-left: 6px; }
+  .tag.pending { background: #4a3b14; color: #fdd663; }
+  .tag.r1 { background: #4a1420; color: #f28b82; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border: 1px solid #2a2e35; padding: 4px 8px; text-align: left; }
+  code { color: #fdd663; }
+</style>
+</head>
+<body>
+<h1>nVoice SDK — chat-integration test bench</h1>
+<div class="sub">Issue #1 / R1–R8 manual bench. Serve this page from BOTH origins:
+  nVoice (<code>/pages/sdk-test.html</code>) and the chat relay (<code>node tests/e2e/chat-relay.mjs</code> → <code>http://127.0.0.1:8899/</code>).
+  On the relay origin the SDK must work with <code>basePath</code> and zero nVoice-origin contact (R1).</div>
+
+<h2>1 · Config <span class="tag r1">R1</span></h2>
+<div class="row">
+  <label>serverUrl <input type="text" id="cfgServerUrl" size="18" value="" placeholder="'' = same origin"></label>
+  <label>basePath <input type="text" id="cfgBasePath" size="14" value="/api/stt"></label>
+  <label>engine <select id="cfgEngine"><option value="">default</option></select></label>
+  <label><input type="checkbox" id="cfgAudioProcessing"> audioProcessing <span class="tag pending">R4</span></label>
+</div>
+<div class="row">
+  <button id="btnLoadEngines" class="secondary">Load engines</button>
+  <span id="originInfo" class="sub"></span>
+</div>
+<div class="box" id="urlInfo">derived request URLs appear here after Start</div>
+
+<h2>2 · Dictation bench <span class="tag pending">R2</span></h2>
+<div class="row">
+  <button id="btnStart">Start dictation</button>
+  <button id="btnStop" class="secondary" disabled>Stop</button>
+  <button id="btnRaw" class="secondary">getRawText()</button>
+  <label>cleanup mode <select id="cleanupMode"><option>clean</option><option>format</option><option>compact</option></select></label>
+  <button id="btnCleanup">cleanup()</button>
+</div>
+<div class="box" id="live">live transcript…</div>
+<div class="row"><b>raw:</b></div><div class="box" id="raw">(getRawText result)</div>
+<div class="row"><b>cleaned:</b></div><div class="box" id="cleaned">(cleanup result)</div>
+
+<h2>3 · Assistant bench <span class="tag pending">R3 · R4 · R5</span></h2>
+<div class="row">
+  <button id="btnAssistant" class="secondary">enableAssistantMode()</button>
+  <button id="btnPause" class="secondary" disabled>pauseCapture()</button>
+  <button id="btnResume" class="secondary" disabled>resumeCapture()</button>
+  <span class="sub">state: <b id="assistantState">—</b></span>
+</div>
+
+<h2>4 · Event log</h2>
+<div class="box" id="log">events…</div>
+
+<h2>5 · Manual checklist (issue #1)</h2>
+<table>
+  <tr><th>Req</th><th>Check</th></tr>
+  <tr><td>R1</td><td>Page served from <code>127.0.0.1:8899</code> with basePath <code>/api/stt</code>: transcripts flow, no request to <code>:2244</code> in devtools network tab</td></tr>
+  <tr><td>R2</td><td>getRawText() returns spoken finals; cleanup() returns cleaned text; cleanup failure keeps raw (kill nVoice → error shown, raw intact)</td></tr>
+  <tr><td>R3</td><td>"ok kimi" → immediate capture (no "listen" gate); end command → ONE assistantMessage {raw, text}; cancel → assistantCancel</td></tr>
+  <tr><td>R3</td><td>Wake phrase audio absent from raw (pre-wake buffer excludes it)</td></tr>
+  <tr><td>R3</td><td>False wake during dictation resumes (no assistantMessage)</td></tr>
+  <tr><td>R4</td><td>audioProcessing:true → getUserMedia constraints show echoCancellation:true (devtools / chrome://webrtc-internals)</td></tr>
+  <tr><td>R5</td><td>pauseCapture during TTS playback → no self-transcription</td></tr>
+  <tr><td>R6</td><td>Restart nVoice mid-session → SDK reconnects, wake re-arms, ready fires (no manual reload)</td></tr>
+  <tr><td>R7</td><td>Two tabs in assistant mode simultaneously → independent wake (or loud reject)</td></tr>
+</table>
+
+<script src="/sdk/nVoiceClient.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const logBox = $('log');
+  let client = null;
+
+  function log(ev, msg, isErr) {
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span> <span class="${isErr ? 'err' : 'ev'}">[${ev}]</span> ${msg || ''}`;
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function makeClient() {
+    const serverUrl = $('cfgServerUrl').value.trim();
+    const cfg = { serverUrl };
+    const bp = $('cfgBasePath').value.trim();
+    if (bp) cfg.basePath = bp;          // R1: today ignored by the SDK — the bench surfaces that
+    if ($('cfgEngine').value) cfg.engine = $('cfgEngine').value;
+    if ($('cfgAudioProcessing').checked) cfg.audioProcessing = true; // R4: today ignored
+    client = new window.nVoiceClient(cfg);
+    for (const ev of ['connected', 'disconnected', 'standby', 'transcript', 'telemetry', 'error', 'wakeWordDetected', 'asleep', 'kimiState', 'assistantMessage', 'assistantCancel', 'assistantError', 'ready']) {
+      client.on(ev, (data) => log(ev, typeof data === 'object' ? JSON.stringify(data).slice(0, 300) : (data || '')));
+    }
+    client.on('transcript', (d) => {
+      $('live').textContent = (d.is_final ? 'FINAL: ' : 'prov:  ') + d.text;
+      if (d.is_final) $('live').dataset.finals = (($('live').dataset.finals || '') + ' ' + d.text).trim();
+    });
+    return client;
+  }
+
+  // Forward-declared transcript accumulation (R2 fallback until getRawText lands)
+  function fallbackRaw() { return $('live').dataset.finals || '(no finals captured)'; }
+
+  $('originInfo').textContent = `page origin: ${location.origin}`;
+
+  $('btnLoadEngines').onclick = async () => {
+    try {
+      const base = ($('cfgServerUrl').value.trim() || '') + ($('cfgBasePath').value.trim() || '');
+      const r = await fetch(`${base}/v1/admin/engines`);
+      const data = await r.json();
+      const sel = $('cfgEngine');
+      sel.innerHTML = '<option value="">default</option>' + data.engines.map((e) => `<option value="${e.id}">${e.id}</option>`).join('');
+      log('engines', `${data.engines.length} loaded`);
+    } catch (e) { log('engines', e.message, true); }
+  };
+
+  $('btnStart').onclick = async () => {
+    try {
+      if (!client) client = makeClient();
+      $('live').dataset.finals = '';
+      await client.start();
+      $('urlInfo').textContent =
+        `sdk config: ${JSON.stringify({ serverUrl: client.serverUrl, basePath: client.basePath ?? '(not supported yet — R1)' })}\n` +
+        `realtime ws: ${client.ws ? client.ws.url : '(connecting)'}\n` +
+        `page origin: ${location.origin}`;
+      $('btnStop').disabled = false;
+    } catch (e) { log('start', e.message, true); }
+  };
+
+  $('btnStop').onclick = () => { try { client.stop(); $('btnStop').disabled = true; } catch (e) { log('stop', e.message, true); } };
+
+  $('btnRaw').onclick = () => {
+    if (client && typeof client.getRawText === 'function') {
+      $('raw').textContent = client.getRawText();
+    } else {
+      $('raw').textContent = fallbackRaw() + '\n\n(SDK getRawText() missing — R2 pending; showing bench-side accumulation)';
+    }
+  };
+
+  $('btnCleanup').onclick = async () => {
+    const raw = (client && typeof client.getRawText === 'function') ? client.getRawText() : fallbackRaw();
+    $('raw').textContent = raw;
+    if (!raw || raw.startsWith('(')) { $('cleaned').textContent = '(nothing to clean)'; return; }
+    if (!client || typeof client.cleanup !== 'function') {
+      $('cleaned').textContent = 'SDK cleanup() missing — R2 pending. Bench-side fallback:';
+      try {
+        const base = ($('cfgServerUrl').value.trim() || '') + ($('cfgBasePath').value.trim() || '');
+        const t0 = performance.now();
+        const r = await fetch(`${base}/v1/audio/cleanup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw, mode: $('cleanupMode').value }) });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        $('cleaned').textContent = d.text + `\n\n(${Math.round(performance.now() - t0)}ms via bench fetch — SDK wrapper pending R2)`;
+      } catch (e) { $('cleaned').textContent = 'ERROR: ' + e.message; log('cleanup', e.message, true); }
+      return;
+    }
+    try {
+      const t0 = performance.now();
+      const text = await client.cleanup(raw, $('cleanupMode').value);
+      $('cleaned').textContent = text + `\n\n(${Math.round(performance.now() - t0)}ms)`;
+    } catch (e) { $('cleaned').textContent = 'ERROR: ' + e.message + ' (raw preserved)'; log('cleanup', e.message, true); }
+  };
+
+  $('btnAssistant').onclick = async () => {
+    if (!client) client = makeClient();
+    if (typeof client.enableAssistantMode !== 'function') { log('assistant', 'SDK enableAssistantMode() missing — R3 pending', true); return; }
+    try {
+      await client.enableAssistantMode({ autoListen: true, cleanup: $('cleanupMode').value });
+      log('assistant', 'enabled');
+    } catch (e) { log('assistant', e.message, true); }
+  };
+
+  $('btnPause').onclick = () => { if (client && client.pauseCapture) { client.pauseCapture(); log('pause', 'capture paused'); } else log('pause', 'pauseCapture() missing — R5 pending', true); };
+  $('btnResume').onclick = () => { if (client && client.resumeCapture) { client.resumeCapture(); log('resume', 'capture resumed'); } else log('resume', 'resumeCapture() missing — R5 pending', true); };
+
+  log('bench', `ready — page origin ${location.origin}`);
+})();
+</script>
+</body>
+</html>
