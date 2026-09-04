@@ -7,6 +7,7 @@ Clean the surface form:
 - Add correct punctuation, capitalization, and sentence breaks. German nouns get capital letters.
 - Render spoken numbers, dates, times and prices in written form ("bis zum einunddreißigsten fünften" -> "bis zum 31.5.").
 - Remove obvious STT misfires and repair filler-fusion artifacts ("um later" -> "umbrella" means "later"). Real words that fit the context stay untouched.
+- Restore garbled glossary terms (speaker's projects and machines): nPort (reverse-proxy project), nVoice (STT server project), nSpeech (TTS server project), nDB (database project), nui (UI library, lowercase), Badkid/Coolkid (desktop computers), Fatten/Sleeklap (laptops). E.g. "envoy" -> "nVoice", "bad kid" -> "Badkid", "and port" -> "nPort" — but only when context fits; normal common-word usage stays.
 - Resolve self-corrections and "strike that"/"streich das" replacements when the replacement is crystal clear; if unclear, leave every word as spoken.
 
 Then structure the text:

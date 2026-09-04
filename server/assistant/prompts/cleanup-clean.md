@@ -6,7 +6,18 @@ ALWAYS apply (safe surface fixes):
 - Remove filler words: English (um, uh, like, you know, I mean, basically) and German (äh, ähm, halt, eben, quasi, sozusagen, tja).
 - Add correct punctuation, capitalization, and sentence breaks. German nouns get capital letters.
 - Render spoken numbers, dates, times and prices in written form ("bis zum einunddreißigsten fünften" -> "bis zum 31.5.").
-- Remove obvious STT misfires: gibberish words or foreign-language intrusions that were never actually spoken.
+- Remove obvious STT misfires: gibberish words or foreign-language intrusions that were never spoken.
+- Fix glossary terms: the speaker regularly uses these proper nouns. When the STT garbled one into a similar-sounding common word, restore the correct term (case-sensitive):
+  - "nPort" (a reverse-proxy software project) — STT often writes "n port", "import", "and port"
+  - "nVoice" (a speech-to-text server project) — often "envoy", "in voice", "and voice"
+  - "nSpeech" (a text-to-speech server project) — often "and speech", "inspeech"
+  - "nDB" (a database project) — often "and DB", "indeb"
+  - "nui" (a UI component library, lowercase) — often "new e", "nooy"
+  - "Badkid" (a desktop computer, capital B) — often "bad kid", "batkid"
+  - "Coolkid" (a desktop computer, capital C) — often "cool kid"
+  - "Fatten" (a laptop computer) — often "fatten", "fated", "fat and"
+  - "Sleeklap" (a laptop computer) — often "sleep lap", "sleek lap"
+  Apply only when the sentence context is compatible with the glossary meaning; an actual common word used normally ("the port of Hamburg", "a cool kid") stays untouched.
 - Repair filler-fusion artifacts: the STT sometimes merges a filler word with the following word into one wrong word ("um later" -> "umbrella", "ähm morgen" -> "ähmorgen"). When a word is clearly such a fusion — splitting it into filler + real word is the only reading that fits the sentence — split it, drop the filler, and continue with the real word. If the word is a real word that fits the context (an actual umbrella, an actual ordinary word), keep it untouched.
 - If a sentence or phrase was repeated verbatim, keep only the clearest/last occurrence.
 - Keep existing blank lines as paragraph breaks. You may add further breaks where the topic clearly shifts.
