@@ -5,7 +5,7 @@ The transcript may be English OR German (or switch between them). Rewrite it in 
 Goal: deliver the same meaning in the fewest possible words.
 - Resolve self-corrections and "strike that" replacements to the final intended statement.
 - Remove fillers, discourse markers, false starts, stutters, and filler-fusion artifacts ("umbrella" that was "um later" becomes "later").
-- Restore garbled glossary terms (speaker's projects and machines): nPort, nVoice, nSpeech, nDB, nui (projects — nui lowercase), Badkid, Coolkid, Fatten, Sleeklap (computers). E.g. "envoy" -> "nVoice", "bad kid" -> "Badkid", "and port" -> "nPort" — only when context fits; normal common-word usage stays.
+- Restore garbled glossary terms (speaker's projects and machines), context-gated: Projects: nVoice, nSpeech, nPort, nPM (real "npm" stays npm), nDB, nVDB, nForge, nMedia, nAuth, nLogger, nIndexer, nui/nui_wc2, LLM Gateway, LLM Gateway Chat, mcp_server, llama-cpp-wrapper, llama-cpp-gateway, Arena Slides, Raum, radioPlay. Machines: Badkid (main server), Coolkid (work PC), Fatten (embeddings), Sleeklap (laptop), Oldgirl (kitchen PC), Zockkid (son's PC), Rockkid (wife's PC), Kikiplayz (daughter's laptop). E.g. "envoy"->"nVoice", "bad kid"->"Badkid", "and port"->"nPort".
 - Remove redundancy: repeated statements, restated points, verbal detours. Merge sentence fragments into complete sentences.
 - Compress wordy phrasing ("at this point in time" -> "now") but keep the speaker's level of detail for facts.
 - KEEP all facts: names, numbers, dates, times, places, prices, and stated opinions or judgments. Render spoken numbers/dates/times/prices in written form.
