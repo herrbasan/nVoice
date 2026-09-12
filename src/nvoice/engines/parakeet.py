@@ -174,12 +174,101 @@ class ParakeetAdapter(STTAdapter):
         
         # Parakeet-TDT doesn't support return_timestamps like Whisper
         print(f"[Engine] DEBUG: Calling pipeline with audio_data shape={audio_data.shape}", flush=True)
-        try:
-            result = self.pipe(audio_data)
-            print(f"[Engine] DEBUG: Pipeline returned successfully", flush=True)
-        except Exception as e:
-            print(f"[Engine] DEBUG: Pipeline raised exception: {type(e).__name__}: {e}", flush=True)
-            raise
+        # --- Native TDT timestamps (word-level) ---
+        # The HF pipeline's return_timestamps=True crashes on Parakeet in
+        # transformers 5.x (char_offsets decode mismatch — tokenizer.decode
+        # returns a plain str, postprocess indexes it like a dict). But the
+        # model's generate() natively emits per-token DURATIONS, which is
+        # exactly what we need and more precise:
+        #   - output['sequences']: token ids per step (blank = word boundary)
+        #   - output['durations']: per-token duration, units of 80ms
+        #     (calibrated 2026-09-12: 125 units == 10.000s audio)
+        # We group tokens into words at <blank> boundaries with cumulative
+        # timestamps — word-level timing the diarization merge can attach to.
+        # The pipeline object may carry processor=None depending on construction
+        # — build it explicitly (cheap, cached by from_pretrained).
+        proc = self.pipe.processor
+        if proc is None:
+            from transformers import AutoProcessor
+            proc = AutoProcessor.from_pretrained(self.model_name)
+            self.pipe.processor = proc
+        import torch as _torch
+        inputs = proc(audio_data, sampling_rate=16000, return_tensors="pt")
+        if "input_features" in inputs:
+            inputs["input_features"] = inputs["input_features"].half() \
+                if self.device == "cuda" else inputs["input_features"].float()
+        inputs = {k: v.to(self.pipe.device) for k, v in inputs.items()}
+        with _torch.no_grad():
+            out = self.pipe.model.generate(**inputs)
+        seq = out["sequences"][0].cpu().tolist()
+        durs = out["durations"][0].cpu().tolist() \
+            if hasattr(out["durations"], "cpu") else list(out["durations"][0])
+        tok = self.pipe.tokenizer
+        # TDT's word boundary is the literal <blank> token (id 8192 in this
+        # vocab), NOT the tokenizer's <pad> (id 2) — sequences never contain
+        # pad. Resolve by vocab lookup, fall back to the raw string.
+        blank = tok.convert_tokens_to_ids("<blank>")
+        if blank is None or blank < 0:
+            blank = 8192  # calibrated against this checkpoint's vocab
+
+        # Group tokens into words at blank boundaries, tracking time.
+        STEP_SEC = 0.08
+        words = []
+        cur_tokens = []
+        cur_start = None
+        t = 0.0
+        for token, d in zip(seq, durs):
+            if token == blank:
+                if cur_tokens:
+                    word_text = tok.decode(cur_tokens).strip()
+                    if word_text:
+                        words.append(STTWord(
+                            word=word_text,
+                            start=cur_start,
+                            end=t,
+                            probability=1.0,
+                        ))
+                    cur_tokens = []
+                    cur_start = None
+            else:
+                if cur_start is None:
+                    cur_start = t
+                cur_tokens.append(token)
+            t += d * STEP_SEC
+        if cur_tokens:
+            word_text = tok.decode(cur_tokens).strip()
+            if word_text:
+                words.append(STTWord(word=word_text, start=cur_start, end=t, probability=1.0))
+
+        text = " ".join(w.word for w in words).strip()
+
+        # Segment per word-run with gaps <= 1.5s (pause boundary). The speaker
+        # merge splits at speaker turns anyway; segments are for consumers.
+        if words:
+            segments_out = []
+            seg_words = [words[0]]
+            for w in words[1:]:
+                if w.start - seg_words[-1].end > 1.5:
+                    segments_out.append(self._segment_from_words(seg_words))
+                    seg_words = [w]
+                else:
+                    seg_words.append(w)
+            segments_out.append(self._segment_from_words(seg_words))
+            return segments_out
+
+        # No words (silence) — single empty-segment fallback
+        end_time = len(audio_data) / 16000
+        return [STTSegment(text=text, start=0.0, end=end_time, probability=1.0, words=[])]
+
+    @staticmethod
+    def _segment_from_words(seg_words):
+        return STTSegment(
+            text=" ".join(w.word for w in seg_words),
+            start=seg_words[0].start,
+            end=seg_words[-1].end,
+            probability=1.0,
+            words=seg_words,
+        )
         
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - start
@@ -192,41 +281,4 @@ class ParakeetAdapter(STTAdapter):
         else:
             print(f"[Engine] Inference: {elapsed:.2f}s for {audio_duration:.1f}s audio, RTF={elapsed/audio_duration:.2f}", flush=True)
 
-        # Debug: check result type
-        print(f"[Engine] DEBUG: result type={type(result)}", flush=True)
-        
-        # Parakeet-TDT returns a string directly, not a dict like Whisper
-        if isinstance(result, str):
-            print(f"[Engine] DEBUG: result is a string: {result[:100]}", flush=True)
-            text = result.strip()
-            chunks = []
-        elif isinstance(result, dict):
-            print(f"[Engine] DEBUG: result keys={list(result.keys())}", flush=True)
-            text = result.get("text", "").strip()
-            chunks = result.get("chunks", [])
-        else:
-            print(f"[Engine] DEBUG: unexpected result type: {result}", flush=True)
-            text = str(result).strip()
-            chunks = []
 
-        # Build word list from chunks (if available)
-        words = []
-        for chunk in chunks:
-            if isinstance(chunk, dict):
-                ts = chunk.get("timestamp", [None, None])
-                words.append(STTWord(
-                    word=chunk.get("text", "").strip(),
-                    start=ts[0] if ts[0] is not None else 0.0,
-                    end=ts[1] if ts[1] is not None else 0.0,
-                    probability=1.0,
-                ))
-
-        end_time = words[-1].end if words else len(audio_data) / 16000
-
-        return [STTSegment(
-            text=text,
-            start=0.0,
-            end=end_time,
-            probability=1.0,
-            words=words,
-        )]
