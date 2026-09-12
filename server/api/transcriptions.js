@@ -359,6 +359,7 @@ export function registerArchiveRoute(app, engineManager) {
     const numSpeakers = fields.num_speakers ? parseInt(fields.num_speakers, 10) : undefined;
     const startTime = fields.start_time ? parseFloat(fields.start_time) : 0;
     const chunkSeconds = fields.chunk_seconds ? parseFloat(fields.chunk_seconds) : 300;
+    const transcribe = fields.transcribe !== 'false'; // false = diarize-only
 
     logger.debug('Archive transcription request',
       { model, language, diarize, numSpeakers, startTime, files: fileNames }, 'API');
@@ -419,6 +420,7 @@ export function registerArchiveRoute(app, engineManager) {
         num_speakers: numSpeakers,
         start_time: startTime,
         chunk_seconds: chunkSeconds,
+        transcribe,
       };
 
       const workerResp = await worker.fetch('/v1/audio/transcribe-archive', {

@@ -80,6 +80,7 @@ class ArchiveTranscriptionRequest(BaseModel):
     max_speakers: int = None
     start_time: float = 0.0
     chunk_seconds: float = 300.0
+    transcribe: bool = True
 
 
 def segments_to_json(segments):
@@ -259,6 +260,28 @@ def build_routes(app, adapter, engine_name, diarizer=None):
                         "num_speakers": num_spk,
                         "turns": len(speaker_turns),
                     })
+
+                    # Diarize-only mode (transcribe=false): the caller has its
+                    # own transcript (e.g. a YouTube caption track) and only
+                    # needs the voice timeline to stitch onto it. Return the raw
+                    # turns in done and skip chunked transcription entirely.
+                    if not req.transcribe:
+                        speakers = [
+                            {"id": sid, "total_speech_sec": round(
+                                sum(t["end"] - t["start"] for t in speaker_turns if t["speaker"] == sid), 2)}
+                            for sid in sorted({t["speaker"] for t in speaker_turns})
+                        ]
+                        yield sse("done", {
+                            "text": "",
+                            "text_raw": "",
+                            "language": req.language,
+                            "duration": round(get_audio_duration(req.audio_path), 2),
+                            "start_time": req.start_time,
+                            "segments": [],
+                            "speaker_turns": speaker_turns,
+                            "speakers": speakers,
+                        })
+                        return
 
                 # --- 2. Chunked transcription with progress ---
                 duration = get_audio_duration(req.audio_path)
