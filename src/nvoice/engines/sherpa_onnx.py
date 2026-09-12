@@ -175,7 +175,8 @@ class SherpaOnnxAdapter(STTAdapter):
         ]
 
     def transcribe(self, audio, sample_rate=16000, context_text=None,
-                   task="transcribe", language=None, vad_filter=False):
+                   task="transcribe", language=None, vad_filter=False,
+                   condition_on_previous_text=True):
         if not self._loaded:
             raise RuntimeError("sherpa-onnx model not loaded")
 

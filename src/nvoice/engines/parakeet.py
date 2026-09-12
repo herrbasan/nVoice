@@ -131,7 +131,8 @@ class ParakeetAdapter(STTAdapter):
     # --- batch ---
 
     def transcribe(self, audio, sample_rate=16000, context_text=None,
-                   task="transcribe", language=None, vad_filter=False):
+                   task="transcribe", language=None, vad_filter=False,
+                   condition_on_previous_text=True):
         """
         Transcribe audio file path or numpy array using HuggingFace pipeline.
         Returns List[STTSegment] with word-level timestamps.

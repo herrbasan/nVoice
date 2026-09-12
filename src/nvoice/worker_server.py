@@ -194,10 +194,14 @@ def create_app(engine_name):
     adapter_cls, kwargs = parse_engine_args(engine_name)
     adapter = adapter_cls(**kwargs)
 
-    # Initialize diarizer for faster_whisper GPU workers (archival transcription).
+    # Initialize diarizer for GPU workers with pyannote installed (archival
+    # transcription). Parakeet qualifies since 2026-09-12: pyannote.audio was
+    # added to its venv — diarization runs on the same torch/CUDA stack.
     # Lazy-loaded: the model downloads on first archive request, not at startup.
+    # Serial pipeline: diarize whole file first, then chunked transcription,
+    # so pyannote (~2-3GB VRAM) and the STT model never coexist at peak.
     diarizer = None
-    if engine_name.startswith("faster_whisper"):
+    if engine_name.startswith("faster_whisper") or engine_name.startswith("parakeet"):
         hf_token = os.environ.get("HF_TOKEN", "")
         if hf_token:
             try:
