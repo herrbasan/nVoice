@@ -82,6 +82,8 @@ const config = {
       gateway_url: 'http://localhost:3400',
       gateway_key: '',
       model: 'badkid-llama-chat',
+      classifier_model: 'badkid-classifier',
+      intent_pause_ms: 1200,
       context_sentences: 3,
     }),
     // Secrets live in .env (gitignored), never in committed config.json.

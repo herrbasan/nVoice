@@ -66,6 +66,7 @@ class nVoiceClient {
         this.engine = config.engine || null;
         this.recordDebug = config.recordDebug || false;  // worker captures engine-received audio
         this.assistantEnabled = config.assistantEnabled || false;  // opt into LLM post-processing
+        this.intentEnabled = config.intentEnabled || false;  // opt into turn-intent classification
 
         // R2: raw transcript buffer — every non-command final, in speak order.
         this._rawFinals = '';
@@ -1333,6 +1334,21 @@ class nVoiceClient {
             if (this.assistantEnabled) {
                 wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'assistant=1';
             }
+            if (this.intentEnabled) {
+                wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'intent=1';
+                if (this.intentPauseMs) {
+                    wsUrl += `&pause_ms=${encodeURIComponent(this.intentPauseMs)}`;
+                }
+                if (this.intentMaxSilenceMs) {
+                    wsUrl += `&max_silence_ms=${encodeURIComponent(this.intentMaxSilenceMs)}`;
+                }
+                if (this.intentNoReply) {
+                    wsUrl += '&noreply=1';
+                }
+                if (this.intentMaxTokens) {
+                    wsUrl += `&max_tokens=${encodeURIComponent(this.intentMaxTokens)}`;
+                }
+            }
             console.log('[nVoice] Connecting realtime WebSocket: ' + wsUrl);
             this.ws = new WebSocket(wsUrl);
 
@@ -1394,6 +1410,12 @@ class nVoiceClient {
                         this.emit('transcript', data);
                     } else if (data.type === 'assistant') {
                         this._handleAssistantEvent(data.result || data);
+                    } else if (data.type === 'intent') {
+                        this.emit('intent', data);
+                    } else if (data.type === 'phase') {
+                        this.emit('phase', data);
+                    } else if (data.type === 'reply') {
+                        this.emit('reply', data);
                     } else if (data.type === 'telemetry') {
                         this.emit('telemetry', data);
                         this._kimiHandleTelemetry(data);

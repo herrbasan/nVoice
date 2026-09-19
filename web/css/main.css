@@ -266,3 +266,117 @@
     font-size: 0.8em;
     margin-top: var(--nui-space-quarter);
 }
+
+/* ==========================================================================
+   Intent Lab — Turn-Taking & Reactive Assistant Harness
+   ========================================================================== */
+
+/* State & Pipeline Stepper */
+.nv-pipeline {
+    display: flex;
+    gap: var(--nui-space-half);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: var(--nui-space);
+}
+
+.nv-pipeline-step {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--nui-space-quarter);
+    padding: var(--nui-space-quarter) var(--nui-space-half);
+    border-radius: var(--border-radius1);
+    font-size: var(--font-size-small);
+    background: var(--color-shade2);
+    border: 1px solid var(--border-shade1);
+    color: var(--text-color-dim);
+    transition: all 0.2s ease;
+}
+
+.nv-pipeline-step.is-active {
+    background: var(--color-shade3);
+    color: var(--text-color);
+    border-color: var(--color-highlight);
+    font-weight: 600;
+    box-shadow: 0 0 0 1px var(--color-highlight);
+}
+
+.nv-pipeline-step.is-success {
+    border-color: var(--color-success, #2e8b57);
+    color: var(--color-success, #2e8b57);
+}
+
+.nv-pipeline-step.is-danger {
+    border-color: var(--color-danger, #c0392b);
+    color: var(--color-danger, #c0392b);
+}
+
+.nv-pipeline-step.is-warning {
+    border-color: var(--color-warning, #c0a030);
+    color: var(--color-warning, #c0a030);
+}
+
+.nv-pipeline-arrow {
+    color: var(--text-color-dim);
+    font-size: 0.8em;
+    user-select: none;
+}
+
+/* Active Turn Live Card */
+.nv-live-turn {
+    background: var(--color-shade1);
+    border: 1px solid var(--border-shade2);
+    border-radius: var(--border-radius2);
+    padding: var(--nui-space);
+    margin-bottom: var(--nui-space-double);
+}
+
+.nv-live-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--nui-space-half);
+    margin-bottom: var(--nui-space-half);
+}
+
+.nv-live-speech {
+    font-size: 1.05em;
+    line-height: 1.5;
+    min-height: 3em;
+    padding: var(--nui-space-half);
+    background: var(--color-shade2);
+    border: 1px solid var(--border-shade1);
+    border-radius: var(--border-radius1);
+    margin-bottom: var(--nui-space-half);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.nv-live-speech .final {
+    color: var(--text-color);
+}
+
+.nv-live-speech .provisional {
+    color: var(--text-color-dim);
+    font-style: italic;
+}
+
+.nv-pause-tracker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nui-space-quarter);
+}
+
+.nv-pause-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--font-size-xsmall);
+    color: var(--text-color-dim);
+}
+
+.nv-turn-reply-box {
+    background: var(--color-shade1);
+    border: 1px solid var(--border-shade1);
+    border-left: 3px solid var(--color-highlight);
+}

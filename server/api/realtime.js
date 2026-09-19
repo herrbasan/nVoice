@@ -15,7 +15,9 @@ import { logger } from '../logger.js';
 import { EngineError } from '../engine/manager.js';
 import { lookupCloudAdapter, loadCloudAdapter } from '../cloud/registry.js';
 import { config } from '../config.js';
-import { createAssistantSession } from '../assistant/index.js';
+import { createAssistantSession, AssistantSession } from '../assistant/index.js';
+import { createIntentClassifier } from '../assistant/intent.js';
+import { TurnMachine } from '../assistant/turn-machine.js';
 
 export function registerRealtimeRoutes(app, engineManager) {
 
@@ -203,6 +205,37 @@ export function attachRealtimeWebSocket(app, engineManager) {
     // latency stays flat no matter how long the session runs.
     const assistantPage = !!assistantParam;
 
+    // Turn-taking machine — opt-in via ?intent=1. Full reactive-assistant loop:
+    // listening → cleaning → thinking → streaming, with barge-in interrupting
+    // processing. Driven by the resident classifier model. Independent of the
+    // cleanup assistant (it runs its own cleanup through the same gateway).
+    const intentClassifier = createIntentClassifier(config.assistant, url.searchParams);
+    const intentPauseMs = Number(url.searchParams.get('pause_ms')) || (config.assistant?.intent_pause_ms ?? 1200);
+    const intentMaxSilenceMs = Number(url.searchParams.get('max_silence_ms')) || (config.assistant?.max_silence_ms ?? 8000);
+    const intentNoReply = url.searchParams.get('noreply') === '1';
+    const replyMaxTokens = Number(url.searchParams.get('max_tokens')) || config.assistant?.reply_max_tokens || 2048;
+
+    function emitToBrowser(obj) {
+      if (browserWs.readyState !== WebSocket.OPEN) return;
+      browserWs.send(JSON.stringify(obj), { binary: false });
+    }
+
+    const cleaner = intentClassifier ? new AssistantSession({
+      gatewayUrl: config.assistant.gateway_url,
+      gatewayKey: config.assistant.gateway_key,
+      model: config.assistant.model,
+      replyMaxTokens,
+    }) : null;
+
+    const turnMachine = intentClassifier ? new TurnMachine({
+      classify: (text, opts) => intentClassifier.classify(text, opts),
+      clean: (text) => cleaner.cleanTranscript(text, 'clean'),
+      reply: intentNoReply ? null : ((text, { onToken }) => cleaner.streamReply(text, onToken)),
+      emit: emitToBrowser,
+      pauseMs: intentPauseMs,
+      maxSilenceMs: intentMaxSilenceMs,
+    }) : null;
+
     async function runPauseCleanup() {
       pauseTimer = null;
       const snapshot = pendingRaw.trim();
@@ -255,13 +288,23 @@ export function attachRealtimeWebSocket(app, engineManager) {
       // Forward immediately — instant rendering of raw text.
       browserWs.send(data, { binary: isBinary });
 
-      if (!assistantPage && !assistant) return;
+      if (!assistantPage && !assistant && !intentClassifier) return;
       let event;
       try {
         event = JSON.parse(data.toString());
       } catch {
         return;
       }
+
+      // Turn-taking machine — reset the silence deadline on ANY speech
+      // (provisional chunks included) and feed settled finals in for
+      // classification. Without this, a forced-completion timeout fires
+      // mid-sentence because provisionals never reset the clock.
+      if (turnMachine && event.type === 'transcript' && event.text) {
+        if (event.is_final) turnMachine.onFinal(event.text);
+        else turnMachine.onSpeech();
+      }
+
       if (event.type !== 'transcript' || !event.is_final || !event.text) return;
 
       const now = Date.now();
@@ -312,6 +355,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
     browserWs.on('close', () => {
       if (pauseTimer) clearTimeout(pauseTimer);
       if (paragraphTimer) clearTimeout(paragraphTimer);
+      if (turnMachine) turnMachine.close();
       if (workerWs.readyState === WebSocket.OPEN) workerWs.close();
     });
     browserWs.on('error', (err) => {

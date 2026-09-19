@@ -171,6 +171,15 @@ Live STT over WebSocket. Node relays the connection to the resolved Python worke
   or `{ "type":"telemetry", "rtf", "backlog_sec", "state", … }`.
 - Close codes: `4000` engine has no realtime capability; `4503` engine still warming.
 
+**Reactive assistant (opt-in `?intent=1`):** append `?intent=1` to the WS URL to enable
+turn-taking. Optional query params: `pause_ms=<ms>` (override pause threshold), `noreply=1` (dictation/turn-taking test without reply generation). The server then also emits:
+- `{ "type":"intent", "label", "text", "pause_ms", "latency_ms", "ts" }` — `still-speaking` |
+  `turn-done` after a pause (classified by `badkid-classifier`).
+- `{ "type":"phase", "phase", "text"?, "ttfb_ms"?, "duration_ms"? }` — `cleaning` | `thinking` | `streaming` |
+  `done` | `interrupted`.
+- `{ "type":"reply", "result":{ "type":"cleaned"|"stream", "text", "latency_ms"? } }` — cleaned turn
+  text, then streamed assistant reply tokens.
+
 Cloud engines do **not** use this endpoint — the browser connects directly to the
 provider (ElevenLabs) using a single-use token from
 `GET /v1/realtime/sessions/{id}/token?model=<id>`.

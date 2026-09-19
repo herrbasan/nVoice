@@ -124,3 +124,46 @@ Never push with a `+`-dirty submodule pin — that records a commit the rest of 
 - **Chosen approach (2026-09-02): LLM cleanup via the always-warm local Gateway model** (`badkid-llama-chat`, Gemma 4 12B QAT). Validated with A/B tests on real German STT output: fillers, false starts, self-corrections and spoken numbers are cleaned correctly in German and English at ~1.2s latency. Key prompt requirements: explicit multilingual filler lists (EN + DE: äh, ähm, halt, eben), few-shot examples, and a cleanup-is-mandatory framing ("surface form is yours to fix; preserve only semantic content") — pure preservation instructions make the model return text unchanged.
 - **All assistant prompts live as editable Markdown** in `server/assistant/prompts/*.md` (file content = system prompt). They are re-read on every LLM call — edit, save, retry, no restart. Cleanup modes for `POST /v1/audio/cleanup` are derived from `cleanup-<mode>.md` filenames (loader: `server/assistant/prompts.js`; required files validated at startup, fail fast). See `server/assistant/prompts/README.md`.
 - ~~[superwhisper/s1-mini](https://huggingface.co/superwhisper/s1-mini)~~ — rejected: release v1 is **English-only** (model card verbatim), but nVoice needs EN+DE. Kept as fallback reference for English-only cleanup; base model is Qwen3-0.6B (multilingual), so a German fine-tune remains theoretically possible.
+
+### Reactive Assistant — Turn-Taking (experiment)
+
+Early harness for the reactive voice assistant: a resident tiny model decides turn state,
+and the always-warm `badkid-llama-chat` cleans and answers. The goal is natural
+turn-taking — detect when the user has *finished a thought* (not just paused), answer,
+and be barged-in on ("wait"/"stop").
+
+**Two models, two jobs (both resident on the LLM Gateway):**
+- `badkid-classifier` (Qwen3-0.6B, CPU) — classifies each settled turn as
+  `still-speaking` | `turn-done`. One-shot label (max_tokens 8, temperature 0) — a
+  decide, not a generate, so it returns in ~30ms. Pause alone does NOT end a turn; the
+  model only says `turn-done` when the words form a complete thought.
+- `badkid-llama-chat` (Gemma 4 12B) — cleans the turn text (`cleanTranscript`) and
+  streams the reply (`streamReply`, SSE).
+
+**State machine** (`server/assistant/turn-machine.js`, `TurnMachine`):
+`listening → cleaning → thinking → streaming → done`, back to listening. The mic stays
+open through cleaning/thinking/streaming: new finals buffer as the NEXT turn, and a
+barge-in keyword ("wait/stop/hold on") at the start of an utterance cancels processing
+immediately. Interrupt is **keyword-only**, not a classifier label — the classifier only
+ever returns still-speaking/turn-done.
+
+**Files:**
+- `server/assistant/intent.js` — `TurnIntentClassifier` + factory (gated on `?intent=1`).
+- `server/assistant/turn-machine.js` — the `TurnMachine` state machine.
+- `server/assistant/prompts/turn-intent.md` — classifier prompt (live-editable, no restart).
+- `server/api/realtime.js` — wires the machine into the realtime relay.
+- `web/pages/intent-lab.html` — the visual harness ("Intent Lab" nav entry): status
+  badges, pipeline visualizer, live speech buffer with silence-gap tracker, live
+  assistant reply, and a JSON export button. Tuning (pause threshold, max-silence
+  ceiling, reply toggle) lives in a `nui-dialog` opened from the Settings button.
+
+**Config** (`config.json` → `assistant`): `classifier_model` (default `badkid-classifier`),
+`intent_pause_ms` (default 1200). Opt-in per connection via the `?intent=1` WS query
+param — independent of `assistant.enabled`.
+
+**SDK:** `intentEnabled` flag appends `?intent=1`; new events `intent` `{label,text,
+pause_ms}`, `phase` `{phase}`, `reply` `{result:{type:cleaned|stream,text}}`.
+
+**Known gaps:** interrupt drops streamed tokens but does not hard-abort the in-flight
+gateway request (replies are short, so this is acceptable for now — a true AbortSignal
+cancel is the next step). Echo/barge-in audio handling is still undecided (separate).

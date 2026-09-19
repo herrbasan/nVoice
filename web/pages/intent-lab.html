@@ -1,0 +1,713 @@
+<div class="page-intent-lab">
+    <header style="margin-bottom: var(--nui-space-double)">
+        <h1>Intent Lab</h1>
+        <p class="lead">Reactive assistant turn-taking harness. Speak, then pause — the classifier decides <em>still-speaking</em> or <em>turn-done</em>, then the reply streams back. Say <em>"wait"</em> or <em>"stop"</em> to barge in.</p>
+    </header>
+
+    <!-- Top Card: Controller & HUD -->
+    <nui-card>
+        <div class="nv-section">
+            <div class="nv-live-header">
+                <div style="display: flex; align-items: center; gap: var(--nui-space-half); flex-wrap: wrap;">
+                    <nui-badge id="intent-status-badge" variant="danger">Disconnected</nui-badge>
+                    <nui-badge id="intent-voice-badge">Silence</nui-badge>
+                    <nui-badge id="intent-engine-badge" variant="info">Engine: --</nui-badge>
+                    <nui-badge id="intent-phase-badge" variant="info">listening</nui-badge>
+                </div>
+                <div id="intent-telemetry-text" class="nv-dim" style="font-family: monospace; font-size: 0.8em;">
+                    RTF: -- | Backlog: --
+                </div>
+            </div>
+
+            <div class="nv-form-stack" style="margin-top: var(--nui-space);">
+                <nui-input-group>
+                    <label for="intent-mic-select">Audio Input Source</label>
+                    <nui-select id="intent-mic-select-wrap">
+                        <select id="intent-mic-select"></select>
+                    </nui-select>
+                </nui-input-group>
+            </div>
+
+            <nui-button-container class="nv-actions" gap="medium">
+                <nui-button variant="primary" id="intent-btn-start">
+                    <button type="button" aria-label="Start Lab">
+                        <nui-icon name="play"></nui-icon>
+                        <span>Start Lab</span>
+                    </button>
+                </nui-button>
+                <nui-button variant="danger" id="intent-btn-stop">
+                    <button type="button" aria-label="Stop Lab" disabled>
+                        <nui-icon name="close"></nui-icon>
+                        <span>Stop</span>
+                    </button>
+                </nui-button>
+                <nui-button id="intent-btn-reset">
+                    <button type="button" aria-label="Clear Log">
+                        <nui-icon name="delete"></nui-icon>
+                        <span>Clear Log</span>
+                    </button>
+                </nui-button>
+                <nui-button id="intent-btn-export">
+                    <button type="button" aria-label="Export JSON" disabled>
+                        <nui-icon name="download"></nui-icon>
+                        <span>Export JSON</span>
+                    </button>
+                </nui-button>
+                <nui-button id="intent-btn-settings">
+                    <button type="button" aria-label="Settings" data-action="dialog-open@#intent-settings-dialog">
+                        <nui-icon name="settings"></nui-icon>
+                        <span>Settings</span>
+                    </button>
+                </nui-button>
+            </nui-button-container>
+        </div>
+
+        <!-- Live Pipeline State Machine Visualizer -->
+        <div class="nv-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--nui-space-half);">
+                <h3 style="margin: 0; font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-color-dim);">
+                    State Machine Pipeline
+                </h3>
+                <span id="intent-bargein-badge" style="display: none;">
+                    <nui-badge variant="danger">Barge-in Triggered!</nui-badge>
+                </span>
+            </div>
+
+            <div class="nv-pipeline" id="intent-pipeline">
+                <div class="nv-pipeline-step is-active" data-step="listening">
+                    <nui-icon name="mic"></nui-icon>
+                    <span>1. Listening</span>
+                </div>
+                <span class="nv-pipeline-arrow">➔</span>
+                <div class="nv-pipeline-step" data-step="pause">
+                    <nui-icon name="pause"></nui-icon>
+                    <span>2. Pause Settling</span>
+                </div>
+                <span class="nv-pipeline-arrow">➔</span>
+                <div class="nv-pipeline-step" data-step="classifier">
+                    <nui-icon name="cognition"></nui-icon>
+                    <span>3. Classifier</span>
+                </div>
+                <span class="nv-pipeline-arrow">➔</span>
+                <div class="nv-pipeline-step" data-step="cleaning">
+                    <nui-icon name="edit_note"></nui-icon>
+                    <span>4. Cleaning</span>
+                </div>
+                <span class="nv-pipeline-arrow">➔</span>
+                <div class="nv-pipeline-step" data-step="reply">
+                    <nui-icon name="chat"></nui-icon>
+                    <span>5. Responding</span>
+                </div>
+            </div>
+
+            <!-- Active In-Flight Turn Preview Card -->
+            <div class="nv-live-turn">
+                <div class="nv-live-header">
+                    <div style="display: flex; align-items: center; gap: var(--nui-space-half);">
+                        <strong style="font-size: 0.9em;">Current Speech Buffer:</strong>
+                        <span id="intent-active-label" style="font-size: 0.85em;">(waiting for speech...)</span>
+                    </div>
+                    <div style="font-size: 0.8em; color: var(--text-color-dim);">
+                        Barge-in: say <em>"wait"</em> or <em>"stop"</em> to interrupt
+                    </div>
+                </div>
+
+                <div id="intent-live-speech" class="nv-live-speech">
+                    <span class="final"></span><span class="provisional"></span>
+                </div>
+
+                <div class="nv-pause-tracker">
+                    <div class="nv-pause-meta">
+                        <span>Silence Gap: <strong id="intent-pause-cur">0 ms</strong> / <span id="intent-pause-max">1200 ms</span> threshold</span>
+                        <span>Decision: <strong id="intent-decision-text">idle</strong></span>
+                    </div>
+                    <nui-progress id="intent-pause-bar" value="0" max="100" hide-text></nui-progress>
+                </div>
+
+                <!-- Live Assistant Response (clears on every new answer) -->
+                <div style="margin-top: var(--nui-space); padding-top: var(--nui-space-half); border-top: 1px solid var(--border-shade1);">
+                    <div class="nv-live-header">
+                        <div style="display: flex; align-items: center; gap: var(--nui-space-half);">
+                            <strong style="font-size: 0.9em;">Live Assistant Response:</strong>
+                            <span id="intent-reply-status" class="nv-dim" style="font-size: 0.85em;">(idle)</span>
+                        </div>
+                        <span id="intent-reply-timing" class="nv-dim" style="font-family: monospace; font-size: 0.8em;"></span>
+                    </div>
+                    <div id="intent-live-reply" class="nv-live-speech nv-turn-reply-box" style="min-height: 4.5em; font-family: inherit; font-size: 0.95em;"></div>
+                </div>
+            </div>
+        </div>
+    </nui-card>
+
+    <!-- Settings Dialog — page mode (header/footer auto-generated from title + data-buttons) -->
+    <nui-dialog id="intent-settings-dialog" mode="page" title="Lab Settings"
+        data-buttons='[{"label": "Done", "value": "close", "type": "primary"}]'>
+        <nui-input-group>
+            <label for="intent-pause-input">Pause Trigger Threshold</label>
+            <nui-slider id="intent-pause-slider">
+                <input type="range" id="intent-pause-input" min="400" max="3000" step="100" value="1200">
+            </nui-slider>
+            <span class="description">
+                <strong id="intent-slider-val">1200 ms</strong> — silence gap before the classifier inspects the turn.
+            </span>
+            <nui-button-container align="start" gap="medium">
+                <nui-button id="intent-preset-800">
+                    <button type="button">Fast (800ms)</button>
+                </nui-button>
+                <nui-button id="intent-preset-1200">
+                    <button type="button">Default (1200ms)</button>
+                </nui-button>
+                <nui-button id="intent-preset-1800">
+                    <button type="button">Patient (1800ms)</button>
+                </nui-button>
+                <nui-button id="intent-preset-2500">
+                    <button type="button">Slow / Dictation (2500ms)</button>
+                </nui-button>
+            </nui-button-container>
+        </nui-input-group>
+
+        <nui-input-group>
+            <label for="intent-max-silence-input">Max Silence Fallback Timeout</label>
+            <nui-slider id="intent-max-silence-slider">
+                <input type="range" id="intent-max-silence-input" min="3000" max="15000" step="1000" value="8000">
+            </nui-slider>
+            <span class="description">
+                <strong id="intent-max-silence-val">8000 ms</strong> — fail-safe ceiling if the speaker never continues.
+            </span>
+        </nui-input-group>
+
+        <nui-checkbox>
+            <input type="checkbox" id="intent-toggle-reply" checked>
+            <label for="intent-toggle-reply">Simulate Assistant Reply (Gemma 4 12B streaming response)</label>
+        </nui-checkbox>
+
+        <p class="nv-dim">Settings travel as WebSocket query parameters and apply on the next <strong>Start Lab</strong>.</p>
+
+        <nui-accordion>
+            <details>
+                <summary>Turn-Taking State Machine Reference</summary>
+                <ul>
+                    <li><strong>still-speaking</strong>: The user paused, but the classifier determined the words form an incomplete sentence/thought. Turn stays open; speech continues.</li>
+                    <li><strong>turn-done</strong>: The user finished a complete grammatical/semantic thought. The turn locks and passes to cleanup + assistant reply.</li>
+                    <li><strong>cleaning</strong>: Local LLM cleans spoken fillers (äh, ähm, halt, like, you know) and settles sentence punctuation.</li>
+                    <li><strong>thinking</strong>: Time-to-first-token (TTFB) while assistant LLM starts generating its answer.</li>
+                    <li><strong>streaming</strong>: Assistant answer tokens stream in via SSE/WebSocket.</li>
+                    <li><strong>interrupted (Barge-In)</strong>: Spoken words starting with <em>wait, stop, halt, hold on, hold up, never mind, belay that</em> cancel in-flight generation immediately.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>Barge-in Regex Pattern</summary>
+                <p style="font-family: monospace;">/^\s*(wait|stop|halt|hold on|hold up|never ?mind|belay that)\b/i</p>
+                <p class="nv-dim">Evaluated against newly arriving finals while assistant is cleaning, thinking, or streaming. If matched, cancels processing and returns to listening with zero delay.</p>
+            </details>
+        </nui-accordion>
+    </nui-dialog>
+</div>
+
+<script type="nui/page">
+function init(element, params, nui) {
+    // Buttons & Controls
+    const startBtn = element.querySelector('#intent-btn-start');
+    const stopBtn = element.querySelector('#intent-btn-stop');
+    const resetBtn = element.querySelector('#intent-btn-reset');
+    const copyBtn = element.querySelector('#intent-btn-export');
+    const startInner = startBtn.querySelector('button');
+    const stopInner = stopBtn.querySelector('button');
+    const copyInner = copyBtn.querySelector('button');
+
+    // Badges & Status
+    const statusBadge = element.querySelector('#intent-status-badge');
+    const voiceBadge = element.querySelector('#intent-voice-badge');
+    const engineBadge = element.querySelector('#intent-engine-badge');
+    const phaseBadge = element.querySelector('#intent-phase-badge');
+    const bargeinBadge = element.querySelector('#intent-bargein-badge');
+    const telemetryText = element.querySelector('#intent-telemetry-text');
+
+    // Inputs
+    const micSelect = element.querySelector('#intent-mic-select');
+    const micSelectWrap = element.querySelector('#intent-mic-select-wrap');
+    const pauseSlider = element.querySelector('#intent-pause-slider');
+    const pauseInput = element.querySelector('#intent-pause-input');
+    const sliderVal = element.querySelector('#intent-slider-val');
+    const maxSilenceSlider = element.querySelector('#intent-max-silence-slider');
+    const maxSilenceInput = element.querySelector('#intent-max-silence-input');
+    const maxSilenceVal = element.querySelector('#intent-max-silence-val');
+    const toggleReply = element.querySelector('#intent-toggle-reply');
+
+    // Pipeline & Live Turn Tracker
+    const pipeline = element.querySelector('#intent-pipeline');
+    const liveSpeech = element.querySelector('#intent-live-speech');
+    const liveActiveLabel = element.querySelector('#intent-active-label');
+    const pauseBar = element.querySelector('#intent-pause-bar');
+    const pauseCur = element.querySelector('#intent-pause-cur');
+    const pauseMax = element.querySelector('#intent-pause-max');
+    const decisionText = element.querySelector('#intent-decision-text');
+    const liveReply = element.querySelector('#intent-live-reply');
+    const replyStatus = element.querySelector('#intent-reply-status');
+    const replyTiming = element.querySelector('#intent-reply-timing');
+
+    // Presets
+    const preset800 = element.querySelector('#intent-preset-800');
+    const preset1200 = element.querySelector('#intent-preset-1200');
+    const preset1800 = element.querySelector('#intent-preset-1800');
+    const preset2500 = element.querySelector('#intent-preset-2500');
+
+    let client = null;
+    let selectedPauseMs = 1200;
+    let selectedMaxSilenceMs = 8000;
+    let generateReply = true;
+    let pauseTicker = null;
+    let lastFinalTs = null;
+    let currentTurnIndex = 0;
+    const allEvents = [];
+    const completedTurns = [];
+
+    // Current in-flight turn accumulator
+    let activeTurn = {
+        index: 1,
+        startTs: null,
+        rawText: '',
+        cleanedText: '',
+        replyText: '',
+        label: 'idle',
+        pauseMs: 1200,
+        classifierLatency: null,
+        cleanLatency: null,
+        ttfb: null,
+        totalReplyMs: null,
+        isWaitingContinuation: false,
+        forced: false,
+    };
+
+    function updateActiveEngineBadge() {
+        if (window.nvoice?.activeEngine) {
+            engineBadge.textContent = window.nvoice.activeEngine;
+        }
+    }
+
+    function setPipelineStep(activeStep, variant) {
+        pipeline.querySelectorAll('.nv-pipeline-step').forEach(step => {
+            const stepName = step.dataset.step;
+            step.classList.remove('is-active', 'is-success', 'is-danger', 'is-warning');
+            if (stepName === activeStep) {
+                step.classList.add('is-active');
+                if (variant) step.classList.add(`is-${variant}`);
+            }
+        });
+    }
+
+    function setStatus(text, variant) {
+        statusBadge.textContent = text;
+        if (variant) statusBadge.setAttribute('variant', variant);
+        else statusBadge.removeAttribute('variant');
+    }
+
+    function setPhase(phase, variant = 'info') {
+        phaseBadge.textContent = phase;
+        phaseBadge.setAttribute('variant', variant);
+    }
+
+    function startPauseCountdown() {
+        if (pauseTicker) clearInterval(pauseTicker);
+        lastFinalTs = Date.now();
+        setPipelineStep('pause', 'warning');
+        liveActiveLabel.textContent = '(pause detected, silence timer running)';
+
+        pauseTicker = setInterval(() => {
+            if (!lastFinalTs) return;
+            const elapsed = Date.now() - lastFinalTs;
+            const target = activeTurn.isWaitingContinuation ? selectedMaxSilenceMs : selectedPauseMs;
+            const pct = Math.min(100, Math.round((elapsed / target) * 100));
+            pauseBar.setAttribute('value', String(pct));
+            pauseCur.textContent = `${elapsed} ms`;
+            if (!activeTurn.isWaitingContinuation && elapsed >= selectedPauseMs) {
+                setPipelineStep('classifier', 'warning');
+                liveActiveLabel.textContent = '(evaluating turn intent...)';
+            }
+        }, 40);
+    }
+
+    function stopPauseCountdown(resetVal = true) {
+        if (pauseTicker) {
+            clearInterval(pauseTicker);
+            pauseTicker = null;
+        }
+        if (resetVal) {
+            pauseBar.setAttribute('value', '0');
+            pauseCur.textContent = '0 ms';
+        }
+    }
+
+    async function loadInputSources() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(t => t.stop());
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devices.filter(d => d.kind === 'audioinput');
+            const items = audioInputs.map((device, i) => ({
+                value: device.deviceId,
+                label: device.label || `Microphone ${i + 1}`,
+            }));
+            if (items.length === 0) {
+                micSelectWrap.setItems([{ value: '', label: 'No microphones found' }]);
+                return;
+            }
+            micSelectWrap.setItems(items);
+            micSelectWrap.setValue?.(items[0].value);
+        } catch (err) {
+            micSelectWrap.setItems([{ value: '', label: 'Microphone permission denied' }]);
+        }
+    }
+
+    function setSlider(val) {
+        selectedPauseMs = Number(val);
+        pauseInput.value = val;
+        pauseSlider.setValue?.(Number(val));
+        sliderVal.textContent = `${val} ms`;
+        pauseMax.textContent = `${val} ms`;
+    }
+
+    function initClient() {
+        if (client) return;
+
+        client = new window.nVoiceClient({ serverUrl: '' });
+        client.intentEnabled = true;
+        client.intentPauseMs = selectedPauseMs;
+        client.intentMaxSilenceMs = selectedMaxSilenceMs;
+        client.intentNoReply = !generateReply;
+
+        client.on('connected', () => {
+            setStatus('Connected', 'success');
+            stopInner.disabled = false;
+            startInner.disabled = true;
+            copyInner.disabled = false;
+            micSelect.disabled = true;
+            updateActiveEngineBadge();
+            setPipelineStep('listening');
+            liveActiveLabel.textContent = '(ready — listening for speech)';
+            nui.components.banner.show({
+                content: 'Intent Lab connected. Speak and pause to test turn-taking.',
+                placement: 'top', priority: 'info', autoClose: 3000,
+            });
+        });
+
+        client.on('disconnected', () => {
+            setStatus('Disconnected', 'danger');
+            voiceBadge.textContent = 'Silence';
+            voiceBadge.removeAttribute('variant');
+            stopInner.disabled = true;
+            startInner.disabled = false;
+            micSelect.disabled = false;
+            stopPauseCountdown();
+            setPipelineStep('listening');
+            liveActiveLabel.textContent = '(disconnected)';
+        });
+
+        client.on('error', (err) => {
+            console.error('[Intent Lab]', err);
+            nui.components.banner.show({
+                content: `Realtime error: ${err.message || err}`,
+                placement: 'top', priority: 'danger', autoClose: 4000,
+            });
+        });
+
+        client.on('telemetry', (msg) => {
+            if (msg.state === 'idle/silence') {
+                voiceBadge.textContent = 'Silence';
+                voiceBadge.removeAttribute('variant');
+            } else {
+                voiceBadge.textContent = 'Speaking';
+                voiceBadge.setAttribute('variant', 'success');
+            }
+            if (msg.rtf != null) {
+                telemetryText.textContent = `RTF: ${msg.rtf} | Backlog: ${msg.backlog_sec || 0}s`;
+            }
+        });
+
+        // ASR transcripts
+        client.on('transcript', (msg) => {
+            let finalSpan = liveSpeech.querySelector('.final');
+            let provSpan = liveSpeech.querySelector('.provisional');
+            if (!finalSpan) {
+                liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+                finalSpan = liveSpeech.querySelector('.final');
+                provSpan = liveSpeech.querySelector('.provisional');
+            }
+
+            if (!activeTurn.startTs) activeTurn.startTs = Date.now();
+
+            if (msg.is_final) {
+                finalSpan.textContent += msg.text + ' ';
+                provSpan.textContent = '';
+                activeTurn.rawText += (activeTurn.rawText ? ' ' : '') + msg.text;
+                activeTurn.isWaitingContinuation = false;
+                pauseMax.textContent = `${selectedPauseMs} ms`;
+
+                allEvents.push({ type: 'final', text: msg.text, ts: Date.now() });
+
+                // Spoken chunk completed -> trigger live pause settling
+                startPauseCountdown();
+            } else {
+                provSpan.textContent = msg.text + ' …';
+                activeTurn.isWaitingContinuation = false;
+                pauseMax.textContent = `${selectedPauseMs} ms`;
+                // Speaking again — silence gap is 0, reset the counter (not just stop it).
+                stopPauseCountdown(true);
+                setPipelineStep('listening', 'success');
+                liveActiveLabel.textContent = '(speaking...)';
+            }
+            liveSpeech.scrollTop = liveSpeech.scrollHeight;
+        });
+
+        // Intent classification event
+        client.on('intent', (data) => {
+            const arrivalTs = Date.now();
+            const measuredClfLatency = data.latency_ms || (lastFinalTs ? Math.max(10, arrivalTs - (lastFinalTs + selectedPauseMs)) : 30);
+            activeTurn.classifierLatency = measuredClfLatency;
+            activeTurn.label = data.label;
+            activeTurn.pauseMs = data.pause_ms || selectedPauseMs;
+            activeTurn.forced = !!data.forced;
+
+            decisionText.textContent = `${data.label}${data.forced ? ' (timeout)' : ''} (${measuredClfLatency}ms)`;
+            decisionText.style.color = data.label === 'turn-done' ? 'var(--color-success, #2e8b57)' : 'var(--color-info, #2f7bd1)';
+
+            allEvents.push({
+                type: 'intent',
+                label: data.label,
+                forced: !!data.forced,
+                text: data.text,
+                pause_ms: data.pause_ms,
+                latency_ms: measuredClfLatency,
+                ts: arrivalTs,
+            });
+
+            if (data.label === 'still-speaking') {
+                activeTurn.isWaitingContinuation = true;
+                setPipelineStep('pause', 'info');
+                liveActiveLabel.textContent = `(still-speaking: waiting for more speech or silence timeout [${selectedMaxSilenceMs}ms]...)`;
+                pauseMax.textContent = `${selectedMaxSilenceMs} ms`;
+            } else if (data.label === 'turn-done') {
+                activeTurn.isWaitingContinuation = false;
+                pauseMax.textContent = `${selectedPauseMs} ms`;
+                stopPauseCountdown(true);
+                setPipelineStep('cleaning', 'warning');
+                liveActiveLabel.textContent = `(turn-done${data.forced ? ' [forced by timeout]' : ''}: cleaning transcript...)`;
+            }
+        });
+
+        // Phase transitions
+        client.on('phase', (data) => {
+            const p = data.phase;
+            allEvents.push({ type: 'phase', phase: p, text: data.text, ts: Date.now() });
+
+            if (p === 'cleaning') {
+                setPhase('cleaning', 'warning');
+                setPipelineStep('cleaning', 'warning');
+                liveActiveLabel.textContent = `(LLM cleanup removing fillers...)`;
+                // Clear previous answer on new turn
+                liveReply.textContent = '';
+                replyStatus.textContent = '(cleaning transcript...)';
+                replyTiming.textContent = '';
+            } else if (p === 'thinking') {
+                setPhase('thinking', 'warning');
+                setPipelineStep('reply', 'warning');
+                liveActiveLabel.textContent = `(Assistant thinking — awaiting first token...)`;
+                liveReply.textContent = '';
+                replyStatus.textContent = '(thinking... awaiting first token)';
+            } else if (p === 'streaming') {
+                setPhase('streaming', 'success');
+                setPipelineStep('reply', 'success');
+                liveActiveLabel.textContent = `(Assistant streaming reply...)`;
+                replyStatus.textContent = '(streaming response...)';
+                if (data.ttfb_ms && !activeTurn.ttfb) {
+                    activeTurn.ttfb = data.ttfb_ms;
+                    replyTiming.textContent = `TTFB: ${data.ttfb_ms}ms`;
+                }
+            } else if (p === 'interrupted') {
+                setPhase('interrupted', 'danger');
+                setPipelineStep('listening', 'danger');
+                bargeinBadge.style.display = 'inline-block';
+                setTimeout(() => { bargeinBadge.style.display = 'none'; }, 2500);
+
+                liveActiveLabel.textContent = `(BARGE-IN INTERRUPT: ${data.text || ''})`;
+                replyStatus.textContent = '(interrupted by barge-in)';
+                liveReply.innerHTML += '<div style="margin-top: var(--nui-space-half); color: var(--color-danger, #c0392b); font-weight: bold;">[INTERRUPTED BY USER BARGE-IN]</div>';
+
+                currentTurnIndex++;
+                completedTurns.push({
+                    ...activeTurn,
+                    index: currentTurnIndex,
+                    label: 'interrupted',
+                });
+
+                // Clear live speech view & reset
+                liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+                activeTurn = {
+                    index: currentTurnIndex + 1,
+                    startTs: Date.now(),
+                    rawText: '',
+                    cleanedText: '',
+                    replyText: '',
+                    label: 'idle',
+                    pauseMs: selectedPauseMs,
+                    classifierLatency: null,
+                    cleanLatency: null,
+                    ttfb: null,
+                    totalReplyMs: null,
+                };
+            } else if (p === 'done') {
+                setPhase('listening', 'info');
+                setPipelineStep('listening');
+                liveActiveLabel.textContent = `(ready for next turn)`;
+                replyStatus.textContent = '(completed)';
+
+                if (data.duration_ms) activeTurn.totalReplyMs = data.duration_ms;
+                if (data.ttfb_ms && !activeTurn.ttfb) activeTurn.ttfb = data.ttfb_ms;
+
+                replyTiming.textContent = `TTFB: ${activeTurn.ttfb != null ? activeTurn.ttfb + 'ms' : '--'} | Stream: ${activeTurn.totalReplyMs != null ? activeTurn.totalReplyMs + 'ms' : '--'}`;
+
+                currentTurnIndex++;
+                completedTurns.push({
+                    ...activeTurn,
+                    index: currentTurnIndex,
+                    label: 'turn-done',
+                });
+
+                // Clear live speech box for next turn
+                liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+                activeTurn = {
+                    index: currentTurnIndex + 1,
+                    startTs: null,
+                    rawText: '',
+                    cleanedText: '',
+                    replyText: '',
+                    label: 'idle',
+                    pauseMs: selectedPauseMs,
+                    classifierLatency: null,
+                    cleanLatency: null,
+                    ttfb: null,
+                    totalReplyMs: null,
+                };
+            }
+        });
+
+        // Assistant reply chunks
+        client.on('reply', (data) => {
+            const r = data.result || data;
+            if (r.type === 'cleaned') {
+                activeTurn.cleanedText = r.text || '';
+                if (r.latency_ms) activeTurn.cleanLatency = r.latency_ms;
+                // Clear display on fresh cleaned turn
+                liveReply.textContent = '';
+                replyStatus.textContent = `Cleaned: "${(r.text || '').slice(0, 40)}${(r.text || '').length > 40 ? '...' : ''}"`;
+            } else if (r.type === 'stream') {
+                activeTurn.replyText += r.text || '';
+                liveReply.textContent += r.text || '';
+                liveReply.scrollTop = liveReply.scrollHeight;
+            }
+        });
+    }
+
+    // Controls listeners
+    startBtn.addEventListener('click', async () => {
+        initClient();
+        startInner.disabled = true;
+        micSelect.disabled = true;
+        client.setAudioDevice(micSelect.value);
+        client.engine = window.nvoice.activeEngine;
+        client.intentPauseMs = selectedPauseMs;
+        client.intentMaxSilenceMs = selectedMaxSilenceMs;
+        client.intentNoReply = !generateReply;
+        client.intentMaxTokens = 2048;
+        client.wakeWordEnabled = false;
+        client.isAwake = true;
+        await client.start().catch(e => {
+            console.error(e);
+            startInner.disabled = false;
+        });
+    });
+
+    stopBtn.addEventListener('click', () => {
+        if (client) {
+            client.disconnect();
+            client = null;
+        }
+        stopPauseCountdown();
+    });
+
+    resetBtn.addEventListener('click', () => {
+        completedTurns.length = 0;
+        allEvents.length = 0;
+        currentTurnIndex = 0;
+        liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
+        liveReply.textContent = '';
+        replyStatus.textContent = '(idle)';
+        replyTiming.textContent = '';
+        nui.components.banner.show({
+            content: 'Log and turn history cleared.',
+            placement: 'bottom', priority: 'info', autoClose: 2000,
+        });
+    });
+
+    copyBtn.addEventListener('click', async () => {
+        const payload = {
+            exportedAt: new Date().toISOString(),
+            pauseThresholdMs: selectedPauseMs,
+            maxSilenceMs: selectedMaxSilenceMs,
+            turns: completedTurns,
+            events: allEvents,
+        };
+        const json = JSON.stringify(payload, null, 2);
+        try {
+            await navigator.clipboard.writeText(json);
+            nui.components.banner.show({
+                content: 'Exported session JSON copied to clipboard!',
+                placement: 'top', priority: 'info', autoClose: 2500,
+            });
+        } catch (e) {
+            nui.components.banner.show({
+                content: 'Clipboard blocked — downloading JSON file',
+                placement: 'top', priority: 'warning', autoClose: 2000,
+            });
+        }
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `intent-lab-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    // Slider listener
+    pauseInput.addEventListener('input', (e) => {
+        setSlider(e.target.value);
+    });
+
+    maxSilenceInput.addEventListener('input', (e) => {
+        selectedMaxSilenceMs = Number(e.target.value);
+        maxSilenceSlider.setValue?.(selectedMaxSilenceMs);
+        maxSilenceVal.textContent = `${selectedMaxSilenceMs} ms`;
+    });
+
+    toggleReply.addEventListener('change', (e) => {
+        generateReply = e.target.checked;
+        if (client) client.intentNoReply = !generateReply;
+    });
+
+    // Presets
+    preset800.addEventListener('click', () => setSlider(800));
+    preset1200.addEventListener('click', () => setSlider(1200));
+    preset1800.addEventListener('click', () => setSlider(1800));
+    preset2500.addEventListener('click', () => setSlider(2500));
+
+    element.show = () => {
+        loadInputSources();
+        updateActiveEngineBadge();
+    };
+
+    loadInputSources();
+    updateActiveEngineBadge();
+}
+</script>
+

@@ -81,6 +81,7 @@ export class AssistantSession {
     this.model = opts.model;
     this.contextSentences = opts.contextSentences ?? 3;
     this.customActions = opts.customActions ?? [];
+    this.replyMaxTokens = opts.replyMaxTokens ?? 2048;
 
     // Per-sentence prompt (prompts/assistant-sentence.md) + context history
     this.systemPrompt = buildSystemPrompt(this.customActions);
@@ -229,6 +230,80 @@ export class AssistantSession {
       ],
       { maxTokens: 200, temperature: 0.4 }
     );
+  }
+
+  /**
+   * Stream a handsfree one-shot reply (SSE). Emits each token via onToken and
+   * resolves with the full reply text. Used by the turn-taking machine to stream
+   * the assistant's real answer in.
+   *
+   * @param {string} text - The cleaned user utterance
+   * @param {(token:string)=>void} [onToken]
+   * @returns {Promise<string|null>} Full reply text, or null on failure
+   */
+  async streamReply(text, onToken) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return null;
+
+    const systemPrompt = loadPrompt('handsfree-reply.md');
+    const messages = [];
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+    messages.push({ role: 'user', content: trimmed });
+
+    const body = JSON.stringify({
+      model: this.model,
+      messages,
+      max_tokens: this.replyMaxTokens || 2048,
+      temperature: 0.6,
+      stream: true,
+    });
+
+    try {
+      const res = await fetch(`${this.gatewayUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.gatewayKey}`,
+        },
+        body,
+      });
+      if (!res.ok) {
+        logger.warn('Assistant streamReply HTTP error', { status: res.status }, 'Assistant');
+        return null;
+      }
+
+      let full = '';
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          const l = line.trim();
+          if (!l.startsWith('data:')) continue;
+          const payload = l.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const json = JSON.parse(payload);
+            const delta = json?.choices?.[0]?.delta?.content;
+            if (delta) {
+              full += delta;
+              if (onToken) onToken(delta);
+            }
+          } catch { /* skip malformed SSE line */ }
+        }
+      }
+      return full || null;
+    } catch (err) {
+      logger.error('Assistant streamReply failed', err, 'Assistant');
+      return null;
+    }
   }
 
   /**

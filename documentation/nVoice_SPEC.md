@@ -165,6 +165,12 @@ silence tail. The heuristics there are load-bearing — do not simplify. VAD is 
 client (Silero WASM gate) and worker (backend stage); Node owns only the *policy* and the
 WebSocket relay — it performs no frame-level VAD and no audio decode.
 
+**Reactive assistant (turn-taking, experiment):** when a client connects with
+`?intent=1`, the Node relay also runs a `TurnMachine` (`server/assistant/turn-machine.js`).
+It classifies settled transcripts (`badkid-classifier`) into `still-speaking`/`turn-done`,
+then cleans and streams a reply (`badkid-llama-chat`). A barge-in keyword ("wait"/"stop")
+cancels processing. See Agents.md.
+
 ---
 
 ## 6. Configuration
@@ -180,6 +186,8 @@ WebSocket relay — it performs no frame-level VAD and no audio decode.
 | `engine_dirs` | — | map of engine family → venv dir |
 | `ffmpeg_path` / `ffprobe_path` | vendored | optional explicit ffmpeg/ffprobe override (falls back to vendored submodule) |
 | `vad.*` | — | client gate + backend stage thresholds, silence tail |
+| `assistant.classifier_model` | `badkid-classifier` | turn-intent classifier model (reactive assistant) |
+| `assistant.intent_pause_ms` | `1200` | pause before classifying turn state |
 | `beam_size`, `best_of`, `temperature`, `no_speech_threshold`, … | — | faster-whisper decode params |
 
 Secrets live in `.env` (loaded into `config.env`): `HF_TOKEN` (pyannote), cloud API keys

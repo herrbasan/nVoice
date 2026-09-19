@@ -22,6 +22,7 @@ const REQUIRED = [
   'dictation-cleanup.md',
   'handsfree-reply.md',
   'command-classifier.md',
+  'turn-intent.md',
 ];
 
 for (const f of [...REQUIRED]) {

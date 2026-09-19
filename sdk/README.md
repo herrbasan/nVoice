@@ -28,6 +28,7 @@ const client = new nVoiceClient({ serverUrl: '', basePath: '/api/stt' });
 | `audioDeviceId` | `null` | Mic device for `start()`. |
 | `engine` | `null` | Engine id (else server default). |
 | `recordDebug` | `false` | Worker records engine-received audio to WAV. |
+| `intentEnabled` | `false` | Opt into turn-taking intent classification (`?intent=1`). |
 
 ## Dictation API (chat-app primary flow)
 
@@ -70,6 +71,8 @@ State machine: `sleep → "ok kimi" → command (listen/stop/send) → transcrib
 ## Events
 
 `connected`, `disconnected`, `standby`, `transcript` `{text, is_final}`, `telemetry` `{rtf, backlog_sec}`, `wakeWordDetected`, `asleep`, `error`.
+
+**Reactive assistant** (`client.intentEnabled = true`): `intent` `{label, text, pause_ms}` (`still-speaking`|`turn-done`), `phase` `{phase}` (`cleaning`|`thinking`|`streaming`|`done`|`interrupted`), `reply` `{result:{type, text}}` (`cleaned` then `stream` tokens).
 
 ## Notes
 
