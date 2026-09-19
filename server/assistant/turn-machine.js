@@ -77,8 +77,10 @@ export class TurnMachine {
     this.turnText = '';         // settled text of the current (speaking) turn
     this.nextText = '';         // settled text arriving during processing
     this.pauseTimer = null;
+    this._pauseArmedAt = null;  // when pauseTimer was armed (staleness check)
     this.deadlineTimer = null;  // silence-ceiling timer (forces completion)
     this.lastSpeechTs = null;
+    this._reopened = false;     // speech landed during cleanup (send abandoned)
   }
 
   /** Called for every settled transcript (is_final). */
@@ -88,10 +90,23 @@ export class TurnMachine {
     if (this.state === 'listening') {
       this.turnText += (this.turnText ? ' ' : '') + t;
       this.lastSpeechTs = Date.now();
-      this._cancelDeadline();
+      // The ceiling protects the turn from the first final onward: if speech
+      // never settles long enough for the pause to fire, this still completes it.
+      this._armDeadline();
+      this._armPause();
+    } else if (this.state === 'cleaning') {
+      // Classified as done but NOT sent yet — speech arriving now means the
+      // thought was not finished. Abandon the pending send, keep the text and
+      // resume collecting; _processTurn drops the cleanup result when it lands.
+      this.turnText += (this.turnText ? ' ' : '') + t;
+      this.lastSpeechTs = Date.now();
+      this._reopened = true;
+      this.state = 'listening';
+      this._armDeadline();
       this._armPause();
     } else {
-      // Processing — buffer the next turn, watch for a barge-in at its start.
+      // thinking / streaming — already handed to the answer LLM. Buffer the next
+      // turn and watch for a barge-in at its start.
       this.nextText += (this.nextText ? ' ' : '') + t;
       if (INTERRUPT_RE.test(this.nextText)) this._interrupt();
     }
@@ -104,10 +119,15 @@ export class TurnMachine {
     if (this.state !== 'listening') return;
     this.lastSpeechTs = Date.now();
     this._cancelDeadline();
+    // Speech resumed — the pending pause is stale. Without this the timer armed
+    // before the speech still fires, and the classifier runs on a pause that has
+    // not actually lasted pauseMs (observed as pause_ms far below the threshold).
+    this._armPause();
   }
 
   _armPause() {
     if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this._pauseArmedAt = Date.now();
     this.pauseTimer = setTimeout(() => this._onPause(), this.pauseMs);
   }
 
@@ -116,6 +136,14 @@ export class TurnMachine {
     if (this.state !== 'listening') return;
     const snapshot = this.turnText;
     if (!snapshot) return;
+
+    // Speech landed after this timer was armed, so it is stale: the pause has
+    // not actually lasted pauseMs. Re-arm rather than classifying mid-utterance.
+    // (Ringing a premature turn-done here would cut the speaker off.)
+    if (this.lastSpeechTs > this._pauseArmedAt) {
+      this._armPause();
+      return;
+    }
 
     const elapsed = Date.now() - (this.lastSpeechTs || Date.now());
 
@@ -188,6 +216,7 @@ export class TurnMachine {
   }
 
   async _processTurn(text) {
+    this._reopened = false;
     this.state = 'cleaning';
     this.emit({ type: 'phase', phase: 'cleaning', text });
 
@@ -202,6 +231,17 @@ export class TurnMachine {
       }
     }
     const cleanLatencyMs = Date.now() - cleanStart;
+
+    // Speech arrived while cleaning: the text was never sent, so the cleaned
+    // result is dropped and the turn resumes collecting (onFinal already
+    // appended the speech and returned the state to listening).
+    if (this._reopened) {
+      this._reopened = false;
+      logger.info('Turn reopened — speech arrived during cleanup, send abandoned', { text: this.turnText }, 'TurnMachine', { console: true });
+      this.emit({ type: 'phase', phase: 'reopened', text: this.turnText });
+      return;
+    }
+
     if (this.state !== 'cleaning') return;  // interrupted during cleanup
     this.emit({ type: 'reply', result: { type: 'cleaned', text: cleaned, latency_ms: cleanLatencyMs } });
 
@@ -244,6 +284,7 @@ export class TurnMachine {
     this.emit({ type: 'phase', phase: 'interrupted', text: this.nextText, trigger: this.nextText.trim() });
     this.turnText = '';
     this.nextText = '';
+    this._reopened = false;
     this.lastSpeechTs = null;
     this.state = 'listening';
     if (this.pauseTimer) { clearTimeout(this.pauseTimer); this.pauseTimer = null; }
@@ -252,6 +293,7 @@ export class TurnMachine {
 
   _resetToListening() {
     this.state = 'listening';
+    this._reopened = false;
     this.turnText = this.nextText;   // speech during generation becomes next turn
     this.nextText = '';
     this.lastSpeechTs = this.turnText ? Date.now() : null;

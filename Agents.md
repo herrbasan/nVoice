@@ -141,11 +141,16 @@ and be barged-in on ("wait"/"stop").
   streams the reply (`streamReply`, SSE).
 
 **State machine** (`server/assistant/turn-machine.js`, `TurnMachine`):
-`listening → cleaning → thinking → streaming → done`, back to listening. The mic stays
-open through cleaning/thinking/streaming: new finals buffer as the NEXT turn, and a
-barge-in keyword ("wait/stop/hold on") at the start of an utterance cancels processing
-immediately. Interrupt is **keyword-only**, not a classifier label — the classifier only
-ever returns still-speaking/turn-done.
+`listening → cleaning → thinking → streaming → done`, back to listening. A pause is an
+*opportunity* to classify, not a commitment: if the classifier sees a logical end it goes
+to cleaning, and **speech arriving before the cleaned text is sent reopens the turn**
+(`reopened`) — the cleanup result is discarded, the new final is appended to the same
+turn text, and the next pause re-decides. Only a cleaned turn with no further speech is
+handed to the answer LLM. During thinking/streaming the text is already sent, so new
+finals buffer as the NEXT turn, and a barge-in keyword ("wait/stop/hold on") at the start
+of an utterance cancels processing immediately. Interrupt is **keyword-only**, not a
+classifier label — the classifier only ever returns still-speaking/turn-done. The silence
+ceiling (`maxSilenceMs`) is the fail-safe for when classification never settles.
 
 **Files:**
 - `server/assistant/intent.js` — `TurnIntentClassifier` + factory (gated on `?intent=1`).
@@ -156,6 +161,16 @@ ever returns still-speaking/turn-done.
   badges, pipeline visualizer, live speech buffer with silence-gap tracker, live
   assistant reply, and a JSON export button. Tuning (pause threshold, max-silence
   ceiling, reply toggle) lives in a `nui-dialog` opened from the Settings button.
+- `sdk/tts-player.js` — speaks the reply via nSpeech/Kokoro, sentence at a time, with
+  the next sentence synthesized while the current one plays. Playback runs through a
+  local **WebRTC loopback** because Chromium's AEC references WebRTC playout — audio
+  that never passes through it is not cancelled and the mic hears the assistant. One
+  long-lived path (AEC needs seconds to converge), built inside the Start click
+  (`prime()`) so autoplay policy does not suspend it. `stop()` is the barge-in and is
+  unconditional — talking over the assistant always means stop.
+- `sdk/tts-player.js` + `client.note()` — playback evidence (start, cut, dropped
+  sentences) is written into the session report by the app, so a session where the
+  assistant interrupted itself is diagnosable after the fact.
 
 **Config** (`config.json` → `assistant`): `classifier_model` (default `badkid-classifier`),
 `intent_pause_ms` (default 1200). Opt-in per connection via the `?intent=1` WS query

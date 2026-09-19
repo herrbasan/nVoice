@@ -21,7 +21,7 @@ $loose = Join-Path $out "loose"
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 New-Item -ItemType Directory -Path $loose -Force | Out-Null
 
-$core = @("nVoiceClient.js", "nspeech-client.js", "README.md")
+$core = @("nVoiceClient.js", "nspeech-client.js", "tts-player.js", "README.md")
 $extras = @("ort.js", "ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm",
             "ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm",
             "silero_vad.onnx", "download-wasm.bat")

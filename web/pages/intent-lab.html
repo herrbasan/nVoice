@@ -176,6 +176,25 @@
             </span>
         </nui-input-group>
 
+        <nui-input-group>
+            <label for="intent-tts-voice">Assistant Voice (nSpeech / Kokoro)</label>
+            <div style="display: flex; gap: var(--nui-space); align-items: center; flex-wrap: wrap;">
+                <nui-checkbox>
+                    <input type="checkbox" id="intent-tts-enabled" checked>
+                    <label for="intent-tts-enabled">Speak the reply</label>
+                </nui-checkbox>
+                <nui-select size="small" id="intent-tts-voice-wrap">
+                    <select id="intent-tts-voice"></select>
+                </nui-select>
+            </div>
+            <span class="description">
+                Playback is the barge-in window — synthesis outlives the server's reply, so the
+                assistant is still talking after the turn is done. Speaking stops the audio immediately.
+                The mic runs with echo cancellation while this is on, so the assistant does not hear itself.
+                <strong id="intent-tts-status"></strong>
+            </span>
+        </nui-input-group>
+
         <nui-checkbox>
             <input type="checkbox" id="intent-toggle-reply" checked>
             <label for="intent-toggle-reply">Simulate Assistant Reply (Gemma 4 12B streaming response)</label>
@@ -232,6 +251,10 @@ function init(element, params, nui) {
     const maxSilenceSlider = element.querySelector('#intent-max-silence-slider');
     const maxSilenceInput = element.querySelector('#intent-max-silence-input');
     const maxSilenceVal = element.querySelector('#intent-max-silence-val');
+    const ttsEnabledInput = element.querySelector('#intent-tts-enabled');
+    const ttsVoiceWrap = element.querySelector('#intent-tts-voice-wrap');
+    const ttsVoiceSelect = element.querySelector('#intent-tts-voice');
+    const ttsStatus = element.querySelector('#intent-tts-status');
     const toggleReply = element.querySelector('#intent-toggle-reply');
 
     // Pipeline & Live Turn Tracker
@@ -258,26 +281,72 @@ function init(element, params, nui) {
     let generateReply = true;
     let pauseTicker = null;
     let lastFinalTs = null;
-    let currentTurnIndex = 0;
-    const allEvents = [];
-    const completedTurns = [];
+    let liveTtfb = null;
 
-    // Current in-flight turn accumulator
+    // Current in-flight turn accumulator (drives the live UI only — the SDK owns the record)
     let activeTurn = {
-        index: 1,
         startTs: null,
-        rawText: '',
-        cleanedText: '',
-        replyText: '',
-        label: 'idle',
-        pauseMs: 1200,
-        classifierLatency: null,
-        cleanLatency: null,
-        ttfb: null,
-        totalReplyMs: null,
         isWaitingContinuation: false,
         forced: false,
     };
+
+    // ---------- Session report -----------------------------------------------
+    // Turn-taking is recorded by the SDK (see sdk/nVoiceClient.js). The page only
+    // captures the finished report so it can be exported and read back from the
+    // console or from window.__intentLab.
+    let sessionReport = null;
+    let tts = null;
+
+    const TTS_URL = 'http://127.0.0.1:2233';
+
+    /**
+     * Build the player for this session. Playback is deliberately owned here and
+     * not by the SDK: audio lives in the browser, and the SDK cannot know when the
+     * speaker is still talking. The player reports what it did back into the
+     * session record through client.note() so it shows up in the report.
+     */
+    function initTts(instance) {
+        if (tts) { tts.stop('session restart'); tts = null; }
+        const enabled = ttsEnabledInput.checked && !ttsEnabledInput.disabled;
+        tts = new window.TtsPlayer({
+            baseUrl: TTS_URL,
+            model: 'kokoro',
+            voice: ttsVoiceSelect.value || 'af_heart',
+            enabled,
+            onEvent: (ev) => {
+                window.__intentLab.tts = tts ? tts.state : null;
+                if (ev.type === 'start') {
+                    instance.note('playback-start', `speaking the reply as ${tts.voice}`);
+                } else if (ev.type === 'interrupted') {
+                    instance.note('playback-cut', `${ev.reason} — cut after ${(ev.spokenMs / 1000).toFixed(1)}s, ${ev.dropped} sentence(s) dropped`);
+                } else if (ev.type === 'error') {
+                    instance.note('playback-error', ev.error, 'warn');
+                }
+            },
+        });
+        window.__intentLab.tts = tts.state;
+    }
+
+    /** Populate the voice list from nSpeech; without it the feature is off, loudly. */
+    async function loadVoices() {
+        try {
+            const res = await fetch(`${TTS_URL}/v1/voices?engine=kokoro`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const items = (data.voices || []).map(v => ({ value: v.voice_id, label: v.voice_id }));
+            if (!items.length) throw new Error('no kokoro voices');
+            ttsVoiceWrap.setItems(items);
+            ttsVoiceWrap.setValue(items.some(i => i.value === 'af_heart') ? 'af_heart' : items[0].value);
+            ttsEnabledInput.disabled = false;
+            ttsStatus.textContent = '';
+        } catch (err) {
+            ttsVoiceWrap.setItems([{ value: 'af_heart', label: 'af_heart' }]);
+            ttsVoiceWrap.setValue('af_heart');
+            ttsEnabledInput.checked = false;
+            ttsEnabledInput.disabled = true;
+            ttsStatus.textContent = `nSpeech unreachable at ${TTS_URL} (${err.message}) — voice off.`;
+        }
+    }
 
     function updateActiveEngineBadge() {
         if (window.nvoice?.activeEngine) {
@@ -376,6 +445,25 @@ function init(element, params, nui) {
         client.intentMaxSilenceMs = selectedMaxSilenceMs;
         client.intentNoReply = !generateReply;
 
+        // The SDK records the session and prints the report when the socket closes.
+        // Keep a copy so the page can export it and so it can be read back from the
+        // console or from window.__intentLab after the client is gone.
+        const instance = client;
+        instance.on('session-report', (report) => {
+            sessionReport = report;
+            // Merge rather than replace — the turn and TTS diagnostics live on the
+            // same object and must survive the report landing.
+            window.__intentLab = { ...window.__intentLab, report, text: instance.lastReportText };
+        });
+        instance.on('turn', (turn) => {
+            window.__intentLab.turn = turn;
+        });
+        // The user speaking cuts assistant playback immediately — unconditionally,
+        // not keyword-gated. Talking over the assistant always means stop.
+        instance.on('speech-start', () => {
+            if (tts && (tts.playing || tts.pending)) tts.stop('user spoke');
+        });
+
         client.on('connected', () => {
             setStatus('Connected', 'success');
             stopInner.disabled = false;
@@ -405,8 +493,9 @@ function init(element, params, nui) {
 
         client.on('error', (err) => {
             console.error('[Intent Lab]', err);
+            const message = err?.message || String(err);
             nui.components.banner.show({
-                content: `Realtime error: ${err.message || err}`,
+                content: `Realtime error: ${message}`,
                 placement: 'top', priority: 'danger', autoClose: 4000,
             });
         });
@@ -439,11 +528,8 @@ function init(element, params, nui) {
             if (msg.is_final) {
                 finalSpan.textContent += msg.text + ' ';
                 provSpan.textContent = '';
-                activeTurn.rawText += (activeTurn.rawText ? ' ' : '') + msg.text;
                 activeTurn.isWaitingContinuation = false;
                 pauseMax.textContent = `${selectedPauseMs} ms`;
-
-                allEvents.push({ type: 'final', text: msg.text, ts: Date.now() });
 
                 // Spoken chunk completed -> trigger live pause settling
                 startPauseCountdown();
@@ -463,23 +549,10 @@ function init(element, params, nui) {
         client.on('intent', (data) => {
             const arrivalTs = Date.now();
             const measuredClfLatency = data.latency_ms || (lastFinalTs ? Math.max(10, arrivalTs - (lastFinalTs + selectedPauseMs)) : 30);
-            activeTurn.classifierLatency = measuredClfLatency;
-            activeTurn.label = data.label;
-            activeTurn.pauseMs = data.pause_ms || selectedPauseMs;
             activeTurn.forced = !!data.forced;
 
             decisionText.textContent = `${data.label}${data.forced ? ' (timeout)' : ''} (${measuredClfLatency}ms)`;
             decisionText.style.color = data.label === 'turn-done' ? 'var(--color-success, #2e8b57)' : 'var(--color-info, #2f7bd1)';
-
-            allEvents.push({
-                type: 'intent',
-                label: data.label,
-                forced: !!data.forced,
-                text: data.text,
-                pause_ms: data.pause_ms,
-                latency_ms: measuredClfLatency,
-                ts: arrivalTs,
-            });
 
             if (data.label === 'still-speaking') {
                 activeTurn.isWaitingContinuation = true;
@@ -498,7 +571,6 @@ function init(element, params, nui) {
         // Phase transitions
         client.on('phase', (data) => {
             const p = data.phase;
-            allEvents.push({ type: 'phase', phase: p, text: data.text, ts: Date.now() });
 
             if (p === 'cleaning') {
                 setPhase('cleaning', 'warning');
@@ -508,6 +580,14 @@ function init(element, params, nui) {
                 liveReply.textContent = '';
                 replyStatus.textContent = '(cleaning transcript...)';
                 replyTiming.textContent = '';
+            } else if (p === 'reopened') {
+                // Speech arrived before the clean text was sent, so the send was
+                // abandoned and the turn is collecting again.
+                setPhase('listening', 'info');
+                setPipelineStep('listening');
+                liveActiveLabel.textContent = '(speech resumed — cleanup discarded, still listening)';
+                replyStatus.textContent = '(send abandoned)';
+                stopPauseCountdown(true);
             } else if (p === 'thinking') {
                 setPhase('thinking', 'warning');
                 setPipelineStep('reply', 'warning');
@@ -519,8 +599,8 @@ function init(element, params, nui) {
                 setPipelineStep('reply', 'success');
                 liveActiveLabel.textContent = `(Assistant streaming reply...)`;
                 replyStatus.textContent = '(streaming response...)';
-                if (data.ttfb_ms && !activeTurn.ttfb) {
-                    activeTurn.ttfb = data.ttfb_ms;
+                if (data.ttfb_ms && liveTtfb == null) {
+                    liveTtfb = data.ttfb_ms;
                     replyTiming.textContent = `TTFB: ${data.ttfb_ms}ms`;
                 }
             } else if (p === 'interrupted') {
@@ -532,62 +612,27 @@ function init(element, params, nui) {
                 liveActiveLabel.textContent = `(BARGE-IN INTERRUPT: ${data.text || ''})`;
                 replyStatus.textContent = '(interrupted by barge-in)';
                 liveReply.innerHTML += '<div style="margin-top: var(--nui-space-half); color: var(--color-danger, #c0392b); font-weight: bold;">[INTERRUPTED BY USER BARGE-IN]</div>';
-
-                currentTurnIndex++;
-                completedTurns.push({
-                    ...activeTurn,
-                    index: currentTurnIndex,
-                    label: 'interrupted',
-                });
+                if (tts) tts.stop('server barge-in');
 
                 // Clear live speech view & reset
                 liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
-                activeTurn = {
-                    index: currentTurnIndex + 1,
-                    startTs: Date.now(),
-                    rawText: '',
-                    cleanedText: '',
-                    replyText: '',
-                    label: 'idle',
-                    pauseMs: selectedPauseMs,
-                    classifierLatency: null,
-                    cleanLatency: null,
-                    ttfb: null,
-                    totalReplyMs: null,
-                };
+                liveTtfb = null;
+                activeTurn = { startTs: null, isWaitingContinuation: false, forced: false };
             } else if (p === 'done') {
                 setPhase('listening', 'info');
                 setPipelineStep('listening');
                 liveActiveLabel.textContent = `(ready for next turn)`;
                 replyStatus.textContent = '(completed)';
 
-                if (data.duration_ms) activeTurn.totalReplyMs = data.duration_ms;
-                if (data.ttfb_ms && !activeTurn.ttfb) activeTurn.ttfb = data.ttfb_ms;
+                if (data.ttfb_ms && liveTtfb == null) liveTtfb = data.ttfb_ms;
 
-                replyTiming.textContent = `TTFB: ${activeTurn.ttfb != null ? activeTurn.ttfb + 'ms' : '--'} | Stream: ${activeTurn.totalReplyMs != null ? activeTurn.totalReplyMs + 'ms' : '--'}`;
-
-                currentTurnIndex++;
-                completedTurns.push({
-                    ...activeTurn,
-                    index: currentTurnIndex,
-                    label: 'turn-done',
-                });
+                replyTiming.textContent = `TTFB: ${liveTtfb != null ? liveTtfb + 'ms' : '--'} | Stream: ${data.duration_ms != null ? data.duration_ms + 'ms' : '--'}`;
+                if (tts) tts.flush();
 
                 // Clear live speech box for next turn
                 liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
-                activeTurn = {
-                    index: currentTurnIndex + 1,
-                    startTs: null,
-                    rawText: '',
-                    cleanedText: '',
-                    replyText: '',
-                    label: 'idle',
-                    pauseMs: selectedPauseMs,
-                    classifierLatency: null,
-                    cleanLatency: null,
-                    ttfb: null,
-                    totalReplyMs: null,
-                };
+                liveTtfb = null;
+                activeTurn = { startTs: null, isWaitingContinuation: false, forced: false };
             }
         });
 
@@ -595,15 +640,13 @@ function init(element, params, nui) {
         client.on('reply', (data) => {
             const r = data.result || data;
             if (r.type === 'cleaned') {
-                activeTurn.cleanedText = r.text || '';
-                if (r.latency_ms) activeTurn.cleanLatency = r.latency_ms;
                 // Clear display on fresh cleaned turn
                 liveReply.textContent = '';
                 replyStatus.textContent = `Cleaned: "${(r.text || '').slice(0, 40)}${(r.text || '').length > 40 ? '...' : ''}"`;
             } else if (r.type === 'stream') {
-                activeTurn.replyText += r.text || '';
                 liveReply.textContent += r.text || '';
                 liveReply.scrollTop = liveReply.scrollHeight;
+                if (tts) tts.push(r.text || '');
             }
         });
     }
@@ -611,6 +654,12 @@ function init(element, params, nui) {
     // Controls listeners
     startBtn.addEventListener('click', async () => {
         initClient();
+        sessionReport = null;
+        initTts(client);
+        if (tts) {
+            tts.prime();   // must be inside the click — see TtsPlayer.prime()
+            window.__intentLab.tts = tts.state;   // priming is otherwise invisible here
+        }
         startInner.disabled = true;
         micSelect.disabled = true;
         client.setAudioDevice(micSelect.value);
@@ -633,12 +682,12 @@ function init(element, params, nui) {
             client = null;
         }
         stopPauseCountdown();
+        if (tts) tts.stop('session stopped');
     });
 
     resetBtn.addEventListener('click', () => {
-        completedTurns.length = 0;
-        allEvents.length = 0;
-        currentTurnIndex = 0;
+        sessionReport = null;
+        window.__intentLab = { reason: 'cleared', report: null, text: null };
         liveSpeech.innerHTML = '<span class="final"></span><span class="provisional"></span>';
         liveReply.textContent = '';
         replyStatus.textContent = '(idle)';
@@ -650,13 +699,7 @@ function init(element, params, nui) {
     });
 
     copyBtn.addEventListener('click', async () => {
-        const payload = {
-            exportedAt: new Date().toISOString(),
-            pauseThresholdMs: selectedPauseMs,
-            maxSilenceMs: selectedMaxSilenceMs,
-            turns: completedTurns,
-            events: allEvents,
-        };
+        const payload = sessionReport || client?.getSessionReport() || { error: 'no session report' };
         const json = JSON.stringify(payload, null, 2);
         try {
             await navigator.clipboard.writeText(json);
@@ -684,6 +727,19 @@ function init(element, params, nui) {
         setSlider(e.target.value);
     });
 
+    // Apply voice changes to the running session — only the delay levers and the
+    // pause threshold ride the socket and so need a restart.
+    ttsEnabledInput.addEventListener('change', () => {
+        if (!tts) return;
+        tts.enabled = ttsEnabledInput.checked && !ttsEnabledInput.disabled;
+        if (!tts.enabled) tts.stop('voice switched off');
+        window.__intentLab.tts = tts.state;
+    });
+
+    ttsVoiceSelect.addEventListener('change', () => {
+        if (tts) tts.voice = ttsVoiceSelect.value;
+    });
+
     maxSilenceInput.addEventListener('input', (e) => {
         selectedMaxSilenceMs = Number(e.target.value);
         maxSilenceSlider.setValue?.(selectedMaxSilenceMs);
@@ -703,10 +759,14 @@ function init(element, params, nui) {
 
     element.show = () => {
         loadInputSources();
+        loadVoices();
         updateActiveEngineBadge();
     };
 
+    window.__intentLab = { reason: 'idle', report: null, text: null };
+
     loadInputSources();
+    loadVoices();
     updateActiveEngineBadge();
 }
 </script>

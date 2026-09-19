@@ -176,7 +176,9 @@ turn-taking. Optional query params: `pause_ms=<ms>` (override pause threshold), 
 - `{ "type":"intent", "label", "text", "pause_ms", "latency_ms", "ts" }` — `still-speaking` |
   `turn-done` after a pause (classified by `badkid-classifier`).
 - `{ "type":"phase", "phase", "text"?, "ttfb_ms"?, "duration_ms"? }` — `cleaning` | `thinking` | `streaming` |
-  `done` | `interrupted`.
+  `done` | `interrupted` | `reopened`. `reopened` means speech arrived while the cleaned text was still
+  in flight: the send was abandoned, the new text was appended to the same turn, and a later pause
+  re-decides. Nothing was sent to the answer LLM.
 - `{ "type":"reply", "result":{ "type":"cleaned"|"stream", "text", "latency_ms"? } }` — cleaned turn
   text, then streamed assistant reply tokens.
 

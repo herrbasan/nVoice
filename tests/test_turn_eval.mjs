@@ -131,4 +131,48 @@ console.log('\n=== onSpeech cancels deadline (no forced-done mid-speech) ===');
   console.log(!forced ? 'OK  deadline cancelled by ongoing speech (no forced-done)' : 'BAD forced-done fired despite speech');
 }
 
+// Verify a turn REOPENS when speech arrives while the cleaned text is in flight:
+// nothing is sent, the new speech is appended to the same turn, and no second
+// turn is created.
+console.log('\n=== Speech during cleanup reopens the turn (send abandoned) ===');
+{
+  const events = [];
+  let releaseClean = null;
+  const cleanTexts = [];
+  let replyCalls = 0;
+
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',            // committed as soon as the pause fires
+    clean: (text) => { cleanTexts.push(text); return new Promise(r => { releaseClean = r; }); },
+    reply: async () => { replyCalls++; return 'must not run'; },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 500,
+  });
+
+  tm.onFinal('tell me a story about dragons');    // complete -> classifier -> turn-done
+  await new Promise(r => setTimeout(r, 60));      // pause fires, cleaning starts
+  const cleaningStarted = events.some(e => e.type === 'phase' && e.phase === 'cleaning');
+
+  // Speech arrives while the cleanup is still in flight.
+  tm.onFinal('and keep it short');
+  releaseClean('Tell me a story about dragons. And keep it short.');
+  // The next pause re-decides on the combined text, so cleaning runs again.
+  await new Promise(r => setTimeout(r, 80));
+
+  const reopened = events.filter(e => e.type === 'phase' && e.phase === 'reopened');
+  const sentCleaned = events.some(e => e.type === 'reply' && e.result?.type === 'cleaned');
+
+  console.log(`cleaning started: ${cleaningStarted}, clean calls: ${cleanTexts.length}, reply calls: ${replyCalls}`);
+  console.log(`reopened events: ${reopened.length}, cleaned reply sent: ${sentCleaned ? 'YES' : 'no'}`);
+  console.log(`clean texts: ${JSON.stringify(cleanTexts)}`);
+  console.log(cleaningStarted ? 'OK  cleaning started' : 'BAD cleaning never started');
+  console.log(reopened.length === 1 ? 'OK  turn reopened' : 'BAD turn not reopened');
+  console.log(!sentCleaned && replyCalls === 0 ? 'OK  send abandoned (no cleaned text, no reply call)' : 'BAD the discarded turn was still sent');
+  console.log(cleanTexts[1] === 'tell me a story about dragons and keep it short'
+    ? 'OK  re-decided on the combined text'
+    : `BAD re-decided on "${cleanTexts[1]}"`);
+  tm.close();
+}
+
 process.exit(0);

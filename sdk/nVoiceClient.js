@@ -52,6 +52,386 @@ function _kimiMatchCommand(text) {
     return null;
 }
 
+// ------------------------------------------------------------------ //
+// Turn trace — turn-taking session record and diagnostics.            //
+//                                                                     //
+// Turn-taking is a server-side pipeline that only reveals itself as a  //
+// sequence of frames. Too much happens between a final transcript and  //
+// a finished reply to follow by ear, so an intent session records      //
+// every frame with an offset from its start, groups the frames into     //
+// turns, and derives a findings list from the result.                  //
+//                                                                     //
+// Consumers get two high-level events for UI binding:                   //
+//   'turn'      — turn state changed (listening → classified → … → done)//
+//   'turn-end'  — a turn completed, with its texts and timings          //
+// When the socket closes a report is printed to the console and left on //
+// `lastReport`, so a session can be diagnosed without a debugger.       //
+// ------------------------------------------------------------------ //
+const TURN_SLOW_CLASSIFIER_MS = 500;
+const TURN_SLOW_CLEANUP_MS = 1500;
+const TURN_SLOW_TTFB_MS = 2500;
+const TURN_LONG_FINAL_GAP_MS = 5000;
+
+function _turnTraceNew(meta) {
+    return {
+        t0: Date.now(),
+        startedAt: new Date().toISOString(),
+        config: meta,
+        seq: 0,
+        open: null,
+        turns: [],
+        log: [],
+        findings: [],
+        errors: [],
+        lastFinalAtMs: null,
+    };
+}
+
+function _turnMs(trace) {
+    return trace ? Date.now() - trace.t0 : 0;
+}
+
+function _turnLog(trace, text) {
+    if (trace) trace.log.push({ atMs: _turnMs(trace), s: text });
+}
+
+function _turnFind(trace, code, detail, severity = 'warn', turnIndex = null) {
+    if (trace) trace.findings.push({ code, severity, turnIndex, detail, atMs: _turnMs(trace) });
+}
+
+function _turnOpen(trace, seedFinals) {
+    if (!trace) return null;
+    if (!trace.open) {
+        trace.seq += 1;
+        trace.open = {
+            index: trace.seq,
+            startMs: _turnMs(trace),
+            endMs: null,
+            outcome: 'open',
+            stage: 'speech',
+            finals: seedFinals || [],
+            lateFinals: [],
+            intent: null,
+            phases: [],
+            cleaned: null,
+            reply: null,
+            interruptedText: null,
+        };
+    }
+    return trace.open;
+}
+
+/**
+ * Close the open turn. 
+ *
+ * `still-speaking` keeps the turn OPEN and asks for more speech, so later finals
+ * belong to the SAME turn — the server accumulates them and re-classifies the
+ * whole text. Only once the turn is committed (turn-done, or a phase has begun)
+ * does fresh speech start the next turn. Getting this wrong splits one utterance
+ * across two turns and reports the second half as "buffered".
+ */
+function _turnClose(trace, outcome) {
+    const t = trace && trace.open;
+    if (!t) return null;
+    t.outcome = outcome;
+    t.endMs = _turnMs(trace);
+    _turnLog(trace, `turn #${t.index} ${outcome} ${((t.endMs - t.startMs) / 1000).toFixed(1)}s · ${t.finals.length} finals · ${t.reply ? `reply ${t.reply.chars}c/${t.reply.chunks} chunks` : 'no reply'}`);
+    trace.turns.push(t);
+    trace.open = null;
+    if (t.lateFinals.length) {
+        const next = _turnOpen(trace, t.lateFinals);
+        next.startMs = t.lateFinals[0].atMs;
+        _turnLog(trace, `turn #${next.index} opened from ${next.finals.length} buffered final(s)`);
+    }
+    return t;
+}
+
+function _turnRecordFinal(trace, text) {
+    const atMs = _turnMs(trace);
+    const clean = String(text || '').trim();
+    const wasOpen = !!trace.open;
+    const t = _turnOpen(trace);
+    if (t.stage === 'speech') {
+        t.finals.push({ atMs, text: clean, gapMs: trace.lastFinalAtMs == null ? null : atMs - trace.lastFinalAtMs });
+        _turnLog(trace, `final "${clean}"${clean ? '' : ' (EMPTY)'}`);
+    } else {
+        t.lateFinals.push({ atMs, text: clean });
+        _turnLog(trace, `final "${clean}" (buffered — turn #${t.index} is ${t.stage})`);
+    }
+    if (!clean) _turnFind(trace, 'empty-final', 'is_final arrived with empty text', 'warn', t.index);
+    trace.lastFinalAtMs = atMs;
+    return { turn: t, started: !wasOpen };
+}
+
+function _turnRecordIntent(trace, data, latencyMs) {
+    const t = _turnOpen(trace);
+    if (!t) return null;
+    t.intent = {
+        atMs: _turnMs(trace),
+        label: data.label,
+        pauseMs: data.pause_ms,
+        latencyMs,
+        forced: !!data.forced,
+        trailing: !!data.trailing,
+        text: data.text || '',
+    };
+    // `trailing` / forced results never call the classifier, so their latency is
+    // meaningless — and the turn is still collecting, not committing.
+    const classified = !data.forced && !data.trailing;
+    t.intent.classified = classified;
+    t.stage = data.label === 'still-speaking' ? 'speech' : 'processing';
+    const how = data.forced ? ' (forced)' : data.trailing ? ' (trailing — no classifier call)' : '';
+    _turnLog(trace, `intent ${data.label}${how} pause=${data.pause_ms}ms lat=${latencyMs}ms "${(data.text || '').slice(-60)}"`);
+    if (data.forced) _turnFind(trace, 'forced-completion', `silence ceiling forced turn-done after ${data.pause_ms}ms`, 'info', t.index);
+    if (data.trailing) _turnFind(trace, 'classifier-skipped', `text ends on a trailing word — decided locally, no classifier call`, 'info', t.index);
+    if (classified && latencyMs > TURN_SLOW_CLASSIFIER_MS) _turnFind(trace, 'slow-classifier', `classifier took ${latencyMs}ms (over ${TURN_SLOW_CLASSIFIER_MS}ms)`, 'warn', t.index);
+    return t;
+}
+
+function _turnRecordPhase(trace, data) {
+    const t = _turnOpen(trace);
+    if (!t) return { turn: null, closed: null };
+    const p = data.phase;
+    t.phases.push({ phase: p, atMs: _turnMs(trace), ttfbMs: data.ttfb_ms ?? null, durationMs: data.duration_ms ?? null });
+    _turnLog(trace, `phase ${p}${data.ttfb_ms != null ? ` ttfb=${data.ttfb_ms}ms` : ''}${data.duration_ms != null ? ` duration=${data.duration_ms}ms` : ''}${data.text ? ` text="${data.text}"` : ''}`);
+    if (p === 'done') return { turn: t, closed: _turnClose(trace, 'turn-done') };
+    if (p === 'interrupted') {
+        t.interruptedText = data.text || '';
+        return { turn: t, closed: _turnClose(trace, 'interrupted') };
+    }
+    if (p === 'reopened') {
+        // Speech resumed during cleanup, so the send was abandoned. The turn is
+        // still collecting: later finals belong to THIS turn, and the stale
+        // turn-done verdict no longer describes it. Finals that arrived before
+        // this notice was filed as "late" (the client cannot know the server
+        // appended them until it is told) — take them back.
+        t.stage = 'speech';
+        t.intent = null;
+        if (t.lateFinals.length) {
+            t.finals.push(...t.lateFinals);
+            t.lateFinals = [];
+            _turnLog(trace, `turn #${t.index} reclaimed buffered speech (turn reopened)`);
+        }
+        _turnFind(trace, 'cleanup-discarded', 'speech resumed during cleanup — the cleaned text was never sent, turn reopened', 'info', t.index);
+    }
+    return { turn: t, closed: null };
+}
+
+function _turnRecordReply(trace, r) {
+    const t = trace.open;
+    if (!t) {
+        _turnLog(trace, `reply "${r.type}" with NO open turn`);
+        _turnFind(trace, 'orphan-reply', `reply "${r.type}" arrived with no open turn`, 'warn');
+        return null;
+    }
+    if (r.type === 'cleaned') {
+        t.cleaned = { atMs: _turnMs(trace), text: r.text || '', latencyMs: r.latency_ms ?? null };
+        _turnLog(trace, `reply cleaned ${r.latency_ms != null ? r.latency_ms + 'ms' : '(no latency)'} "${(r.text || '').slice(0, 70)}"`);
+        if (t.cleaned.latencyMs != null && t.cleaned.latencyMs > TURN_SLOW_CLEANUP_MS) {
+            _turnFind(trace, 'slow-cleanup', `cleanup took ${t.cleaned.latencyMs}ms (over ${TURN_SLOW_CLEANUP_MS}ms)`, 'warn', t.index);
+        }
+    } else if (r.type === 'stream') {
+        if (!t.reply) {
+            t.reply = { atMs: _turnMs(trace), chunks: 0, chars: 0, text: '' };
+            _turnLog(trace, 'reply stream first token');
+        }
+        t.reply.chunks += 1;
+        t.reply.chars += (r.text || '').length;
+        t.reply.text += r.text || '';
+    } else {
+        _turnFind(trace, 'unknown-reply-type', `reply type "${r.type}" is not handled`, 'warn', t.index);
+    }
+    return t;
+}
+
+function _turnStats(values) {
+    const v = values.filter(n => n != null && !Number.isNaN(n)).sort((a, b) => a - b);
+    if (!v.length) return { n: 0, min: null, median: null, max: null };
+    return {
+        n: v.length,
+        min: Math.round(v[0]),
+        median: Math.round(v[Math.floor(v.length / 2)]),
+        max: Math.round(v[v.length - 1]),
+    };
+}
+
+/** Shallow per-turn view for consumers — the state the chat app binds to. */
+function _turnSnapshot(t, state) {
+    if (!t) return null;
+    const streamPhase = t.phases.find(p => p.phase === 'streaming');
+    const donePhase = t.phases.find(p => p.phase === 'done');
+    return {
+        index: t.index,
+        state,
+        outcome: t.outcome,
+        rawText: t.finals.map(f => f.text).join(' ').trim(),
+        intent: t.intent ? { label: t.intent.label, pauseMs: t.intent.pauseMs, latencyMs: t.intent.latencyMs, forced: t.intent.forced } : null,
+        cleanedText: t.cleaned ? t.cleaned.text : null,
+        replyText: t.reply ? t.reply.text : '',
+        ttfbMs: streamPhase ? streamPhase.ttfbMs : null,
+        replyDurationMs: donePhase ? donePhase.durationMs : null,
+        startedAtMs: t.startMs,
+        endedAtMs: t.endMs,
+    };
+}
+
+function _turnState(t) {
+    if (!t) return null;
+    if (t.outcome !== 'open') return t.outcome === 'turn-done' ? 'done' : t.outcome;
+    if (t.phases.length) {
+        const last = t.phases[t.phases.length - 1].phase;
+        return last === 'reopened' ? 'listening' : last;
+    }
+    return t.intent ? 'classified' : 'listening';
+}
+
+// ------------------------------------------------------------------ //
+// The report: what actually happened, in an order a reader can follow. //
+// Findings come first — they are the answer to "why did it fail".     //
+// ------------------------------------------------------------------ //
+function _buildTurnReport(trace) {
+    if (!trace) return null;
+
+    const allTurns = [...trace.turns];
+    if (trace.open) {
+        // The open turn is unfinished by definition — the session ended mid-flight.
+        allTurns.push({ ...trace.open, outcome: 'unfinished', endMs: _turnMs(trace) });
+    }
+
+    const clf = [], clean = [], ttfb = [];
+    const report = {
+        schema: 'nvoice.turn-report/1',
+        startedAt: trace.startedAt,
+        durationMs: _turnMs(trace),
+        config: trace.config,
+        counts: { turns: 0, finals: 0, intentEvents: 0, phaseEvents: 0, cleaned: 0, replyChunks: 0, errors: trace.errors.length },
+        latency: {},
+        findings: [...trace.findings],
+        turns: [],
+        timeline: trace.log,
+    };
+
+    for (const t of allTurns) {
+        const streamPhase = t.phases.find(p => p.phase === 'streaming');
+        const donePhase = t.phases.find(p => p.phase === 'done');
+        const out = {
+            index: t.index,
+            outcome: t.outcome,
+            stage: t.stage,
+            startMs: t.startMs,
+            endMs: t.endMs,
+            durationMs: t.endMs != null ? t.endMs - t.startMs : null,
+            raw: t.finals.map(f => f.text).join(' ').trim(),
+            finals: t.finals,
+            lateFinals: t.lateFinals,
+            intent: t.intent,
+            phases: t.phases.map(p => p.phase),
+            ttfbMs: streamPhase ? streamPhase.ttfbMs : null,
+            replyDurationMs: donePhase ? donePhase.durationMs : null,
+            pauseMs: t.intent ? t.intent.pauseMs : null,
+            pauseGapMs: t.intent && t.finals.length ? Math.round(t.intent.atMs - t.finals[t.finals.length - 1].atMs) : null,
+            cleaned: t.cleaned ? { text: t.cleaned.text, latencyMs: t.cleaned.latencyMs } : null,
+            reply: t.reply ? { chars: t.reply.chars, chunks: t.reply.chunks, text: t.reply.text } : null,
+            interruptedText: t.interruptedText,
+        };
+        report.turns.push(out);
+
+        report.counts.turns += 1;
+        report.counts.finals += t.finals.length;
+        report.counts.phaseEvents += t.phases.length;
+        if (t.intent) report.counts.intentEvents += 1;
+        // Only real classifier calls have a meaningful latency; `trailing` and
+        // forced results are decided locally and report 0.
+        if (t.intent && t.intent.classified) clf.push(t.intent.latencyMs);
+        if (t.cleaned) { report.counts.cleaned += 1; clean.push(t.cleaned.latencyMs); }
+        if (t.reply) report.counts.replyChunks += t.reply.chunks;
+        if (out.ttfbMs != null) ttfb.push(out.ttfbMs);
+
+        const add = (code, detail, severity = 'warn') => report.findings.push({ code, severity, turnIndex: t.index, detail, atMs: t.endMs ?? t.startMs });
+
+        if (t.outcome === 'unfinished') {
+            add('unfinished-turn', `turn never reached done/interrupted — last phase ${t.phases.length ? t.phases[t.phases.length - 1].phase : '(none)'}, stage ${t.stage}`);
+            if (t.lateFinals.length) add('speech-lost-at-stop', `${t.lateFinals.length} buffered final(s) never processed`);
+        }
+        if (!t.intent && t.finals.length) {
+            add('no-intent', `${t.finals.length} final(s) but the classifier never returned a label`, 'error');
+        }
+        if (t.intent && t.intent.label === 'still-speaking') {
+            const continued = t.finals.length > 1 || t.lateFinals.length > 0;
+            if (t.outcome === 'turn-done' && !continued) add('still-speaking-then-forced', 'classifier said still-speaking, no further speech arrived, turn ended anyway', 'info');
+            if (t.outcome === 'unfinished' && !continued) add('still-speaking-dead-end', 'classifier said still-speaking and the session ended with no continuation');
+        }
+        if (t.outcome === 'turn-done') {
+            if (!t.phases.some(p => p.phase === 'cleaning')) add('cleanup-phase-skipped', 'no cleaning phase before the turn ended', 'info');
+            if (!t.cleaned) add('no-cleanup-text', 'turn-done but no cleaned transcript was delivered', 'error');
+            if (trace.config.generateReply && !t.reply) add('no-reply', 'turn-done but no assistant reply tokens arrived', 'error');
+            if (t.reply && out.ttfbMs == null) add('no-ttfb', 'reply streamed but no ttfb_ms was reported', 'info');
+            if (out.ttfbMs != null && out.ttfbMs > TURN_SLOW_TTFB_MS) add('slow-ttfb', `ttfb ${out.ttfbMs}ms (over ${TURN_SLOW_TTFB_MS}ms)`);
+        }
+        if (t.outcome === 'interrupted') {
+            if (t.reply && t.reply.chars) add('interrupt-dropped', `barge-in mid-stream — ${t.reply.chars} chars kept, trigger "${t.interruptedText}"`, 'info');
+            else add('spurious-interrupt', `barge-in with no reply in flight — trigger "${t.interruptedText}"`);
+        }
+        const gaps = t.finals.map(f => f.gapMs).filter(g => g != null && g > TURN_LONG_FINAL_GAP_MS);
+        if (gaps.length) add('long-final-gap', `speech resumed after ${Math.max(...gaps)}ms of silence between finals`, 'info');
+    }
+
+    if (!report.counts.finals) {
+        addReportFinding(report, 'no-speech', 'no final transcript ever arrived — nothing reached the server', 'error');
+    } else if (!report.counts.intentEvents) {
+        addReportFinding(report, 'classifier-never-ran', `${report.counts.finals} finals but zero classifier results`, 'error');
+    }
+    for (const e of trace.errors) addReportFinding(report, 'ws-error', e, 'error');
+
+    report.latency = {
+        classifier: _turnStats(clf),
+        cleanup: _turnStats(clean),
+        ttfb: _turnStats(ttfb),
+    };
+    return report;
+}
+
+function addReportFinding(report, code, detail, severity) {
+    report.findings.push({ code, severity, turnIndex: null, detail, atMs: report.durationMs });
+}
+
+function _turnStatLine(s) {
+    return s.n ? `${s.n} · ${s.min}/${s.median}/${s.max}ms` : 'none';
+}
+
+function _renderTurnReport(r) {
+    const L = [];
+    L.push(`── turn-taking session · ${(r.durationMs / 1000).toFixed(1)}s · ${r.counts.turns} turns ──`);
+    L.push(`   engine ${r.config.engine} · pause ${r.config.pauseMs ?? '--'}ms · maxSilence ${r.config.maxSilenceMs ?? '--'}ms · reply ${r.config.generateReply ? 'on' : 'off'}`);
+    L.push(`   finals ${r.counts.finals} · intents ${r.counts.intentEvents} · cleaned ${r.counts.cleaned} · replyChunks ${r.counts.replyChunks} · errors ${r.counts.errors}`);
+    L.push(`   classifier ${_turnStatLine(r.latency.classifier)} · cleanup ${_turnStatLine(r.latency.cleanup)} · ttfb ${_turnStatLine(r.latency.ttfb)}`);
+    L.push('FINDINGS');
+    if (r.findings.length) {
+        for (const f of r.findings) {
+            L.push(`   [${f.severity}] ${(f.atMs / 1000).toFixed(1)}s ${f.code}${f.turnIndex ? ` turn#${f.turnIndex}` : ''} — ${f.detail}`);
+        }
+    } else {
+        L.push('   (none)');
+    }
+    L.push('TURNS');
+    for (const t of r.turns) {
+        const bits = [`#${t.index} ${t.outcome}`, `${(t.startMs / 1000).toFixed(1)}→${t.endMs != null ? (t.endMs / 1000).toFixed(1) : '?'}s`, `${t.finals.length}f`];
+        if (t.intent) bits.push(`clf ${t.intent.label}${t.intent.forced ? '/forced' : t.intent.trailing ? '/trailing' : ''}${t.intent.classified ? ` ${t.intent.latencyMs}ms` : ' (no call)'}`);
+        if (t.cleaned) bits.push(`clean ${t.cleaned.latencyMs != null ? t.cleaned.latencyMs + 'ms' : '--'}`);
+        if (t.ttfbMs != null) bits.push(`ttfb ${t.ttfbMs}ms`);
+        bits.push(t.reply ? `reply ${t.reply.chars}c` : 'reply none');
+        if (t.lateFinals.length) bits.push(`+${t.lateFinals.length} buffered`);
+        L.push(`   ${bits.join(' · ')}`);
+        if (t.raw) L.push(`        said:  "${t.raw.slice(0, 160)}"`);
+        if (t.cleaned?.text && t.cleaned.text !== t.raw) L.push(`        clean: "${t.cleaned.text.slice(0, 160)}"`);
+        if (t.reply?.text) L.push(`        reply: "${t.reply.text.slice(0, 160)}"`);
+    }
+    const tail = r.timeline.slice(-50);
+    L.push(`TIMELINE (${r.timeline.length} events, last ${tail.length})`);
+    for (const e of tail) L.push(`   ${(e.atMs / 1000).toFixed(2)}s  ${e.s}`);
+    return L.join('\n');
+}
+
 class nVoiceClient {
     constructor(config = {}) {
         this.serverUrl = config.serverUrl || '';
@@ -67,6 +447,17 @@ class nVoiceClient {
         this.recordDebug = config.recordDebug || false;  // worker captures engine-received audio
         this.assistantEnabled = config.assistantEnabled || false;  // opt into LLM post-processing
         this.intentEnabled = config.intentEnabled || false;  // opt into turn-intent classification
+        this.speaking = false;   // user VAD state — see the 'speech-start' event
+
+        // Turn-taking record (intent sessions only). `turn` is the live snapshot a
+        // consumer binds to; a report is printed on socket close and left on
+        // `lastReport` so a session can be diagnosed after the fact.
+        this._trace = null;
+        this._turnSig = null;
+        this._disconnected = false;
+        this.turn = null;
+        this.lastReport = null;
+        this.lastReportText = null;
 
         // R2: raw transcript buffer — every non-command final, in speak order.
         this._rawFinals = '';
@@ -260,6 +651,81 @@ class nVoiceClient {
 
     emit(event, data) {
         if (this.listeners[event]) this.listeners[event].forEach(cb => cb(data));
+    }
+
+    // --- Turn-taking session record -------------------------------------
+    //
+    // Turn-taking is server-side and only observable as a frame sequence, so the
+    // client records it. Integration surface:
+    //   'turn'           state changed — bind UI to the snapshot
+    //   'turn-end'       a turn completed, with texts and timings
+    //   'session-report' a report is ready (also printed to the console)
+    //   client.turn      live snapshot · client.lastReport  last full report
+
+    /**
+     * Emit 'turn' when the turn's state changes. Reply tokens keep flowing through
+     * the `reply` event — this fires on transitions only, never per token.
+     */
+    _syncTurn() {
+        const trace = this._trace;
+        if (!trace) return;
+        const t = trace.open || trace.turns[trace.turns.length - 1];
+        if (!t) return;
+        const state = _turnState(t);
+        const sig = `${t.index}:${state}:${t.outcome}`;
+        if (sig === this._turnSig) return;
+        this._turnSig = sig;
+        this.turn = _turnSnapshot(t, state);
+        this.emit('turn', this.turn);
+    }
+
+    /**
+     * Annotate the session record from the application — for behaviour the SDK
+     * cannot observe itself, such as assistant audio playback or a UI decision.
+     * Lands in the report as a finding on the current turn.
+     *
+     * @param {string} code - short finding code (e.g. 'playback-cut')
+     * @param {string} detail - what happened
+     * @param {'info'|'warn'|'error'} [severity='info']
+     */
+    note(code, detail, severity = 'info') {
+        if (!this._trace) return;
+        const t = this._trace.open || this._trace.turns[this._trace.turns.length - 1];
+        _turnFind(this._trace, code, detail, severity, t ? t.index : null);
+    }
+
+    /**
+     * Structured record of the current turn-taking session, or null when this
+     * client never ran an intent session. Safe to call repeatedly — the open turn
+     * is closed on a copy, so the trace itself is never mutated.
+     *
+     * @returns {Object|null}
+     */
+    getSessionReport() {
+        return this._trace ? _buildTurnReport(this._trace) : null;
+    }
+
+    /**
+     * Build, print and cache the session report. Called automatically when the
+     * realtime socket closes; call it manually to snapshot a live session.
+     *
+     * @param {string} reason - Why the report was taken (shown in the console header)
+     * @returns {Object|null} The report, also left on `this.lastReport`
+     */
+    printSessionReport(reason = 'manual') {
+        const trace = this._trace;
+        if (!trace) return null;
+        // Nothing the socket ever reported means there is no session to describe.
+        // An open socket with no speech is still worth a report — "no final
+        // transcript ever arrived" is the finding you want when nothing works.
+        if (!trace.log.length && !trace.turns.length && !trace.open && !trace.errors.length) return null;
+        const report = this.getSessionReport();
+        const text = _renderTurnReport(report);
+        this.lastReport = report;
+        this.lastReportText = text;
+        console.log(`[nVoice] turn-taking session report (${reason})\n${text}`);
+        this.emit('session-report', report);
+        return report;
     }
 
     // --- Assistant layer (LLM-powered transcription post-processing) ---
@@ -1261,10 +1727,15 @@ class nVoiceClient {
             // is far from the mouth. Desktop with a good mic benefits from raw audio.
             // User can override with the "Raw Audio" toggle.
             const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-            // R4: audioProcessing forces AEC/NS/AGC on any platform (assistant
-            // mode needs it — TTS plays with the mic open). rawAudio still wins
-            // only when the user explicitly toggles it.
-            const useProcessing = this.audioProcessing || (this.rawAudio ? false : isMobile);
+            // AEC/NS/AGC. Two paths need it: assistant mode and turn-taking, both
+            // of which speak a reply with the mic still open. Without cancellation
+            // the mic picks up the assistant, the echo reads as the user speaking,
+            // and it cuts its own playback — or starts replying to itself.
+            // Decided here, where the constraints are built: consumers set
+            // intentEnabled as a property after construction at least as often as
+            // they pass it in config, so a constructor-time check silently misses.
+            const openMicAssistant = this.audioProcessing || this.intentEnabled;
+            const useProcessing = openMicAssistant || (this.rawAudio ? false : isMobile);
 
             const constraints = {
                 audio: {
@@ -1349,11 +1820,26 @@ class nVoiceClient {
                     wsUrl += `&max_tokens=${encodeURIComponent(this.intentMaxTokens)}`;
                 }
             }
+            if (this.intentEnabled) {
+                this._trace = _turnTraceNew({
+                    engine: this.engine || '(server default)',
+                    audioDevice: this.audioDeviceId || '(default)',
+                    pauseMs: this.intentPauseMs ?? null,
+                    maxSilenceMs: this.intentMaxSilenceMs ?? null,
+                    generateReply: !this.intentNoReply,
+                });
+                this._turnSig = null;
+                this.turn = null;
+                this.lastReport = null;
+                this.lastReportText = null;
+            }
             console.log('[nVoice] Connecting realtime WebSocket: ' + wsUrl);
             this.ws = new WebSocket(wsUrl);
 
             this.ws.onopen = () => {
                 console.log('[nVoice] Realtime WebSocket open');
+                this._disconnected = false;
+                _turnLog(this._trace, 'ws connected');
                 // The socket is connected regardless of wake/sleep state.
                 // Emit 'connected' (enables Stop), then signal asleep if wake-word is armed.
                 this.emit('connected');
@@ -1397,6 +1883,12 @@ class nVoiceClient {
                         if (data.is_final && data.text && data.text.trim()) {
                             this._rawFinals = (this._rawFinals + ' ' + data.text.trim()).trim();
                         }
+                        // Turn record: finals delimit turns (empty ones included — a
+                        // silent final is itself a finding).
+                        if (this._trace && data.is_final) {
+                            _turnRecordFinal(this._trace, data.text);
+                            this._syncTurn();
+                        }
                         // Suppress provisionals while a REAL command is being captured
                         // (a wake from sleep). A false-wake interrupt is still
                         // dictation, so its provisionals stay visible.
@@ -1411,12 +1903,30 @@ class nVoiceClient {
                     } else if (data.type === 'assistant') {
                         this._handleAssistantEvent(data.result || data);
                     } else if (data.type === 'intent') {
+                        if (this._trace) {
+                            _turnRecordIntent(this._trace, data, data.latency_ms || 0);
+                            this._syncTurn();
+                        }
                         this.emit('intent', data);
                     } else if (data.type === 'phase') {
+                        if (this._trace) {
+                            const rec = _turnRecordPhase(this._trace, data);
+                            this._syncTurn();
+                            if (rec.closed) this.emit('turn-end', _turnSnapshot(rec.closed, _turnState(rec.closed)));
+                        }
                         this.emit('phase', data);
                     } else if (data.type === 'reply') {
+                        if (this._trace) {
+                            _turnRecordReply(this._trace, data.result || data);
+                        }
                         this.emit('reply', data);
                     } else if (data.type === 'telemetry') {
+                        // Track the user's VAD state and announce the silence → speech
+                        // edge. This is the hook an app needs to cut assistant TTS
+                        // playback, which outlives the server's generation window.
+                        const speaking = data.state !== 'idle/silence';
+                        if (speaking && !this.speaking) this.emit('speech-start');
+                        this.speaking = speaking;
                         this.emit('telemetry', data);
                         this._kimiHandleTelemetry(data);
                     }
@@ -1427,12 +1937,16 @@ class nVoiceClient {
 
             this.ws.onerror = (err) => {
                 console.error('[nVoice] Realtime WebSocket error', err);
+                if (this._trace) {
+                    this._trace.errors.push('Realtime WebSocket error');
+                    _turnLog(this._trace, 'ws error');
+                }
                 this.emit('error', new Error('Realtime WebSocket error'));
             };
 
             this.ws.onclose = () => {
                 console.log('[nVoice] Realtime WebSocket closed');
-                this.emit('disconnected');
+                this._emitDisconnected();
             };
 
         } catch (error) {
@@ -1579,7 +2093,7 @@ class nVoiceClient {
 
         this._cloudWs.onclose = () => {
             console.log('[nVoice] ElevenLabs WebSocket closed');
-            this.emit('disconnected');
+            this._emitDisconnected();
         };
     }
 
@@ -1627,6 +2141,21 @@ class nVoiceClient {
         this.emit('standby');
     }
 
+    /**
+     * End-of-session teardown, emitted exactly once. `disconnect()` emits it
+     * eagerly and the socket's own onclose would emit it again a tick later —
+     * two 'disconnected' events for one session is a trap for consumers.
+     */
+    _emitDisconnected() {
+        if (this._disconnected) return;
+        this._disconnected = true;
+        if (this._trace) {
+            _turnLog(this._trace, 'ws disconnected');
+            this.printSessionReport('disconnected');
+        }
+        this.emit('disconnected');
+    }
+
     disconnect() {
         this.stop();
 
@@ -1645,7 +2174,7 @@ class nVoiceClient {
             this.ws = null;
         }
 
-        this.emit('disconnected');
+        this._emitDisconnected();
     }
 }
 
