@@ -125,60 +125,115 @@ Never push with a `+`-dirty submodule pin — that records a commit the rest of 
 - **All assistant prompts live as editable Markdown** in `server/assistant/prompts/*.md` (file content = system prompt). They are re-read on every LLM call — edit, save, retry, no restart. Cleanup modes for `POST /v1/audio/cleanup` are derived from `cleanup-<mode>.md` filenames (loader: `server/assistant/prompts.js`; required files validated at startup, fail fast). See `server/assistant/prompts/README.md`.
 - ~~[superwhisper/s1-mini](https://huggingface.co/superwhisper/s1-mini)~~ — rejected: release v1 is **English-only** (model card verbatim), but nVoice needs EN+DE. Kept as fallback reference for English-only cleanup; base model is Qwen3-0.6B (multilingual), so a German fine-tune remains theoretically possible.
 
-### Reactive Assistant — Turn-Taking (experiment)
+### Reactive Assistant — Turn-Taking
 
-Early harness for the reactive voice assistant: a resident tiny model decides turn state,
-and the always-warm `badkid-llama-chat` cleans and answers. The goal is natural
-turn-taking — detect when the user has *finished a thought* (not just paused), answer,
-and be barged-in on ("wait"/"stop").
+A reactive voice assistant: speak, pause, and it decides whether you *finished a thought*,
+answers out loud, and stops when you talk over it. Working end to end as of 2026-09-19.
 
-**Two models, two jobs (both resident on the LLM Gateway):**
-- `badkid-classifier` (Qwen3-0.6B, CPU) — classifies each settled turn as
-  `still-speaking` | `turn-done`. One-shot label (max_tokens 8, temperature 0) — a
-  decide, not a generate, so it returns in ~30ms. Pause alone does NOT end a turn; the
-  model only says `turn-done` when the words form a complete thought.
-- `badkid-llama-chat` (Gemma 4 12B) — cleans the turn text (`cleanTranscript`) and
-  streams the reply (`streamReply`, SSE).
+**The turn decision has TWO layers, and the deterministic one does most of the work:**
 
-**State machine** (`server/assistant/turn-machine.js`, `TurnMachine`):
-`listening → cleaning → thinking → streaming → done`, back to listening. A pause is an
-*opportunity* to classify, not a commitment: if the classifier sees a logical end it goes
-to cleaning, and **speech arriving before the cleaned text is sent reopens the turn**
-(`reopened`) — the cleanup result is discarded, the new final is appended to the same
-turn text, and the next pause re-decides. Only a cleaned turn with no further speech is
-handed to the answer LLM. During thinking/streaming the text is already sent, so new
-finals buffer as the NEXT turn, and a barge-in keyword ("wait/stop/hold on") at the start
-of an utterance cancels processing immediately. Interrupt is **keyword-only**, not a
-classifier label — the classifier only ever returns still-speaking/turn-done. The silence
-ceiling (`maxSilenceMs`) is the fail-safe for when classification never settles.
+1. `isTrailingOff()` (`turn-machine.js`) — a word list. **0ms, no model.** Catches 14 of
+   22 eval cases: conjunctions, articles, auxiliaries, and dangling
+   modifiers/comparatives (`way past`, `better than`, `the same as`, `instead of`,
+   `depends on`). Multi-word phrases are matched as a **suffix** of the text, not by
+   taking the last two words — `"the same as"` is three words, so a bigram of the tail
+   could never see it.
+2. `badkid-classifier` (Qwen3-0.6B, CPU) — the remaining ~8. One-shot label
+   (`max_tokens 8`, `temperature 0`).
+
+**The classifier stays CPU-bound on purpose.** It runs as its own llama-server on port
+4081, so its latency cannot be eaten by whatever else holds the GPU (dreaming, other
+services — the GPU is often at 30-40% already). A GPU model for intent detection makes
+turn latency a function of unrelated load.
+
+**Measured, and the measurement is the point:** in isolation the 0.6B answers
+`turn-done` to almost everything (8/19), which sent us to a 12B model for a while. That
+was a *metric* error: calling `classify()` directly bypasses the word list and feeds the
+model exactly the cases the word list misses. The number that matches lived experience is
+the **whole machine** — `tests/test_turn_eval.mjs` has a "Full machine (short-circuit +
+model)" section that drives `TurnMachine` with the real classifier. On that the 0.6B
+scores **22/22** and the bigger model is unnecessary. Use `CLASSIFIER_MODEL=<id>` to A/B
+a model without editing config.
+
+**State machine** (`server/assistant/turn-machine.js`):
+`listening → cleaning → thinking → streaming → done`. A pause is an *opportunity* to
+classify, not a commitment: **speech arriving before the cleaned text is sent reopens the
+turn** (`reopened`) — the cleanup result is discarded, the final is appended to the same
+turn, and the next pause re-decides. Only a cleaned turn with no further speech reaches
+the answer LLM. During thinking/streaming the text is already sent, so new finals buffer
+as the NEXT turn. The silence ceiling (`maxSilenceMs`) is the fail-safe for when
+classification never settles.
+
+**Barge-in is client-side, and has two paths** (`sdk/nVoiceClient.js` → `barge-in`):
+a **keyword** in a final (`wait`, `stop`, `halt`, `hold on`, `never mind`…) cuts
+immediately — a word is evidence, and a one-word interruption is shorter than any sustain
+window; or **sustained speech** past `bargeInMs` (default 1000ms) cuts. Cut on `barge-in`
+— **never** on `speech-start`, which is the raw VAD edge and fires on any single bump: a
+live room's noise held the VAD 430–550ms, so a single frame cannot be trusted.
+`TtsPlayer.stop()` **mutes the rest of the reply** — cutting only the sentence in flight
+is not an interrupt, because the reply is still streaming and playback restarts.
+`unmute()` on the next turn.
+
+**The client gate is what keeps noise out** (`wakeWordEnabled` + `enableWakeWord()`): the
+browser's own Silero VAD decides whether audio is *sent at all*, needs sustained voice to
+wake, and sleeps ~2s after silence. The Realtime page uses it; the Lab turned it off and
+transcribed every bump. **Setting the flag is not enough — `enableWakeWord(url)` is what
+loads the model**; without it the detector never runs and the client sits asleep sending
+nothing, silently.
+
+**Server VAD must ask for *sustained* speech.** `SileroVAD.speech_ratio()` returns the
+share of 32ms frames above threshold, and the chunked strategy requires
+`min_speech_ratio` (default 0.25) of the window before transcribing. `is_speech()` (max
+over frames) is kept for callers asking "is there any speech in this 30s buffer" — a
+different question. The old max-based gate let one 32ms frame mark a window as speech, so
+a mic bump or a chair creak was transcribed and parakeet invented a word for it
+("yeah", "sorry").
+
+**Speech out** (`sdk/tts-player.js`): sentence at a time via nSpeech/Kokoro, next
+sentence synthesized while the current plays. Playback runs through a local **WebRTC
+loopback** — Chromium's AEC references WebRTC playout, and plain `HTMLMediaElement`/Web
+Audio output is not cancelled, so the mic heard the assistant. One long-lived path (AEC
+needs seconds to converge; a fresh sink per sentence resets it), built inside the Start
+click (`prime()`) because autoplay policy suspends a context created without a gesture.
+Text cleaning is delegated to nSpeech (`extra_body.clean`); the local strip exists only to
+shape sentence splitting.
 
 **Files:**
-- `server/assistant/intent.js` — `TurnIntentClassifier` + factory (gated on `?intent=1`).
-- `server/assistant/turn-machine.js` — the `TurnMachine` state machine.
-- `server/assistant/prompts/turn-intent.md` — classifier prompt (live-editable, no restart).
-- `server/api/realtime.js` — wires the machine into the realtime relay.
-- `web/pages/intent-lab.html` — the visual harness ("Intent Lab" nav entry): status
-  badges, pipeline visualizer, live speech buffer with silence-gap tracker, live
-  assistant reply, and a JSON export button. Tuning (pause threshold, max-silence
-  ceiling, reply toggle) lives in a `nui-dialog` opened from the Settings button.
-- `sdk/tts-player.js` — speaks the reply via nSpeech/Kokoro, sentence at a time, with
-  the next sentence synthesized while the current one plays. Playback runs through a
-  local **WebRTC loopback** because Chromium's AEC references WebRTC playout — audio
-  that never passes through it is not cancelled and the mic hears the assistant. One
-  long-lived path (AEC needs seconds to converge), built inside the Start click
-  (`prime()`) so autoplay policy does not suspend it. `stop()` is the barge-in and is
-  unconditional — talking over the assistant always means stop.
-- `sdk/tts-player.js` + `client.note()` — playback evidence (start, cut, dropped
-  sentences) is written into the session report by the app, so a session where the
-  assistant interrupted itself is diagnosable after the fact.
+- `server/assistant/intent.js` — `TurnIntentClassifier` (gated on `?intent=1`).
+- `server/assistant/turn-machine.js` — state machine, word list, ceiling.
+- `server/assistant/prompts/{turn-intent,handsfree-reply}.md` — live-editable prompts. The
+  reply prompt enforces spoken brevity (1-2 sentences, no markdown); without it the answer
+  LLM writes chat-formatted essays that take 20s to speak.
+- `server/assistant/prompts.js` — **required prompts must be non-empty**, checked at boot
+  and on every load. A 0-byte prompt is a valid file that silently sends an empty system
+  prompt; that happened and degraded every reply for hours.
+- `server/api/realtime.js` — wires the machine into the relay.
+- `sdk/nVoiceClient.js` — session record + report, `barge-in`, `speech-start`,
+  `note()`, `enableWakeWord()`.
+- `sdk/tts-player.js` — spoken replies, interrupt semantics.
+- `web/pages/intent-lab.html` — the harness: badges, pipeline, speech buffer, live reply,
+  session report. Settings in a `nui-dialog` (page mode); mic gate and DSP toggles.
+- `tests/test_turn_eval.mjs` — classifier + full-machine evals; live failures are kept as
+  regression cases.
 
-**Config** (`config.json` → `assistant`): `classifier_model` (default `badkid-classifier`),
-`intent_pause_ms` (default 1200). Opt-in per connection via the `?intent=1` WS query
-param — independent of `assistant.enabled`.
+**Diagnosing a session.** Every intent session records itself and prints a report on
+socket close (`client.lastReport`, `window.__intentLab.report`): findings first, then
+per-turn text and timings, then the frame timeline. Findings name the failure — `no-intent`,
+`no-reply`, `unfinished-turn`, `still-speaking-dead-end`, `forced-completion`,
+`orphan-reply`, `cleanup-discarded`, `playback-cut`, `classifier-skipped`. Read a session
+from that before guessing; "the classifier failed" and "the classifier was never called"
+look identical from the outside and are different bugs.
 
-**SDK:** `intentEnabled` flag appends `?intent=1`; new events `intent` `{label,text,
-pause_ms}`, `phase` `{phase}`, `reply` `{result:{type:cleaned|stream,text}}`.
+**Config** (`config.json` → `assistant`): `classifier_model` (`badkid-classifier`),
+`intent_pause_ms` (1200). `vad.backend_stage` / `backend_threshold` gate the server side;
+`vad.min_speech_ratio` the sustained-speech requirement. Opt-in per connection via
+`?intent=1` — independent of `assistant.enabled`.
 
-**Known gaps:** interrupt drops streamed tokens but does not hard-abort the in-flight
-gateway request (replies are short, so this is acceptable for now — a true AbortSignal
-cancel is the next step). Echo/barge-in audio handling is still undecided (separate).
+**Known gaps:**
+- Interrupt drops streamed tokens but does not hard-abort the in-flight gateway request
+  (replies are short now, so acceptable; a true AbortSignal cancel is the next step).
+- The 0.6B is weak in isolation. It is adequate *because* the word list carries the
+  still-speaking cases — a still-speaking case the list does not know will be missed.
+  When that happens the eval prints the phrase; the fix is a word, not a model.
+- `isTrailingOff` is English+German word lists. Over-catching only delays a turn until
+  real speech resumes, because the ceiling still completes it.

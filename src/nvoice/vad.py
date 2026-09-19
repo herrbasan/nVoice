@@ -62,23 +62,20 @@ class SileroVAD:
             self._h = np.zeros((2, 1, 64), dtype=np.float32)
             self._c = np.zeros((2, 1, 64), dtype=np.float32)
 
-    def is_speech(self, audio_chunk, sample_rate=16000):
-        """
-        Process a chunk of audio and return True if speech probability >= threshold.
-        audio_chunk: 1D float32 numpy array, 16kHz mono.
-        """
+    def _scan(self, audio_chunk, sample_rate=16000):
+        """Run the model over 32ms windows. Returns (frames, above, max_prob)."""
         self._ensure_loaded()
 
-        # Silero expects 16kHz
         if sample_rate != 16000:
             raise ValueError("SileroVAD requires 16kHz audio")
 
-        # Process in 512-sample windows (Silero V4 frame size for 16kHz)
+        # Silero V4 frame size for 16kHz
         window = 512
         if len(audio_chunk) < window:
-            # Pad with zeros if too short
             audio_chunk = np.pad(audio_chunk, (0, window - len(audio_chunk)))
 
+        frames = 0
+        above = 0
         max_prob = 0.0
         for i in range(0, len(audio_chunk) - window + 1, window):
             chunk = audio_chunk[i:i + window].astype(np.float32)
@@ -92,10 +89,36 @@ class SileroVAD:
             }
             output, self._h, self._c = self._session.run(None, ort_inputs)
             prob = float(output[0][0])
+            frames += 1
+            if prob >= self.threshold:
+                above += 1
             if prob > max_prob:
                 max_prob = prob
 
+        return frames, above, max_prob
+
+    def is_speech(self, audio_chunk, sample_rate=16000):
+        """
+        Any speech in the chunk — TRUE if a single window clears the threshold.
+
+        Note what this does NOT mean: one loud 32ms window is not speech. A mic bump,
+        a keystroke or a chair creak clears the per-frame threshold on its own, and
+        an engine asked to transcribe that window will invent a word for it. Callers
+        deciding "did someone actually speak" want `speech_ratio` instead.
+        """
+        _, _, max_prob = self._scan(audio_chunk, sample_rate)
         return max_prob >= self.threshold
+
+    def speech_ratio(self, audio_chunk, sample_rate=16000):
+        """
+        Share of 32ms windows above the threshold (0..1) — "how much of this is
+        speech", as opposed to "is there any". This is the question to ask before
+        transcribing: sustained speech scores high, a transient scores near zero.
+        """
+        self.reset()
+        frames, above, _ = self._scan(audio_chunk, sample_rate)
+        self.reset()
+        return above / frames if frames else 0.0
 
     def has_speech(self, audio, sample_rate=16000):
         """

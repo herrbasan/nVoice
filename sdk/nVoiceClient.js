@@ -72,6 +72,11 @@ const TURN_SLOW_CLEANUP_MS = 1500;
 const TURN_SLOW_TTFB_MS = 2500;
 const TURN_LONG_FINAL_GAP_MS = 5000;
 
+// Mirrors the turn machine's server-side INTERRUPT_RE. An explicit interrupt word is
+// evidence rather than a guess, so the client acts on it immediately instead of
+// waiting out the sustain window that exists to filter noise.
+const _BARGE_IN_RE = /^\s*(wait|stop|halt|hold on|hold up|never ?mind|belay that)\b/i;
+
 function _turnTraceNew(meta) {
     return {
         t0: Date.now(),
@@ -448,6 +453,30 @@ class nVoiceClient {
         this.assistantEnabled = config.assistantEnabled || false;  // opt into LLM post-processing
         this.intentEnabled = config.intentEnabled || false;  // opt into turn-intent classification
         this.speaking = false;   // user VAD state — see the 'speech-start' event
+        // Barge-in requires speech held for this long. The server reports only one
+        // 'processing' telemetry frame per transcription, so touching the mic, a
+        // door, or handling noise trips the VAD for one or two frames — enough to
+        // cut the assistant off mid-sentence if a single transition were trusted.
+        // Measured in a live room: ambient noise held the gate for 430-550ms, so the
+        // threshold has to sit above that. Same reasoning as the wake-word gate.
+        this.bargeInMs = config.bargeInMs ?? 1000;
+        this._speechStartedAt = null;
+        this._bargeInFired = false;
+
+        // Mic DSP, individually overridable (undefined = derive from `rawAudio`/
+        // `isMobile` as before). They are not one kind of help:
+        //   echoCancellation — keeps the assistant from hearing its own TTS. Wanted.
+        //   autoGainControl  — raises gain when the room is quiet, which lifts the
+        //                      noise floor into the range the VAD then calls speech.
+        //   noiseSuppression — tuned for far-end speech, not for feeding an ASR.
+        this.echoCancellation = config.echoCancellation;
+        this.noiseSuppression = config.noiseSuppression;
+        this.autoGainControl = config.autoGainControl;
+
+        // A realtime connect that never completes must not hang forever: the socket
+        // can sit in CONNECTING while the engine worker loads, with nothing to fail
+        // on. Past this the connect is abandoned loudly.
+        this.connectTimeoutMs = config.connectTimeoutMs || 20000;
 
         // Turn-taking record (intent sessions only). `turn` is the live snapshot a
         // consumer binds to; a report is printed on socket close and left on
@@ -677,6 +706,29 @@ class nVoiceClient {
         this._turnSig = sig;
         this.turn = _turnSnapshot(t, state);
         this.emit('turn', this.turn);
+    }
+
+    /**
+     * Declare a barge-in. Fired either because speech has been sustained past
+     * `bargeInMs`, or because an interrupt keyword arrived — which needs no waiting,
+     * since the word itself is the evidence.
+     *
+     * A keyword is NEVER suppressed by an earlier barge-in in the same speech run.
+     * That latch previously swallowed a spoken "stop": it resets only on a
+     * silence → speech edge, and playback plus room noise can keep the server
+     * reporting "processing" straight through, so there was no edge to reset it. The
+     * debounce covers a repeated word instead.
+     */
+    _fireBargeIn(heldMs, reason) {
+        const now = Date.now();
+        if (reason === 'keyword') {
+            if (now - (this._lastBargeInAt || 0) < 800) return;
+        } else if (this._bargeInFired) {
+            return;
+        }
+        this._bargeInFired = true;
+        this._lastBargeInAt = now;
+        this.emit('barge-in', { heldMs, reason });
     }
 
     /**
@@ -1736,12 +1788,14 @@ class nVoiceClient {
             // they pass it in config, so a constructor-time check silently misses.
             const openMicAssistant = this.audioProcessing || this.intentEnabled;
             const useProcessing = openMicAssistant || (this.rawAudio ? false : isMobile);
+            // An explicit flag always wins; otherwise fall back to the old bundle.
+            const dsp = (own) => (own === undefined ? useProcessing : !!own);
 
             const constraints = {
                 audio: {
-                    echoCancellation: useProcessing,
-                    noiseSuppression: useProcessing,
-                    autoGainControl: useProcessing,
+                    echoCancellation: dsp(this.echoCancellation),
+                    noiseSuppression: dsp(this.noiseSuppression),
+                    autoGainControl: dsp(this.autoGainControl),
                 }
             };
 
@@ -1835,10 +1889,16 @@ class nVoiceClient {
             }
             console.log('[nVoice] Connecting realtime WebSocket: ' + wsUrl);
             this.ws = new WebSocket(wsUrl);
+            this._connectTimer = setTimeout(() => {
+                if (!this.ws || this.ws.readyState === WebSocket.OPEN) return;
+                this.emit('error', new Error(`realtime connect timed out after ${this.connectTimeoutMs}ms (engine may still be loading)`));
+                try { this.ws.close(); } catch { /* already closing */ }
+            }, this.connectTimeoutMs);
 
             this.ws.onopen = () => {
                 console.log('[nVoice] Realtime WebSocket open');
                 this._disconnected = false;
+                this._clearConnectTimer();
                 _turnLog(this._trace, 'ws connected');
                 // The socket is connected regardless of wake/sleep state.
                 // Emit 'connected' (enables Stop), then signal asleep if wake-word is armed.
@@ -1889,6 +1949,11 @@ class nVoiceClient {
                             _turnRecordFinal(this._trace, data.text);
                             this._syncTurn();
                         }
+                        // An explicit interrupt word is evidence, not a guess, so it
+                        // cuts immediately instead of waiting out the sustain window.
+                        if (data.is_final && data.text && _BARGE_IN_RE.test(data.text)) {
+                            this._fireBargeIn(0, 'keyword');
+                        }
                         // Suppress provisionals while a REAL command is being captured
                         // (a wake from sleep). A false-wake interrupt is still
                         // dictation, so its provisionals stay visible.
@@ -1925,8 +1990,22 @@ class nVoiceClient {
                         // edge. This is the hook an app needs to cut assistant TTS
                         // playback, which outlives the server's generation window.
                         const speaking = data.state !== 'idle/silence';
-                        if (speaking && !this.speaking) this.emit('speech-start');
-                        this.speaking = speaking;
+                        if (speaking && !this.speaking) {
+                            this.speaking = true;
+                            this._speechStartedAt = Date.now();
+                            this._bargeInFired = false;
+                            this.emit('speech-start');
+                        } else if (!speaking && this.speaking) {
+                            this.speaking = false;
+                            this._speechStartedAt = null;
+                            this.emit('speech-end');
+                        }
+                        // 'barge-in' is the event to cut playback on — not
+                        // 'speech-start', which fires on any single transition.
+                        if (speaking && !this._bargeInFired && this._speechStartedAt) {
+                            const heldMs = Date.now() - this._speechStartedAt;
+                            if (heldMs >= this.bargeInMs) this._fireBargeIn(heldMs, 'sustained');
+                        }
                         this.emit('telemetry', data);
                         this._kimiHandleTelemetry(data);
                     }
@@ -2149,11 +2228,22 @@ class nVoiceClient {
     _emitDisconnected() {
         if (this._disconnected) return;
         this._disconnected = true;
-        if (this._trace) {
-            _turnLog(this._trace, 'ws disconnected');
-            this.printSessionReport('disconnected');
+        this._clearConnectTimer();
+        try {
+            if (this._trace) {
+                _turnLog(this._trace, 'ws disconnected');
+                this.printSessionReport('disconnected');
+            }
+        } catch (err) {
+            // A broken report must not swallow the teardown event — consumers use it
+            // to release the UI (Start buttons, spinners).
+            console.error('[nVoice] session report failed', err);
         }
         this.emit('disconnected');
+    }
+
+    _clearConnectTimer() {
+        if (this._connectTimer) { clearTimeout(this._connectTimer); this._connectTimer = null; }
     }
 
     disconnect() {

@@ -5,8 +5,11 @@ import { config } from '../server/config.js';
 const classifier = new TurnIntentClassifier({
   gatewayUrl: config.assistant.gateway_url,
   gatewayKey: config.assistant.gateway_key,
-  model: config.assistant.classifier_model,
+  // CLASSIFIER_MODEL lets this be A/B'd without editing config:
+  //   $env:CLASSIFIER_MODEL='badkid-llama-chat'; node tests/test_turn_eval.mjs
+  model: process.env.CLASSIFIER_MODEL || config.assistant.classifier_model,
 });
+console.log(`classifier model: ${process.env.CLASSIFIER_MODEL || config.assistant.classifier_model}`);
 
 // Expected: 'still-speaking' for trailing, 'turn-done' for complete.
 const cases = [
@@ -29,6 +32,16 @@ const cases = [
   ['it depends on the', 'still-speaking'],
   ['i would like to order the', 'still-speaking'],
   ['das ist aber', 'still-speaking'],
+  // Regressions from the 2026-09-19 Intent Lab session — the two failures Dave
+  // hit in a row: an incomplete tail called done, and a complete complaint called
+  // incomplete.
+  ['the tts generation is continuing way past', 'still-speaking'],
+  ['oh this is not working uh many problems', 'turn-done'],
+  // Dangling modifiers the single-word check cannot see. These validate the
+  // generalisation, not just the one instance that was observed.
+  ['it should be much better than', 'still-speaking'],
+  ['the response is the same as', 'still-speaking'],
+  ['i was expecting a little bit more than', 'still-speaking'],
 ];
 
 let correct = 0;
@@ -53,12 +66,48 @@ for (const [text, want] of cases.filter(([, w]) => w === 'still-speaking')) {
 }
 
 console.log('\n=== Real classifier (LLM) ===');
+let totalMs = 0;
 for (const [text, want] of cases) {
+  const t0 = Date.now();
   const got = await classifier.classify(text, {});
+  const ms = Date.now() - t0;
+  totalMs += ms;
   const ok = got === want;
   if (ok) correct++; else wrong++;
-  console.log(`${ok ? 'OK ' : 'BAD'} "${text}" -> ${got} (want ${want})`);
+  console.log(`${ok ? 'OK ' : 'BAD'} [${ms}ms] "${text}" -> ${got} (want ${want})`);
 }
+console.log(`avg latency: ${Math.round(totalMs / cases.length)}ms over ${cases.length} cases`);
+
+// The section above measures the MODEL in isolation, bypassing the deterministic
+// trailing-word short-circuit. That overstates the problem: in a live session most
+// incomplete tails end on a word the short-circuit already knows, so they never
+// reach the model. This measures the whole decision path — which is what the user
+// actually experiences.
+console.log('\n=== Full machine (short-circuit + model) ===');
+let mOk = 0, mBad = 0;
+const via = { trailing: 0, model: 0 };
+for (const [text, want] of cases) {
+  let label = null, route = 'timeout';
+  const tm = new TurnMachine({
+    classify: (t, o) => classifier.classify(t, o),
+    emit: (o) => {
+      if (o.type === 'intent' && label === null) {
+        label = o.label;
+        route = o.trailing ? 'trailing' : 'model';
+      }
+    },
+    pauseMs: 30,
+    maxSilenceMs: 5000,   // keep the ceiling out of the measurement window
+  });
+  tm.onFinal(text);
+  await new Promise(r => setTimeout(r, 1200));
+  tm.close();
+  const ok = label === want;
+  if (ok) mOk++; else mBad++;
+  if (route === 'trailing') via.trailing++; else via.model++;
+  console.log(`${ok ? 'OK ' : 'BAD'} [${route}] "${text}" -> ${label ?? 'no decision'} (want ${want})`);
+}
+console.log(`machine: ${mOk} correct, ${mBad} wrong  (short-circuit: ${via.trailing}, model: ${via.model})`);
 
 console.log(`\n=== Summary: ${correct} correct, ${wrong} wrong ===`);
 

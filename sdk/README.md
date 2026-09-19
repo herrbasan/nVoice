@@ -75,9 +75,21 @@ State machine: `sleep → "ok kimi" → command (listen/stop/send) → transcrib
 
 ## Events
 
-`connected`, `disconnected`, `standby`, `transcript` `{text, is_final}`, `telemetry` `{rtf, backlog_sec}`, `wakeWordDetected`, `asleep`, `error`, `speech-start`.
+`connected`, `disconnected`, `standby`, `transcript` `{text, is_final}`, `telemetry` `{rtf, backlog_sec}`, `wakeWordDetected`, `asleep`, `error`, `speech-start`, `speech-end`, `barge-in`.
 
-`speech-start` fires on the silence → speech edge (with `client.speaking` carrying the level). It exists for one job: **cutting assistant playback**. Talking over the assistant always means stop, so this is not keyword-gated like the server's barge-in.
+**Cut playback on `barge-in`, never on `speech-start`.** `speech-start` is the raw
+silence → speech edge and fires on any single VAD transition — touching the mic, a door,
+handling noise — so cutting on it means every bump kills the assistant mid-sentence.
+`barge-in` instead fires when either:
+
+- **sustained speech** has been held past `bargeInMs` — the same "not one frame" reasoning
+  as the wake-word gate; or
+- an **interrupt keyword** (`wait`, `stop`, `halt`, `hold on`, `hold up`, `never mind`,
+  `belay that`) arrived as a final. The word is evidence rather than a guess, so it cuts
+  immediately — which is why the keyword path exists at all: a one-word interruption is
+  shorter than the sustain window and could never trip it.
+
+`speech-start` / `speech-end` remain available for UI state.
 
 **Reactive assistant** (`client.intentEnabled = true`): `intent` `{label, text, pause_ms}` (`still-speaking`|`turn-done`), `phase` `{phase}` (`cleaning`|`thinking`|`streaming`|`done`|`interrupted`|`reopened`), `reply` `{result:{type, text}}` (`cleaned` then `stream` tokens). `reopened` means speech arrived while the cleaned text was in flight, so the send was abandoned and the text was appended to the same turn.
 
@@ -163,11 +175,19 @@ client.on('speech-start', () => tts.stop('user spoke'));   // ← the barge-in
 | `flush()` | End of reply — speak what is left |
 | `stop(reason?)` | Cut playback now, drop everything unspoken. Returns `{wasPlaying, dropped}` |
 | `prime()` | Build the output path — call inside a user gesture (Start click) |
+| `bargeInMs` | Speech must be held this long before a sustained-speech barge-in fires (default 1000; a live room's noise held the VAD for 430-550ms) |
+| `clean` | Text cleaning, done by nSpeech (`extra_body.clean`): `true` (default) = regex strip, `'llm'` = gateway rewrite, `false` = off |
 | `playing` / `pending` | Speaking now / sentences queued |
 | `stats` | `{ sentences, spokenChars, synthMs, spokenMs, interrupted }` |
 | `onEvent` | `start` · `end` · `interrupted` · `error` |
 
-Markdown is stripped before synthesis so punctuation is not read aloud. Measured
+Markdown is stripped before synthesis so punctuation is not read aloud. That happens
+in two places on purpose: the player strips each sentence locally because *splitting*
+needs the markdown gone (an ordered-list marker like `1.` is otherwise
+indistinguishable from a sentence end), and nSpeech cleans what arrives via
+`extra_body.clean`, where it is authoritative — it also handles emphasis, tables and
+HTML the local strip does not. `clean: 'llm'` gets a gateway rewrite for hard cases,
+but that adds gateway latency and is the wrong trade for realtime speech. Measured
 against local Kokoro: first audio ~650ms after the text arrives, one sentence of
 look-ahead kept synthesized. Feed cut playback into the session record with
 `client.note()` so it shows up in the report alongside the turn it interrupted.

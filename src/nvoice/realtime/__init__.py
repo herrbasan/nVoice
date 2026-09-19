@@ -83,6 +83,7 @@ def create_strategy(adapter, config=None):
             vad=vad,
             commit_silence_sec=rt.get('commit_silence_sec', cfg.get('commit_silence_tail_sec', 0.6)),
             max_chunk_sec=rt.get('max_chunk_sec', 30.0),
+            min_speech_ratio=vad_cfg.get('min_speech_ratio', 0.25),
         )
 
     raise ValueError(f"Unknown realtime strategy: {strategy_name}")

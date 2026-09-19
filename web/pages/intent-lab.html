@@ -26,6 +26,29 @@
                         <select id="intent-mic-select"></select>
                     </nui-select>
                 </nui-input-group>
+                <nui-input-group>
+                    <nui-checkbox>
+                        <input type="checkbox" id="intent-mic-gate" checked>
+                        <label for="intent-mic-gate">Wake on voice (client gate)</label>
+                    </nui-checkbox>
+                    <span class="description">
+                        The browser's own VAD decides whether audio is sent at all, and sleeps after a
+                        few seconds of silence — the same gate the Realtime page uses. Without it every
+                        frame is streamed and the server has to judge noise it should never have seen.
+                        Turn-taking leans on this: speech wakes it, so barge-in still works.
+                    </span>
+                </nui-input-group>
+                <nui-input-group>
+                    <nui-checkbox>
+                        <input type="checkbox" id="intent-mic-dsp" checked>
+                        <label for="intent-mic-dsp">Noise suppression + auto gain</label>
+                    </nui-checkbox>
+                    <span class="description">
+                        Uncheck to feed the recogniser the raw mic. Auto gain lifts the noise floor
+                        in a quiet room — the VAD then hears room noise as speech. Echo cancellation
+                        stays on either way: it is what stops the assistant hearing itself.
+                    </span>
+                </nui-input-group>
             </div>
 
             <nui-button-container class="nv-actions" gap="medium">
@@ -189,8 +212,10 @@
             </div>
             <span class="description">
                 Playback is the barge-in window — synthesis outlives the server's reply, so the
-                assistant is still talking after the turn is done. Speaking stops the audio immediately.
-                The mic runs with echo cancellation while this is on, so the assistant does not hear itself.
+                assistant is still talking after the turn is done. Say <em>“wait”</em>/<em>“stop”</em>
+                or just keep talking to cut it. Noise does not: a bare VAD blip no longer stops
+                playback, only speech held for about a second. The mic runs with echo cancellation
+                while this is on, so the assistant does not hear itself.
                 <strong id="intent-tts-status"></strong>
             </span>
         </nui-input-group>
@@ -244,6 +269,8 @@ function init(element, params, nui) {
 
     // Inputs
     const micSelect = element.querySelector('#intent-mic-select');
+    const micGateToggle = element.querySelector('#intent-mic-gate');
+    const micDspToggle = element.querySelector('#intent-mic-dsp');
     const micSelectWrap = element.querySelector('#intent-mic-select-wrap');
     const pauseSlider = element.querySelector('#intent-pause-slider');
     const pauseInput = element.querySelector('#intent-pause-input');
@@ -296,6 +323,7 @@ function init(element, params, nui) {
     // console or from window.__intentLab.
     let sessionReport = null;
     let tts = null;
+    let connectWatchdog = null;
 
     const TTS_URL = 'http://127.0.0.1:2233';
 
@@ -458,13 +486,14 @@ function init(element, params, nui) {
         instance.on('turn', (turn) => {
             window.__intentLab.turn = turn;
         });
-        // The user speaking cuts assistant playback immediately — unconditionally,
-        // not keyword-gated. Talking over the assistant always means stop.
-        instance.on('speech-start', () => {
-            if (tts && (tts.playing || tts.pending)) tts.stop('user spoke');
+        // Barge-in, not speech-start: cutting on every VAD transition means any
+        // noise that trips the gate (touching the mic, a door) kills playback.
+        instance.on('barge-in', (info) => {
+            if (tts && (tts.playing || tts.pending)) tts.stop(`user spoke for ${info.heldMs}ms`);
         });
 
         client.on('connected', () => {
+            if (connectWatchdog) { clearTimeout(connectWatchdog); connectWatchdog = null; }
             setStatus('Connected', 'success');
             stopInner.disabled = false;
             startInner.disabled = true;
@@ -494,6 +523,11 @@ function init(element, params, nui) {
         client.on('error', (err) => {
             console.error('[Intent Lab]', err);
             const message = err?.message || String(err);
+            // A failed connect must leave the page usable, not wedged.
+            if (statusBadge.textContent !== 'Connected') {
+                startInner.disabled = false;
+                micSelect.disabled = false;
+            }
             nui.components.banner.show({
                 content: `Realtime error: ${message}`,
                 placement: 'top', priority: 'danger', autoClose: 4000,
@@ -580,6 +614,9 @@ function init(element, params, nui) {
                 liveReply.textContent = '';
                 replyStatus.textContent = '(cleaning transcript...)';
                 replyTiming.textContent = '';
+                // A new turn may speak again — an interrupt muted the previous reply,
+                // and without this the assistant would stay silent for good.
+                if (tts) tts.unmute();
             } else if (p === 'reopened') {
                 // Speech arrived before the clean text was sent, so the send was
                 // abandoned and the turn is collecting again.
@@ -662,14 +699,50 @@ function init(element, params, nui) {
         }
         startInner.disabled = true;
         micSelect.disabled = true;
+        // Stop stays available while connecting: a connect that never completes used
+        // to leave Start AND Stop disabled, with no way out but a page reload.
+        stopInner.disabled = false;
+        if (connectWatchdog) clearTimeout(connectWatchdog);
+        connectWatchdog = setTimeout(() => {
+            if (statusBadge.textContent === 'Connected') return;
+            nui.components.banner.show({
+                content: 'Connect timed out — the engine may still be loading. Try Start Lab again.',
+                placement: 'top', priority: 'danger', autoClose: 6000,
+            });
+            if (client) { client.disconnect(); client = null; }
+            startInner.disabled = false;
+            micSelect.disabled = false;
+        }, 15000);
         client.setAudioDevice(micSelect.value);
         client.engine = window.nvoice.activeEngine;
         client.intentPauseMs = selectedPauseMs;
         client.intentMaxSilenceMs = selectedMaxSilenceMs;
         client.intentNoReply = !generateReply;
         client.intentMaxTokens = 2048;
-        client.wakeWordEnabled = false;
-        client.isAwake = true;
+        // Client-side voice gate — the reason the Realtime page does not transcribe
+        // every bump. Setting the flag is not enough: enableWakeWord() is what loads
+        // the Silero model, and without it the detector never runs and the client sits
+        // asleep forever, sending nothing at all. With it, silence is never sent.
+        if (micGateToggle.checked) {
+            await client.enableWakeWord('/sdk/silero_vad.onnx').catch(e => {
+                console.error('[Intent Lab] client gate failed to load', e);
+                nui.components.banner.show({
+                    content: `Client gate unavailable (${e.message}) — streaming raw mic instead.`,
+                    placement: 'top', priority: 'warning', autoClose: 5000,
+                });
+                client.wakeWordEnabled = false;
+                client.isAwake = true;
+            });
+        } else {
+            client.wakeWordEnabled = false;
+            client.isAwake = true;
+        }
+        // AEC stays on either way — it is the one stage that stops the assistant
+        // hearing its own speech. NS/AGC are optional, and auto gain was lifting the
+        // room's noise floor into the range the VAD reads as speech.
+        client.echoCancellation = true;
+        client.noiseSuppression = micDspToggle.checked;
+        client.autoGainControl = micDspToggle.checked;
         await client.start().catch(e => {
             console.error(e);
             startInner.disabled = false;
@@ -677,12 +750,16 @@ function init(element, params, nui) {
     });
 
     stopBtn.addEventListener('click', () => {
+        if (connectWatchdog) { clearTimeout(connectWatchdog); connectWatchdog = null; }
         if (client) {
             client.disconnect();
             client = null;
         }
         stopPauseCountdown();
         if (tts) tts.stop('session stopped');
+        // Always leave the page in a usable state, whatever brought us here.
+        startInner.disabled = false;
+        micSelect.disabled = false;
     });
 
     resetBtn.addEventListener('click', () => {

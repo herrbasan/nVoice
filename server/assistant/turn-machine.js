@@ -34,13 +34,24 @@ const TRAILING_TOKENS = new Set([
   'eine', 'zu', 'für', 'mit', 'über', 'noch', 'äh', 'ähm', 'dann',
 ]);
 
-// Two-word trailing phrases that a single-word check misses ("…no matter…",
-// "…sort of…", "…even though…").
-const TRAILING_BIGRAMS = new Set([
+// Multi-word trailing phrases that a single-word check misses ("…no matter…",
+// "…sort of…", "…even though…"). Matched as a SUFFIX of the whole text, not by
+// taking the last two words — "the same as" is three words, so a bigram of the
+// tail could never see it.
+const TRAILING_PHRASES = [
   'no matter', 'sort of', 'kind of', 'even though', 'as if', 'or not',
   'and so', 'so that', 'such as', 'in order', 'or rather', 'whether or',
   'not only', 'but also', 'as well', 'as long',
-]);
+  // Dangling modifiers and comparatives. These read as content words to a
+  // single-word check but cannot end a clause — "…continuing way past" was
+  // observed closing a turn mid-sentence. Catching them here costs nothing and
+  // keeps the decision deterministic; the classifier never sees them.
+  'way past', 'better than', 'worse than', 'more than', 'less than',
+  'the same as', 'as much as', 'as long as', 'as far as', 'so far that',
+  'instead of', 'because of', 'apart from', 'due to', 'according to',
+  'in terms of', 'as opposed to', 'in addition to', 'on top of',
+  'depends on', 'depending on', 'up to', 'left to',
+];
 
 function isTrailingOff(text) {
   const t = (text || '').trim().replace(/[.…!?,;:]+$/, '').trim();
@@ -48,9 +59,10 @@ function isTrailingOff(text) {
   const words = t.split(/\s+/);
   const last = words[words.length - 1].toLowerCase();
   if (TRAILING_TOKENS.has(last)) return true;
-  if (words.length >= 2) {
-    const bigram = words.slice(-2).join(' ').toLowerCase();
-    if (TRAILING_BIGRAMS.has(bigram)) return true;
+  // Suffix match, so a phrase of any length works and the boundary is a real
+  // word boundary (never matches "contrast" for "past").
+  for (const phrase of TRAILING_PHRASES) {
+    if (t.endsWith(' ' + phrase)) return true;
   }
   return false;
 }

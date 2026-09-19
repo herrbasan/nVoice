@@ -51,6 +51,10 @@ class TtsPlayer {
         this.bufferAhead = opts.bufferAhead || 2;
         this.enabled = opts.enabled !== false;
         this.loopback = opts.loopback !== false;   // route playback through WebRTC for AEC
+        // Text cleaning, done by nSpeech (extra_body.clean): true = regex strip,
+        // 'llm' = rewrite via the local gateway (better with emphasis/tables, but
+        // adds gateway latency — the wrong trade for realtime speech), false = off.
+        this.clean = opts.clean === undefined ? true : opts.clean;
         this.onEvent = opts.onEvent || (() => {});
 
         this._buffer = '';      // reply text not yet split into sentences
@@ -59,6 +63,7 @@ class TtsPlayer {
         this._synthing = false;
         this._generation = 0;   // bumped by stop() so stale work is discarded
         this._runActive = false; // one 'start'/'end' pair per playback run
+        this._muted = false;    // set by an interrupt; cleared by unmute()
         this._startedAt = null;
 
         // One long-lived output path, created once. See _ensureAudio().
@@ -83,33 +88,51 @@ class TtsPlayer {
         this._ensureAudio().catch(err => this.onEvent({ type: 'error', error: `audio init: ${err.message}` }));
     }
 
-    /** Feed reply tokens. Speaks each complete sentence as it lands. */
-    push(text) {        if (!this.enabled || !text) return;
+    /**
+     * Feed reply tokens. Speaks each complete sentence as it lands.
+     *
+     * Each sentence is stripped of markdown before it is queued. That is not the
+     * authoritative clean — nSpeech does that (see `this.clean`) — but splitting
+     * happens here and markdown breaks it: an ordered-list marker like "1." is
+     * indistinguishable from a sentence end. Cleaning each sentence also reduces
+     * such a marker to nothing, which is why empty results are dropped rather than
+     * queued to be spoken.
+     */
+    push(text) {
+        if (!this.enabled || !text || this._muted) return;
         this._buffer += text;
         let sentence;
-        while ((sentence = this._takeSentence())) this._enqueue(sentence);
+        while ((sentence = this._takeSentence())) {
+            const clean = _ttsClean(sentence);
+            if (clean) this._enqueue(clean);
+        }
         this._schedule();
     }
 
     /** End of the reply — speak whatever is left over. */
     flush() {
+        if (this._muted) { this._buffer = ''; return; }
         const rest = _ttsClean(this._buffer);
         this._buffer = '';
-        if (rest) {
-            this._enqueue(rest);
-            this._schedule();   // _enqueue only queues — without this the tail of the
-        } else {                 // reply sits in the queue and is never spoken
-            this._schedule();
-        }
-    }
+        if (rest) this._enqueue(rest);
+        this._schedule();   // _enqueue only queues — without this the tail of the
+    }                       // reply would sit in the queue and never be spoken
 
     /**
      * Cut playback now and drop everything not yet spoken.
      *
+     * Mutes the rest of the reply as well. Cutting only the sentence in flight is not
+     * an interrupt: the reply is still streaming, so the next tokens arrive, form a
+     * sentence, and playback starts again — which reads as "it ignored me".
+     * Call `unmute()` when the next turn begins.
+     *
      * @param {string} [reason] why playback was cut (for the session record)
+     * @param {object} [opts]
+     * @param {boolean} [opts.mute=true] silence the remainder of this reply
      * @returns {{wasPlaying: boolean, dropped: number}}
      */
-    stop(reason = 'stopped') {
+    stop(reason = 'stopped', { mute = true } = {}) {
+        if (mute) this._muted = true;
         const wasPlaying = !!this._source;
         const dropped = this._queue.length + this._ready.length;
         const spokenMs = this._startedAt != null ? Date.now() - this._startedAt : 0;
@@ -127,6 +150,11 @@ class TtsPlayer {
         return { wasPlaying, dropped };
     }
 
+    /** Allow speech again — call when a new turn starts. */
+    unmute() {
+        this._muted = false;
+    }
+
     get playing() { return !!this._source; }
     get pending() { return this._queue.length + this._ready.length; }
 
@@ -135,6 +163,7 @@ class TtsPlayer {
         return {
             enabled: this.enabled,
             playing: !!this._source,
+            muted: this._muted,
             queued: this._queue.length,
             ready: this._ready.length,
             synthing: this._synthing,
@@ -175,7 +204,7 @@ class TtsPlayer {
 
     /** Play the next ready sentence, or make sure synthesis is running. */
     _schedule() {
-        if (!this.enabled) return;
+        if (!this.enabled || this._muted) return;
         if (this._source) return;                // 'onended' will call back
         const item = this._ready.shift();
         if (item) { this._play(item); return; }
@@ -200,6 +229,7 @@ class TtsPlayer {
                         voice: this.voice,
                         response_format: 'mp3',
                         speed: this.speed,
+                        ...(this.clean ? { extra_body: { clean: this.clean } } : {}),
                     }),
                 });
                 if (generation !== this._generation) return;   // stopped meanwhile
@@ -227,8 +257,10 @@ class TtsPlayer {
     }
 
     _play(item) {
+        if (this._muted) return;
+        const generation = this._generation;
         this._ensureAudio()
-            .then(() => this._startSource(item))
+            .then(() => this._startSource(item, generation))
             .catch(err => {
                 this.onEvent({ type: 'error', error: `playback: ${err.message}` });
                 this._schedule();
@@ -285,9 +317,14 @@ class TtsPlayer {
         return this._readyPromise;
     }
 
-    async _startSource({ data, text }) {
+    async _startSource({ data, text }, generation) {
         // decodeAudioData detaches its input, so hand it a copy.
         const buffer = await this._ctx.decodeAudioData(data.slice(0));
+        // An interrupt during the decode means this sentence is already obsolete.
+        // Without this the play pipeline resumed after the user said stop — the
+        // queue was cleared, but work already inside the pipeline still completed.
+        // Every await in here needs the same check, not just the queue.
+        if (this._muted || generation !== this._generation) return;
         if (!this._ctx) throw new Error('audio context gone');
         const src = this._ctx.createBufferSource();
         src.buffer = buffer;
@@ -330,7 +367,13 @@ class TtsPlayer {
     }
 }
 
-/** Strip markdown so the model does not read punctuation aloud. */
+/**
+ * Strip markdown so the model does not read punctuation aloud.
+ *
+ * Shapes the text for our own sentence splitting; nSpeech cleans again on arrival
+ * (`extra_body.clean`, see `this.clean`), where it is authoritative — it also
+ * handles emphasis, tables and HTML that this does not.
+ */
 function _ttsClean(text) {
     return String(text || '')
         .replace(/```[\s\S]*?```/g, ' ')

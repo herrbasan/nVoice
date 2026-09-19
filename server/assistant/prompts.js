@@ -26,8 +26,17 @@ const REQUIRED = [
 ];
 
 for (const f of [...REQUIRED]) {
-  if (!fs.existsSync(path.join(PROMPTS_DIR, f))) {
+  const p = path.join(PROMPTS_DIR, f);
+  if (!fs.existsSync(p)) {
     throw new Error(`Missing prompt file: server/assistant/prompts/${f}`);
+  }
+  // Existence is not enough. An emptied prompt file is a valid file that silently
+  // sends an empty system prompt, and the model then answers as a chat assistant —
+  // long, bulleted, markdown-formatted text meant to be read, not spoken. That
+  // happened; the reply LLM ran with no instructions at all for hours and the only
+  // symptom was replies that would not stop talking.
+  if (!fs.readFileSync(p, 'utf8').trim()) {
+    throw new Error(`Empty prompt file: server/assistant/prompts/${f} (a required prompt cannot be blank)`);
   }
 }
 
@@ -50,5 +59,11 @@ export function loadPrompt(file) {
   if (!/^[a-zA-Z0-9._-]+\.md$/.test(file)) {
     throw new Error(`loadPrompt: invalid prompt file name "${file}"`);
   }
-  return fs.readFileSync(path.join(PROMPTS_DIR, file), 'utf8').trim();
+  const text = fs.readFileSync(path.join(PROMPTS_DIR, file), 'utf8').trim();
+  // Re-read per call, so a file emptied at runtime would otherwise degrade the
+  // caller silently on its next request. Fail loudly instead.
+  if (!text) {
+    throw new Error(`loadPrompt: prompt file "${file}" is empty`);
+  }
+  return text;
 }

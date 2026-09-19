@@ -38,10 +38,15 @@ _HALLUCINATIONS = [
 class ChunkedStreamingStrategy(RealtimeStrategy):
     def __init__(self, stt_engine, sample_rate=16000, vad=None,
                  commit_silence_sec=0.6,
-                 max_chunk_sec=30.0, provisional_interval_sec=0.5):
+                 max_chunk_sec=30.0, provisional_interval_sec=0.5,
+                 min_speech_ratio=0.25):
         self.stt_engine = stt_engine
         self.sample_rate = sample_rate
         self.vad = vad
+        # Share of the window that must clear the threshold before we call it speech.
+        # "Any frame above threshold" lets a mic bump or a keystroke commit a chunk,
+        # and an engine asked to transcribe near-silence invents a word for it.
+        self.min_speech_ratio = min_speech_ratio
 
         self.commit_silence_sec = commit_silence_sec      # silence tail → chunk complete
         self.max_chunk_sec = max_chunk_sec                # force-commit cap
@@ -104,7 +109,7 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
                 return False
             rms = float(np.sqrt(np.mean(np.square(np.clip(view[::16], -1.0, 1.0)))))
             return rms >= 0.005
-        return self.vad.has_speech(view, self.sample_rate)
+        return self.vad.speech_ratio(view, self.sample_rate) >= self.min_speech_ratio
 
     def _transcribe(self, view):
         t0 = time.monotonic()
