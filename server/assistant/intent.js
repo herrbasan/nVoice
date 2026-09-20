@@ -12,8 +12,6 @@
 import { logger } from '../logger.js';
 import { loadPrompt } from './prompts.js';
 
-const TURN_LABELS = ['still-speaking', 'turn-done'];
-
 export class TurnIntentClassifier {
   constructor({ gatewayUrl, gatewayKey, model }) {
     this.gatewayUrl = gatewayUrl;
@@ -44,7 +42,7 @@ export class TurnIntentClassifier {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: trimmed },
       ],
-      max_tokens: 8,
+      max_tokens: 16,
       temperature: 0,
       stream: false,
     });
@@ -65,8 +63,16 @@ export class TurnIntentClassifier {
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
       if (!content) return null;
-      const label = content.trim().toLowerCase();
-      return TURN_LABELS.includes(label) ? label : null;
+      // Extract the label rather than demanding an exact match: a small model
+      // occasionally decorates its answer ("turn-done.", casing, a stray token)
+      // and an exact-equality check silently converts those into still-speaking
+      // (null), degrading every turn to the silence ceiling with no trace.
+      const m = content.toLowerCase().match(/turn-done|still-speaking/);
+      if (!m) {
+        logger.warn('Intent classifier returned unparseable output', { raw: String(content).slice(0, 80) }, 'Intent');
+        return null;
+      }
+      return m[0];
     } catch (err) {
       logger.error('Intent classifier failed', err, 'Intent');
       return null;

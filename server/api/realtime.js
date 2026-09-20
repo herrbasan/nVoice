@@ -18,6 +18,7 @@ import { config } from '../config.js';
 import { createAssistantSession, AssistantSession } from '../assistant/index.js';
 import { createIntentClassifier } from '../assistant/intent.js';
 import { TurnMachine } from '../assistant/turn-machine.js';
+import { makeSpokenTail, appendSpokenText, isEchoOfSpoken } from '../assistant/echo-guard.js';
 
 export function registerRealtimeRoutes(app, engineManager) {
 
@@ -139,6 +140,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
     let pendingRaw = '';          // raw tail awaiting settlement (bounded)
     let pendingParagraph = false; // long pause detected before the pending block
     let lastFinalAt = null;       // Date.now() of the previous final transcript
+    let lastSpeechSec = 0;        // last telemetry speech_sec (speech-evidence tracker)
     let pauseTimer = null;
     const paragraphPauseMs = config.raw?.realtime?.paragraph_pause_ms ?? config.assistant.paragraph_pause_ms;
     let paragraphTimer = null;
@@ -215,7 +217,16 @@ export function attachRealtimeWebSocket(app, engineManager) {
     const intentNoReply = url.searchParams.get('noreply') === '1';
     const replyMaxTokens = Number(url.searchParams.get('max_tokens')) || config.assistant?.reply_max_tokens || 2048;
 
+    // Spoken-reply tail — the echo guard's reference. Survives reply end: the
+    // mic keeps hearing the last seconds of TTS after the phase flips to done.
+    const spokenTail = makeSpokenTail();
+
     function emitToBrowser(obj) {
+      // Feed the echo guard: every reply token the client is about to speak.
+      // (TTS reads exactly these — they are the ground truth for echo matching.)
+      if (obj?.type === 'reply' && obj.result?.type === 'stream') {
+        appendSpokenText(spokenTail, obj.result.text);
+      }
       if (browserWs.readyState !== WebSocket.OPEN) return;
       browserWs.send(JSON.stringify(obj), { binary: false });
     }
@@ -229,7 +240,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
 
     const turnMachine = intentClassifier ? new TurnMachine({
       classify: (text, opts) => intentClassifier.classify(text, opts),
-      clean: (text) => cleaner.cleanTranscript(text, 'clean'),
+      verdict: (text) => cleaner.verdictClean(text),
       reply: intentNoReply ? null : ((text, { onToken }) => cleaner.streamReply(text, onToken)),
       emit: emitToBrowser,
       pauseMs: intentPauseMs,
@@ -296,6 +307,17 @@ export function attachRealtimeWebSocket(app, engineManager) {
         return;
       }
 
+      // Self-echo guard — run BEFORE anything consumes the final. When AEC
+      // breaks (music, a mis-converged filter), the mic transcribes the TTS
+      // output; that text is real language and would COMPLETE the verdict —
+      // the machine would answer itself. We know exactly what was spoken, so
+      // any final matching the spoken tail is echo, dropped here.
+      if (event.type === 'transcript' && event.is_final && event.text && isEchoOfSpoken(event.text, spokenTail)) {
+        logger.info('Echo suppressed — final matches spoken TTS output', { text: event.text.slice(0, 80) }, 'Realtime', { console: true });
+        browserWs.send(JSON.stringify({ type: 'echo-suppressed', text: event.text, ts: Date.now() }), { binary: false });
+        return;
+      }
+
       // Turn-taking machine — reset the silence deadline on ANY speech
       // (provisional chunks included) and feed settled finals in for
       // classification. Without this, a forced-completion timeout fires
@@ -303,6 +325,23 @@ export function attachRealtimeWebSocket(app, engineManager) {
       if (turnMachine && event.type === 'transcript' && event.text) {
         if (event.is_final) turnMachine.onFinal(event.text);
         else turnMachine.onSpeech();
+      }
+
+      // Transcript events are NOT a reliable speech signal on their own: the
+      // worker dedupes identical provisionals, so the first ~1.2s of resumed
+      // speech can produce NO events — and the machine's pause fired on the
+      // OLD buffer mid-sentence (observed 2026-09-20). The server-integrated
+      // speech_sec (VAD-voiced seconds, reset per commit) is the honest
+      // signal: if it GREW, audio was voiced since the last telemetry —
+      // treat that as speech regardless of transcript events.
+      if (turnMachine && event.type === 'telemetry' && typeof event.speech_sec === 'number') {
+        if (event.speech_sec > lastSpeechSec + 0.001) {
+          lastSpeechSec = event.speech_sec;
+          turnMachine.onSpeech();
+        } else if (event.speech_sec < lastSpeechSec) {
+          // Reset at a commit — new utterance run starts from zero.
+          lastSpeechSec = event.speech_sec;
+        }
       }
 
       if (event.type !== 'transcript' || !event.is_final || !event.text) return;

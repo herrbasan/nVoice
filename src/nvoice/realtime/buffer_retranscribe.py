@@ -16,17 +16,38 @@ import asyncio
 import time
 import numpy as np
 
-from nvoice.realtime import RealtimeStrategy
-from nvoice.logger import get_logger
+from nvoice.realtime import RealtimeStrategyfrom nvoice.logger import get_logger
 
 logger = get_logger("buffer_retranscribe")
 
-# Hallucination filter for trailing silence artifacts
+# Hallucination filter for trailing silence artifacts + vocal-noise fillers
+# (breathing/coughing artifacts — keep in sync with chunked_streaming.py)
 _HALLUCINATIONS = [
     "thank you.", "thank you", "thanks.", "thanks", "thanks for watching.",
     "subscribe.", "thank you for watching.", "thank you very much for your time.",
-    "you.", "working.", "working"
+    "you.", "working.", "working",
+    "yeah", "yeah.", "hmm", "hmm.", "hm", "hm.", "mhm", "mhm.",
+    "mm", "mm.", "ah", "ah.", "oh", "oh.", "uh", "uh.", "um", "um.",
+    "äh", "äh.", "ähm", "ähm.", "ha", "ha.", "aha", "aha.",
+    "a", "a.", "e", "e.", "sorry", "sorry.",
 ]
+
+# Non-lexical vocal-noise TOKENS — mirror of chunked_streaming.py (keep in
+# sync). A final whose EVERY token is a filler ("mm mmm", "ha ha ha", "äh hm")
+# is breath/cough noise; the engine can only emit filler syllables for vocal
+# noise, so token-class composition covers every combination.
+_FILLER_TOKENS = {
+    "mm", "mmm", "hmm", "hm", "mhm", "mh", "uh", "um", "ah", "ahh", "ahem",
+    "oh", "ohh", "ooh", "ha", "hah", "haha", "heh", "äh", "ähm", "öh", "öhm",
+    "ehm", "eh", "err", "a", "e", "ä", "o",
+}
+
+
+def _is_vocal_noise(text):
+    """True when the final consists solely of filler tokens (vocal noise)."""
+    import re
+    tokens = [t for t in re.split(r"[\s.,!?;:]+", (text or "").lower()) if t]
+    return bool(tokens) and all(t in _FILLER_TOKENS for t in tokens)
 
 
 class BufferRetranscribeStrategy(RealtimeStrategy):
@@ -95,7 +116,7 @@ class BufferRetranscribeStrategy(RealtimeStrategy):
         cleaned = text.strip()
         if not cleaned:
             return
-        if cleaned.lower() in _HALLUCINATIONS:
+        if cleaned.lower() in _HALLUCINATIONS or _is_vocal_noise(cleaned):
             return
         self._events.append({
             "type": "transcript",

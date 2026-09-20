@@ -173,12 +173,19 @@ Live STT over WebSocket. Node relays the connection to the resolved Python worke
 
 **Reactive assistant (opt-in `?intent=1`):** append `?intent=1` to the WS URL to enable
 turn-taking. Optional query params: `pause_ms=<ms>` (override pause threshold), `noreply=1` (dictation/turn-taking test without reply generation). The server then also emits:
-- `{ "type":"intent", "label", "text", "pause_ms", "latency_ms", "ts" }` — `still-speaking` |
-  `turn-done` after a pause (classified by `badkid-classifier`).
+- `{ "type":"intent", "label", "text", "pause_ms", "latency_ms", "superseded", "ts" }` — `still-speaking` |
+  `turn-done` after a pause (classified by `badkid-classifier`). `superseded: true` means
+  speech arrived while the classifier was running: the verdict describes a stale snapshot
+  and was discarded — the re-armed pause re-decides on the combined text.
+- `{ "type":"verdict", "verdict", "text", "pause_ms", "forced", "latency_ms", "parse_failed", "superseded" }` —
+  the Turn-Taking v2 gate: `COMPLETE` (sent / interrupted output), `INCOMPLETE` (kept
+  listening), `NOT_SPEECH` (whole buffer discarded — noise never reaches the reply
+  LLM). `superseded: true` = speech arrived during the call; the verdict was dropped.
 - `{ "type":"phase", "phase", "text"?, "ttfb_ms"?, "duration_ms"? }` — `cleaning` | `thinking` | `streaming` |
-  `done` | `interrupted` | `reopened`. `reopened` means speech arrived while the cleaned text was still
-  in flight: the send was abandoned, the new text was appended to the same turn, and a later pause
-  re-decides. Nothing was sent to the answer LLM.
+  `done` | `interrupted` | `reopened` | `discarded`. `reopened` means speech arrived while
+  the verdict was still in flight: the send was abandoned and a later pause re-decides.
+  `discarded` follows a `NOT_SPEECH` verdict — the buffer was dropped. `interrupted` with
+  `trigger: "new-input"` means a gauntlet-surviving input cut an ongoing reply.
 - `{ "type":"reply", "result":{ "type":"cleaned"|"stream", "text", "latency_ms"? } }` — cleaned turn
   text, then streamed assistant reply tokens.
 

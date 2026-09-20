@@ -82,7 +82,7 @@ Realtime audio flows **browser → WebSocket → Node → WebSocket → Python w
 The v2 `AudioConsumer._daemon_loop` is extracted verbatim into `src/nvoice/realtime/buffer_retranscribe.py`. Its heuristics are load-bearing — do NOT simplify. The shared `vad.py` Silero stage replaces the old RMS gate.
 
 ### Realtime Client/SDK Behavior (nVoiceClient.js)
-- **Audio capture:** `getUserMedia` applies echo-cancellation/noise-suppression/AGC at capture time (browser pipeline), independent of transport. On desktop `useProcessing=false` unless "Raw Audio" toggle overrides; on mobile processing is on.
+- **Audio capture:** `getUserMedia` applies echo-cancellation/noise-suppression/AGC at capture time (browser pipeline), independent of transport. Assistant/intent sessions default **AEC-only** (NS+AGC off — AGC lifts the noise floor until the VAD reads breathing as speech; observed 2026-09-19); non-assistant desktop runs raw unless the "Raw Audio" toggle overrides; mobile processing is on. Explicit per-flag overrides always win.
 - **Streaming worklet:** `_setupStreamingWorklet()` (AudioWorklet) downsamples mic → 16kHz mono, emits 512-sample (32ms) Float32 frames, sends each to the WS when `isAwake`. This is the *only* path audio takes to the server.
 - **Two VADs, separate jobs:**
   - **Client WASM Silero VAD** (`enableWakeWord`, `_setupAudioWorklet`) — decides **when to send audio** (wake-on-voice). Cheap, always-on. Requires **sustained** speech to wake: 3 consecutive frames with prob > 0.5 (`_wakeFrames`/`_wakeThreshold`) — a single frame is too easy to trip on amplified fan/ambient noise.
@@ -132,14 +132,20 @@ answers out loud, and stops when you talk over it. Working end to end as of 2026
 
 **The turn decision has TWO layers, and the deterministic one does most of the work:**
 
-1. `isTrailingOff()` (`turn-machine.js`) — a word list. **0ms, no model.** Catches 14 of
-   22 eval cases: conjunctions, articles, auxiliaries, and dangling
+1. `isTrailingOff()` (`turn-machine.js`) — a word list. **0ms, no model.** Catches 21 of
+   31 eval cases: conjunctions, articles, auxiliaries, possessives, and dangling
    modifiers/comparatives (`way past`, `better than`, `the same as`, `instead of`,
-   `depends on`). Multi-word phrases are matched as a **suffix** of the text, not by
-   taking the last two words — `"the same as"` is three words, so a bigram of the tail
-   could never see it.
-2. `badkid-classifier` (Qwen3-0.6B, CPU) — the remaining ~8. One-shot label
-   (`max_tokens 8`, `temperature 0`).
+   `depends on`; German `besser als`, `genauso wie`). Multi-word phrases are matched as a
+   **suffix** of the text, not by taking the last two words — `"the same as"` is three
+   words, so a bigram of the tail could never see it. One exception runs BEFORE the
+   token check: a German **separable-particle verb** ending ("schalt das licht an",
+   "mach die tür zu") is complete when the utterance looks German (umlaut or a German
+   marker word) — `an`/`zu`/`mit` sit in the token list for English and would otherwise
+   hold the most basic German command hostage to the full silence ceiling.
+2. `badkid-classifier` (Qwen3-0.6B, CPU) — the remaining ~10. One-shot label
+   (`temperature 0`); output is regex-extracted (`turn-done|still-speaking`), not
+   exact-matched — a decorated answer ("turn-done.") used to parse as null and silently
+   degrade every turn to the ceiling.
 
 **The classifier stays CPU-bound on purpose.** It runs as its own llama-server on port
 4081, so its latency cannot be eaten by whatever else holds the GPU (dreaming, other
@@ -157,17 +163,29 @@ a model without editing config.
 
 **State machine** (`server/assistant/turn-machine.js`):
 `listening → cleaning → thinking → streaming → done`. A pause is an *opportunity* to
-classify, not a commitment: **speech arriving before the cleaned text is sent reopens the
-turn** (`reopened`) — the cleanup result is discarded, the final is appended to the same
-turn, and the next pause re-decides. Only a cleaned turn with no further speech reaches
+classify, not a commitment — and there are **two** reopen guards: speech arriving
+before the cleaned text is sent reopens the turn (`reopened`), and speech arriving
+**while the classifier call is in flight** supersedes its verdict
+(`intent.superseded: true`) — a stale turn-done is discarded and the re-armed pause
+re-decides on the combined text. Before the 2026-09-19 fix the classify-window words
+were silently dropped at reset. Only a cleaned turn with no further speech reaches
 the answer LLM. During thinking/streaming the text is already sent, so new finals buffer
 as the NEXT turn. The silence ceiling (`maxSilenceMs`) is the fail-safe for when
 classification never settles.
 
 **Barge-in is client-side, and has two paths** (`sdk/nVoiceClient.js` → `barge-in`):
-a **keyword** in a final (`wait`, `stop`, `halt`, `hold on`, `never mind`…) cuts
-immediately — a word is evidence, and a one-word interruption is shorter than any sustain
-window; or **sustained speech** past `bargeInMs` (default 1000ms) cuts. Cut on `barge-in`
+a **keyword** in a final (`wait`, `stop`, `halt`, `hold on`, `never mind`… plus German
+`warte`, `stopp`, `moment`, `vergiss es`; STT spellings of a sharp German "Stopp!"
+like `schtop`/`shtop` included; leading fillers like "äh wait" are allowed because STT
+merges them into the same final) cuts immediately — a word is evidence, and a one-word
+interruption is shorter than any sustain window; or **sustained speech** past
+`bargeInMs` (default 1000ms) cuts — measured in **VAD-voiced seconds** (`speech_sec` in
+telemetry, integrated server-side over each audio sample exactly once), never wall clock
+since the processing edge: the commit-tail drain keeps the state `processing` for ~0.6s
+after noise ends, and wall-clock counting let a single cough read as a second of speech
+and cut the reply. The server mirrors the same regex (`INTERRUPT_RE` in
+`turn-machine.js`, kept in sync with the client's `_BARGE_IN_RE`) and matches it on the
+**incoming final**, never the accumulated buffer. Cut on `barge-in`
 — **never** on `speech-start`, which is the raw VAD edge and fires on any single bump: a
 live room's noise held the VAD 430–550ms, so a single frame cannot be trusted.
 `TtsPlayer.stop()` **mutes the rest of the reply** — cutting only the sentence in flight
@@ -187,7 +205,11 @@ share of 32ms frames above threshold, and the chunked strategy requires
 over frames) is kept for callers asking "is there any speech in this 30s buffer" — a
 different question. The old max-based gate let one 32ms frame mark a window as speech, so
 a mic bump or a chair creak was transcribed and parakeet invented a word for it
-("yeah", "sorry").
+("yeah", "sorry"). The ratio gate covers transients but NOT vocal noise (a cough is
+300ms of dense voice-band energy and passes) — so a whole-final **filler-class
+hallucination filter** drops breath/cough artifacts ("yeah", "hmm", "äh", "sorry"…) at
+emit time in both strategies. Fillers inside a longer utterance survive; the cleanup
+LLM strips those.
 
 **Speech out** (`sdk/tts-player.js`): sentence at a time via nSpeech/Kokoro, next
 sentence synthesized while the current plays. Playback runs through a local **WebRTC
@@ -223,6 +245,86 @@ per-turn text and timings, then the frame timeline. Findings name the failure �
 `orphan-reply`, `cleanup-discarded`, `playback-cut`, `classifier-skipped`. Read a session
 from that before guessing; "the classifier failed" and "the classifier was never called"
 look identical from the outside and are different bugs.
+
+### Turn-Taking v2 — BUILT 2026-09-20 (eval-gated, all tests green)
+
+The two crucial breakages of v1 this design eliminates:
+1. **Vocal noise interrupts TTS.** v1's sustained-speech barge-in is an *energy* judgment
+   (1s of voiced audio stops playback), so a cough fit can kill a reply.
+2. **Phantom turns.** Noise finals ("ha ha ha") buffered during output complete the v1
+   gauntlet after the reply ends — the 0.6B says turn-done to nearly everything in
+   isolation — and the assistant answers a cough.
+
+**Core principle: interruption authority moves from the audio level to the input
+pipeline.** Only (a) an interrupt keyword or (b) a NEW INPUT that survived the full
+decision gauntlet may stop output. A cough structurally cannot interrupt — it cannot
+complete the gauntlet. Accepted trade-off: non-keyword barge-in completes only after
+pause + trigger + verdict (~2.5–3s after speech ends); ducking covers the feel.
+
+**Decision gauntlet (listening path):**
+1. Word list (0ms) — unchanged. Trailing token/phrase → still-speaking.
+2. 0.6B trigger (~250ms) — demoted from decision to *trigger*. Its turn-done-to-
+   everything bias becomes harmless over-triggering.
+3. **Verdict+cleanup — ONE 12B call** (the existing cleanup call, extended). Returns a
+   machine-parseable verdict + cleaned text:
+   - `COMPLETE` → send.
+   - `INCOMPLETE` → keep listening (same effect as still-speaking).
+   - `NOT_SPEECH` → **discard the whole turn buffer**, return to clean listening. This
+     is the phantom-turn fix: "is there communicative content here" is a judgment, not
+     a list.
+   The verdict rides the cleanup call that runs anyway on the send path — **zero added
+   latency for real turns**. Only INCOMPLETE pauses cost a wasted 12B call, and the
+   trigger gates how often those happen.
+4. Silence ceiling (8s) unchanged, but the forced path also runs the verdict:
+   `NOT_SPEECH` → discard instead of send (fixes "the 8s timeout answers the cough").
+5. Reopen guards unchanged and apply to the verdict call too: speech during the call
+   supersedes/reopens; classify-window supersede stays.
+
+**Verdict contract:** the cleanup prompt gains a required verdict line
+(`VERDICT: COMPLETE|INCOMPLETE|NOT_SPEECH`) before the cleaned text. Judged on the
+WHOLE turn text — "real sentence" + appended cough-garbage reads COMPLETE, not
+NOT_SPEECH. Empty cleaned text ⇒ NOT_SPEECH. Parse failure → fail-safe COMPLETE (send
+raw/cleaned, log loudly) — same philosophy as the cleanup-failure fallback.
+
+**Output policy (thinking/streaming/TTS):**
+- Keyword in an incoming final (`INTERRUPT_RE`) → immediate hard stop. Unchanged.
+- Non-keyword finals run the **same gauntlet concurrently with output**. `COMPLETE` →
+  interrupt output, send the new input. This REPLACES v1's "buffer as nextText, wait
+  for reply end" — the buffer-and-wait behavior is what bred phantom turns.
+  `INCOMPLETE` → keep accumulating. `NOT_SPEECH` → discard.
+- Sustained voiced audio during output → **duck to ~50% volume, never hard-stop**.
+  Duck after ~400ms voiced (`speech_sec` from telemetry) so brief noises don't pump
+  the level; restore ~1s after speech ends. v1's hard-stop-on-sustained-speech is
+  REMOVED.
+- Why duck, not a brief pause: the reply is still streaming in; pausing playback while
+  tokens arrive creates buffer/sync skew and restart latency, and sentence-at-a-time
+  playback would need hold/finish logic per sentence. Duck is one gain value —
+  reversible, stateless. Known complication: pumping on noisy rooms; the 400ms
+  sustain threshold is the mitigation.
+
+**Implementation notes:** TurnMachine must keep deciding during output (today it only
+runs the gauntlet in `listening` — v2 is one accumulator with phase-dependent effects).
+Verdict calls during output hit the same llama-server that is generating the reply —
+requests queue; measure that contention before trusting output-phase latency.
+
+**Layering (energy → LM prior → understanding), bottom to top:**
+- Client wake gate (unchanged) — most noise is never sent at all.
+- Token-class vocal-noise filter (implemented 2026-09-19, **on disk, not enabled**) —
+  finals composed entirely of non-lexical syllables ("mm mmm", "ha ha ha") dropped at
+  emit. Free pre-filter; `NOT_SPEECH` covers everything the closed set doesn't.
+- Engine confidence gating (proposed) — expose the adapter's token/segment confidences
+  and reject low-belief finals at the strategy layer (batch path already reads them;
+  realtime never has).
+- Smart Turn (candidate, unevaluated) — `pipecat-ai/smart-turn`, Whisper-Tiny + linear
+  head, ~8M params, ONNX CPU <100ms, 23 languages; an audio-side complete/incomplete
+  classifier that could replace the 0.6B trigger, per the R2T2 lesson: commit decisions
+  belong as close to a trained judgment as we can afford.
+
+**Build condition (Dave's, standing): eval before build —** SATISFIED: `tests/test_verdict_eval.mjs` runs the REAL 12B with the REAL `cleanup-turn.md` prompt — **38/38** (complete/incomplete/not-speech, EN+DE, observed noise strings; avg ~300ms; parse failures: 0). The eval is the license to rewire; keep it passing when the prompt changes.
+
+**What shipped (2026-09-20):** `AssistantSession.verdictClean()` (mode `turn` = `prompts/cleanup-turn.md`, fail-safe COMPLETE on parse failure/transport error + loud log); `TurnMachine` v2 (one accumulator, `_runVerdict` with all guards, `_replyEpoch` voids interrupted replies, `NOT_SPEECH` → `discarded` phase + buffer wipe, `INCOMPLETE` → keep listening/output, gauntlet runs during thinking/streaming, COMPLETE during output → `interrupted` trigger `new-input`); wired in `server/api/realtime.js`; machine tests extended (`tests/test_turn_eval.mjs` v2 sections). New WS events: `{type:'verdict', verdict, text, pause_ms, forced, latency_ms, parse_failed, superseded}` and phase `discarded`; `cleaning` phase now carries `during_output`. NOT yet built: client-side ducking (Lab TTS still stops on `barge-in`), the token-class filter is still on disk but NOT enabled, engine confidence gating and Smart Turn remain proposals.
+
+**Also shipped 2026-09-20 (state audit + echo):** speech evidence no longer depends on transcript events — telemetry `speech_sec` growth feeds `onSpeech()` (the worker dedupes identical provisionals, so the first ~1.2s of resumed speech could emit nothing while the pause fired the OLD buffer mid-sentence); `_verdictEpoch` — an interrupt/close voids an in-flight verdict call (a stale COMPLETE used to be able to send the abandoned turn); the keyword regex is tested in the cleaning branch too (cuts during the verdict window); `_outputPhase` restore on NOT_SPEECH/interrupt paths; SDK records verdict events (findings `noise-discarded`, `verdict-parse-failed`, `slow-verdict`). **Text-domain echo suppression** (`server/assistant/echo-guard.js` + relay wiring, `tests/test_echo_guard.mjs`): the relay keeps a rolling 80-token tail of spoken reply tokens; any incoming final with ≥80% ordered-token coverage of that tail (or a single word equal to the literally-last spoken word) is self-echo the AEC failed to cancel — dropped before the machine, reported as `{type:'echo-suppressed'}` + finding. This is why music can play during a session: even when AEC collapses, the machine can never answer its own voice.
 
 **Config** (`config.json` → `assistant`): `classifier_model` (`badkid-classifier`),
 `intent_pause_ms` (1200). `vad.backend_stage` / `backend_threshold` gate the server side;

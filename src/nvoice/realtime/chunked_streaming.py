@@ -19,6 +19,7 @@ Design (informed by NVIDIA's streaming recipe: chunk 2s, left-context 10s):
 The engine's transcribe() is called with a numpy float32 16kHz mono array.
 """
 import asyncio
+import re
 import time
 import numpy as np
 
@@ -27,12 +28,44 @@ from nvoice.logger import get_logger
 
 logger = get_logger("chunked_streaming")
 
-# Hallucination filter for trailing silence artifacts (mirrors buffer_retranscribe)
+# Hallucination filter for trailing silence artifacts (mirrors buffer_retranscribe).
+# Second class: VOCAL NOISE — breathing, coughing, throat clearing. These pass the
+# min_speech_ratio gate (a cough is 300ms of dense voice-band energy) and the
+# engine invents a filler token for them. A final that is ONLY a filler is never
+# a real turn: dropping it here keeps noise from becoming barge-ins, phantom
+# next-turns, and replies to "yeah".
 _HALLUCINATIONS = [
     "thank you.", "thank you", "thanks.", "thanks", "thanks for watching.",
     "subscribe.", "thank you for watching.", "thank you very much for your time.",
-    "you.", "working.", "working"
+    "you.", "working.", "working",
+    # filler / vocal-noise class (EN + DE). Whole-final exact matches only —
+    # fillers inside a longer real utterance are the cleanup LLM's job.
+    "yeah", "yeah.", "hmm", "hmm.", "hm", "hm.", "mhm", "mhm.",
+    "mm", "mm.", "ah", "ah.", "oh", "oh.", "uh", "uh.", "um", "um.",
+    "äh", "äh.", "ähm", "ähm.", "ha", "ha.", "aha", "aha.",
+    "a", "a.", "e", "e.",
+    # documented parakeet inventions for creaks/bumps (Agents.md)
+    "sorry", "sorry.",
 ]
+
+# Non-lexical vocal-noise TOKENS. A final whose EVERY token is in this set is
+# breath/cough/throat-clear noise the engine turned into filler syllables — any
+# combination ("mm mmm", "ha ha ha", "äh hm") is noise. This is the structural
+# version of the list above: the engine has no real content to emit for vocal
+# noise, so filler-only composition covers the entire class, including strings
+# never observed. Real words (yes/no/so/ja…) stay out — a one-word real answer
+# must survive as a turn.
+_FILLER_TOKENS = {
+    "mm", "mmm", "hmm", "hm", "mhm", "mh", "uh", "um", "ah", "ahh", "ahem",
+    "oh", "ohh", "ooh", "ha", "hah", "haha", "heh", "äh", "ähm", "öh", "öhm",
+    "ehm", "eh", "err", "a", "e", "ä", "o",
+}
+
+
+def _is_vocal_noise(text):
+    """True when the final consists solely of filler tokens (vocal noise)."""
+    tokens = [t for t in re.split(r"[\s.,!?;:]+", (text or "").lower()) if t]
+    return bool(tokens) and all(t in _FILLER_TOKENS for t in tokens)
 
 
 class ChunkedStreamingStrategy(RealtimeStrategy):
@@ -61,6 +94,15 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
         self._last_provisional = 0.0
         self._last_text = ""
 
+        # Honest speech-run accumulator for barge-in. The client fires a
+        # sustained barge-in off this number; measuring wall-clock since the
+        # idle->processing edge overcounts by the 0.6s commit tail, so a single
+        # ~400ms cough read as 1s of "speech" and cut the TTS mid-reply. We
+        # integrate the VAD fraction over NEW audio only — every sample counts
+        # exactly once, drain cycles add nothing.
+        self._speech_run_sec = 0.0
+        self._vad_ptr = 0
+
     # --- RealtimeStrategy interface ---
 
     def start(self):
@@ -88,7 +130,7 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
 
     def _send_transcript(self, text, is_final):
         cleaned = (text or "").strip()
-        if not cleaned or cleaned.lower() in _HALLUCINATIONS:
+        if not cleaned or cleaned.lower() in _HALLUCINATIONS or _is_vocal_noise(cleaned):
             return
         if not is_final and cleaned == self._last_text:
             return  # don't spam identical provisionals
@@ -102,14 +144,18 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
             payload.update(extra)
         self._events.append(payload)
 
-    def _has_speech(self, view):
+    def _speech_fraction(self, view):
+        """VAD fraction of a view, 0..1 (1.0 = all windows above threshold)."""
         if self.vad is None:
             # RMS fallback only if VAD unavailable
             if len(view) == 0:
-                return False
+                return 0.0
             rms = float(np.sqrt(np.mean(np.square(np.clip(view[::16], -1.0, 1.0)))))
-            return rms >= 0.005
-        return self.vad.speech_ratio(view, self.sample_rate) >= self.min_speech_ratio
+            return 1.0 if rms >= 0.005 else 0.0
+        return self.vad.speech_ratio(view, self.sample_rate)
+
+    def _has_speech(self, view):
+        return self._speech_fraction(view) >= self.min_speech_ratio
 
     def _transcribe(self, view):
         t0 = time.monotonic()
@@ -131,6 +177,16 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
                 tail = self.audio_buffer[-int(self.commit_silence_sec * self.sample_rate):]
                 speech_now = self._has_speech(tail)
 
+                # Integrate the VAD fraction over audio that arrived since the
+                # last cycle — the barge-in sustain signal. Every sample counts
+                # once, so trailing-drain cycles (tail still contains speech)
+                # contribute nothing and a cough cannot masquerade as a second
+                # of speech.
+                novel = self.audio_buffer[self._vad_ptr:]
+                if len(novel) >= 512:
+                    self._speech_run_sec += (len(novel) / self.sample_rate) * self._speech_fraction(novel)
+                    self._vad_ptr = len(self.audio_buffer)
+
                 if speech_now:
                     self._speech_active = True
                     # Provisional: transcribe current chunk occasionally (cheap engines).
@@ -143,7 +199,8 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
                                 self._send_transcript(text, is_final=False)
                             dur = len(self.audio_buffer) / self.sample_rate
                             self._send_telemetry(infer / dur if dur > 0 else 0, dur, "processing",
-                                                 {"infer_time": round(infer, 3)})
+                                                 {"infer_time": round(infer, 3),
+                                                  "speech_sec": round(self._speech_run_sec, 2)})
                         except Exception as e:
                             logger.error(f"provisional transcribe failed: {e}")
                     # Force-commit if the chunk is huge.
@@ -158,12 +215,14 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
                         self._speech_active = False
                     else:
                         # Idle/silence: nothing to do. Cheap wait.
-                        self._send_telemetry(0.0, 0.0, "idle/silence", {})
+                        self._send_telemetry(0.0, 0.0, "idle/silence",
+                                             {"speech_sec": round(self._speech_run_sec, 2)})
                         # Keep the buffer from growing on pure noise: trim to a small
                         # lead-in so a word onset isn't clipped on the next commit.
                         keep = int(0.5 * self.sample_rate)
                         if len(self.audio_buffer) > keep:
                             self.audio_buffer = self.audio_buffer[-keep:]
+                            self._vad_ptr = len(self.audio_buffer)
                         await asyncio.sleep(0.2)
 
             except asyncio.CancelledError:
@@ -192,4 +251,8 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
         # Advance: drop the committed audio, keep a small lead-in for the next onset.
         keep = int(0.3 * self.sample_rate)
         self.audio_buffer = self.audio_buffer[-keep:] if len(self.audio_buffer) > keep else np.array([], dtype=np.float32)
+        # New utterance, new barge-in budget: the run resets and the kept lead-in
+        # must not be recounted (ptr skips it).
+        self._speech_run_sec = 0.0
+        self._vad_ptr = len(self.audio_buffer)
         self._last_text = ""

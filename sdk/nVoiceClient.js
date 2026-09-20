@@ -74,8 +74,11 @@ const TURN_LONG_FINAL_GAP_MS = 5000;
 
 // Mirrors the turn machine's server-side INTERRUPT_RE. An explicit interrupt word is
 // evidence rather than a guess, so the client acts on it immediately instead of
-// waiting out the sustain window that exists to filter noise.
-const _BARGE_IN_RE = /^\s*(wait|stop|halt|hold on|hold up|never ?mind|belay that)\b/i;
+// waiting out the sustain window that exists to filter noise. Leading fillers are
+// allowed ("äh wait") because STT merges them into the same final.
+// стоп = "Stopp" transcribed as Russian (multilingual STT). Unicode lookahead
+// boundary — \b is ASCII-only and would never match at a Cyrillic word edge.
+const _BARGE_IN_RE = /^\s*(?:(?:uh|um|ah|oh|äh|ähm|ehm|hm|ja|so|und|aber|and)\s+)*(wait|stop|halt|stopp|schtop|shtop|стоп|warte|warte mal|moment|moment mal|hold on|hold up|never ?mind|belay that|vergiss es)(?![\p{L}\p{N}])/iu;
 
 function _turnTraceNew(meta) {
     return {
@@ -190,6 +193,28 @@ function _turnRecordIntent(trace, data, latencyMs) {
     if (data.forced) _turnFind(trace, 'forced-completion', `silence ceiling forced turn-done after ${data.pause_ms}ms`, 'info', t.index);
     if (data.trailing) _turnFind(trace, 'classifier-skipped', `text ends on a trailing word — decided locally, no classifier call`, 'info', t.index);
     if (classified && latencyMs > TURN_SLOW_CLASSIFIER_MS) _turnFind(trace, 'slow-classifier', `classifier took ${latencyMs}ms (over ${TURN_SLOW_CLASSIFIER_MS}ms)`, 'warn', t.index);
+    return t;
+}
+
+function _turnRecordVerdict(trace, data) {
+    const t = _turnOpen(trace);
+    if (!t) return null;
+    t.verdict = {
+        atMs: _turnMs(trace),
+        verdict: data.verdict,
+        forced: !!data.forced,
+        superseded: !!data.superseded,
+        parseFailed: !!data.parse_failed,
+        latencyMs: data.latency_ms ?? null,
+        text: data.text || '',
+    };
+    const how = data.superseded ? ' (SUPERSEDED — dropped)' : data.parse_failed ? ' (parse failed — fail-safe)' : '';
+    _turnLog(trace, `verdict ${data.verdict}${how} lat=${data.latency_ms ?? '?'}ms "${(data.text || '').slice(-60)}"`);
+    if (data.verdict === 'NOT_SPEECH' && !data.superseded) {
+        _turnFind(trace, 'noise-discarded', 'turn had no communicative content — buffer discarded, nothing sent', 'info', t.index);
+    }
+    if (data.parse_failed) _turnFind(trace, 'verdict-parse-failed', 'verdict line unparseable — fail-safe COMPLETE sent raw/cleaned text', 'warn', t.index);
+    if (data.latency_ms > TURN_SLOW_CLEANUP_MS) _turnFind(trace, 'slow-verdict', `verdict call took ${data.latency_ms}ms (over ${TURN_SLOW_CLEANUP_MS}ms)`, 'warn', t.index);
     return t;
 }
 
@@ -460,6 +485,12 @@ class nVoiceClient {
         // Measured in a live room: ambient noise held the gate for 430-550ms, so the
         // threshold has to sit above that. Same reasoning as the wake-word gate.
         this.bargeInMs = config.bargeInMs ?? 1000;
+        // v2 duck threshold: voiced milliseconds before playback ducks (not
+        // stops). Well under the old hard-stop bar — ducking is cheap and
+        // reversible, so acknowledging speech early costs nothing; a cough
+        // under ~400ms doesn't even dent the level.
+        this.duckMs = config.duckMs ?? 400;
+        this._ducked = false;
         this._speechStartedAt = null;
         this._bargeInFired = false;
 
@@ -1088,8 +1119,19 @@ class nVoiceClient {
     async _setupAudioWorklet() {
         // Local ctx — never read the shared field across an await; overlapping
         // setup calls would otherwise cross-contaminate contexts.
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        let ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.audioContext = ctx;
+
+        // A context can be born CLOSED when the tab has exhausted the browser's
+        // AudioContext quota (~6). Every subsequent call on it fails with a cryptic
+        // InvalidStateError ("No execution context available") — name the real
+        // cause instead, with the remedy that actually works.
+        if (ctx.state === 'closed') {
+            const err = new Error('AudioContext born closed — browser audio-context quota exhausted by leaked contexts. Reload the page.');
+            this.audioContext = null;
+            try { ctx.close(); } catch { /* already closed */ }
+            throw err;
+        }
 
         // iOS Safari: AudioContext starts suspended, must be resumed after user gesture
         if (ctx.state === 'suspended') {
@@ -1101,11 +1143,11 @@ class nVoiceClient {
             }
         }
 
-        const nativeSr = ctx.sampleRate;
+        let nativeSr = ctx.sampleRate;
         const targetSr = 16000;
         const frameSize = 1536;
 
-        const source = ctx.createMediaStreamSource(this.audioStream);
+        let source = ctx.createMediaStreamSource(this.audioStream);
 
         // Exact vad-web resampler algorithm ported into AudioWorklet
         const workletCode = `
@@ -1173,9 +1215,41 @@ class nVoiceClient {
 
         const blob = new Blob([workletCode], { type: 'application/javascript' });
         const workletUrl = URL.createObjectURL(blob);
-        await ctx.audioWorklet.addModule(workletUrl);
 
-        this.workletNode = new AudioWorkletNode(ctx, 'vad-processor');
+        // A context can die BETWEEN birth and node construction (the addModule
+        // await is a window; a busy renderer can also refuse the worklet
+        // thread). Both surface as InvalidStateError "No execution context
+        // available". Retry ONCE with a fresh context before giving up — the
+        // common case is a stale context, and a new one is cheap.
+        let node = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                await ctx.audioWorklet.addModule(workletUrl);
+                if (ctx.state === 'closed') throw new Error('context closed during addModule');
+                node = new AudioWorkletNode(ctx, 'vad-processor');
+                break;
+            } catch (e) {
+                if (attempt === 2 || ctx.state !== 'closed' && !(e instanceof InvalidStateError)) {
+                    const err = new Error(`AudioWorklet setup failed: ${e.message}. If it persists, reload the page — the renderer may be out of audio contexts.`);
+                    this.audioContext = null;
+                    try { ctx.close(); } catch { /* already closed */ }
+                    throw err;
+                }
+                console.warn('[VAD] context unusable, retrying with a fresh one:', e.message);
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                this.audioContext = ctx;
+                if (ctx.state === 'closed') {
+                    this.audioContext = null;
+                    throw new Error('AudioContext born closed — browser audio-context quota exhausted by leaked contexts. Reload the page.');
+                }
+                if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* gesture policies */ } }
+                // The stream source belongs to the OLD context — recreate it on
+                // the new one or no audio ever reaches the worklet (silent deaf).
+                nativeSr = ctx.sampleRate;
+                source = ctx.createMediaStreamSource(this.audioStream);
+            }
+        }
+        this.workletNode = node;
         console.log('[VAD] AudioWorklet registered. nativeSr=' + nativeSr + ' targetSr=' + targetSr + ' frameSize=' + frameSize);
 
         this.workletNode.port.onmessage = (event) => {
@@ -1788,14 +1862,19 @@ class nVoiceClient {
             // they pass it in config, so a constructor-time check silently misses.
             const openMicAssistant = this.audioProcessing || this.intentEnabled;
             const useProcessing = openMicAssistant || (this.rawAudio ? false : isMobile);
-            // An explicit flag always wins; otherwise fall back to the old bundle.
-            const dsp = (own) => (own === undefined ? useProcessing : !!own);
+            // AEC-only for open-mic assistant sessions. AEC is mandatory (the
+            // mic must not hear the reply), but bundling NS+AGC along — the old
+            // behavior — lifts the noise floor until the VAD reads breathing as
+            // speech, and NS is tuned for far-end calls, not ASR feed. Explicit
+            // per-flag overrides still win.
+            const dsp = (own, def) => (own === undefined ? def : !!own);
+            const assistantDsp = (flag) => (openMicAssistant ? flag : useProcessing);
 
             const constraints = {
                 audio: {
-                    echoCancellation: dsp(this.echoCancellation),
-                    noiseSuppression: dsp(this.noiseSuppression),
-                    autoGainControl: dsp(this.autoGainControl),
+                    echoCancellation: dsp(this.echoCancellation, assistantDsp(true)),
+                    noiseSuppression: dsp(this.noiseSuppression, assistantDsp(false)),
+                    autoGainControl: dsp(this.autoGainControl, assistantDsp(false)),
                 }
             };
 
@@ -1973,6 +2052,23 @@ class nVoiceClient {
                             this._syncTurn();
                         }
                         this.emit('intent', data);
+                    } else if (data.type === 'verdict') {
+                        if (this._trace) {
+                            _turnRecordVerdict(this._trace, data);
+                            this._syncTurn();
+                        }
+                        this.emit('verdict', data);
+                    } else if (data.type === 'echo-suppressed') {
+                        // The relay dropped a final that matched the spoken TTS
+                        // output — self-echo the AEC failed to cancel. Recorded
+                        // as a finding: heavy suppression means the acoustic
+                        // path is degraded (music, mis-converged filter).
+                        if (this._trace) {
+                            const t = this._trace.open || this._trace.turns[this._trace.turns.length - 1];
+                            _turnFind(this._trace, 'echo-suppressed', `final matched spoken TTS output — suppressed: "${(data.text || '').slice(0, 60)}"`, 'info', t ? t.index : null);
+                            _turnLog(this._trace, `echo suppressed "${(data.text || '').slice(0, 60)}"`);
+                        }
+                        this.emit('echo-suppressed', data);
                     } else if (data.type === 'phase') {
                         if (this._trace) {
                             const rec = _turnRecordPhase(this._trace, data);
@@ -1994,17 +2090,28 @@ class nVoiceClient {
                             this.speaking = true;
                             this._speechStartedAt = Date.now();
                             this._bargeInFired = false;
+                            this._ducked = false;
                             this.emit('speech-start');
                         } else if (!speaking && this.speaking) {
                             this.speaking = false;
                             this._speechStartedAt = null;
                             this.emit('speech-end');
                         }
-                        // 'barge-in' is the event to cut playback on — not
-                        // 'speech-start', which fires on any single transition.
-                        if (speaking && !this._bargeInFired && this._speechStartedAt) {
-                            const heldMs = Date.now() - this._speechStartedAt;
-                            if (heldMs >= this.bargeInMs) this._fireBargeIn(heldMs, 'sustained');
+                        // v2: sustained voiced audio during output DUCKS the TTS,
+                        // it never hard-stops it. Only an interrupt keyword
+                        // ('barge-in', keyword path) or a gauntlet-surviving new
+                        // input (server COMPLETE → interrupted/new-input) may stop
+                        // playback. Voiced seconds come from telemetry speech_sec
+                        // (integrated once per sample server-side); wall clock is
+                        // the fallback only.
+                        if (speaking && !this._ducked && this._speechStartedAt) {
+                            const voicedMs = Number.isFinite(data.speech_sec)
+                                ? data.speech_sec * 1000
+                                : Date.now() - this._speechStartedAt;
+                            if (voicedMs >= this.duckMs) {
+                                this._ducked = true;
+                                this.emit('duck', { voicedMs });
+                            }
                         }
                         this.emit('telemetry', data);
                         this._kimiHandleTelemetry(data);
@@ -2030,6 +2137,13 @@ class nVoiceClient {
 
         } catch (error) {
             this._starting = false;
+            // A failed start must leave the system exactly as it was before the
+            // call. Without this teardown every retry leaked the mic stream and
+            // up to two AudioContexts; after ~3 retries the browser's context
+            // quota was exhausted and every later new AudioContext() was born
+            // closed — "AudioWorkletNode cannot be created". stop() closes both
+            // contexts and releases the mic; all fields are null-guarded.
+            try { this.stop(); } catch { /* teardown must not mask the real error */ }
             this.emit('error', error);
             throw error;
         }

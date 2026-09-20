@@ -92,6 +92,31 @@ export class AssistantSession {
   }
 
   /**
+   * Turn-Taking v2 verdict + cleanup in ONE call (mode "turn": cleanup-turn.md).
+   * Returns { verdict: 'COMPLETE'|'INCOMPLETE'|'NOT_SPEECH', text, latencyMs }.
+   *
+   * Fail-safe contract: a parse failure or transport error returns COMPLETE with
+   * the raw text — a garbled verdict line must never silently eat a real turn
+   * (same philosophy as the cleanup-failure fallback). The failure is logged
+   * loudly so it surfaces in the session report.
+   */
+  async verdictClean(rawText) {
+    const t0 = Date.now();
+    const content = await this.cleanTranscript(rawText, 'turn');
+    const latencyMs = Date.now() - t0;
+    const m = (content || '').match(/^VERDICT:\s*(COMPLETE|INCOMPLETE|NOT_SPEECH)\s*$/im);
+    if (!m) {
+      logger.warn('verdictClean: unparseable verdict — fail-safe COMPLETE', {
+        raw: String(content).slice(0, 120),
+      }, 'Assistant', { console: true });
+      return { verdict: 'COMPLETE', text: (content || rawText).trim(), latencyMs, parseFailed: true };
+    }
+    const verdict = m[1].toUpperCase();
+    const text = content.replace(/^VERDICT:\s*\w+\s*$/im, '').trim();
+    return { verdict, text, latencyMs };
+  }
+
+  /**
    * Clean a full raw transcript. The LLM receives the entire accumulated
    * text and returns a cleaned version with punctuation, filler removal,
    * and paragraph breaks.

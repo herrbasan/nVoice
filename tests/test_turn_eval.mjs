@@ -42,6 +42,17 @@ const cases = [
   ['it should be much better than', 'still-speaking'],
   ['the response is the same as', 'still-speaking'],
   ['i was expecting a little bit more than', 'still-speaking'],
+  // 2026-09-19 review: extended token/phrase lists. Particle verbs (an/aus/on/off)
+  // must stay COMPLETE — they are the guard against over-catching prepositions.
+  ['turn it on', 'turn-done'],
+  ['schalt das licht an', 'turn-done'],
+  ['i think this', 'still-speaking'],
+  ['that is very', 'still-speaking'],
+  ["it doesn't", 'still-speaking'],
+  ['das ist nicht', 'still-speaking'],
+  ['mein vater hat', 'still-speaking'],
+  ['das wetter ist besser als', 'still-speaking'],
+  ['das ist genauso wie', 'still-speaking'],
 ];
 
 let correct = 0;
@@ -180,48 +191,213 @@ console.log('\n=== onSpeech cancels deadline (no forced-done mid-speech) ===');
   console.log(!forced ? 'OK  deadline cancelled by ongoing speech (no forced-done)' : 'BAD forced-done fired despite speech');
 }
 
-// Verify a turn REOPENS when speech arrives while the cleaned text is in flight:
+// Verify a turn REOPENS when speech arrives while the VERDICT call is in flight:
 // nothing is sent, the new speech is appended to the same turn, and no second
 // turn is created.
-console.log('\n=== Speech during cleanup reopens the turn (send abandoned) ===');
+console.log('\n=== Speech during verdict reopens the turn (send abandoned) ===');
 {
   const events = [];
-  let releaseClean = null;
-  const cleanTexts = [];
+  let releaseVerdict = null;
+  const verdictTexts = [];
   let replyCalls = 0;
 
   const tm = new TurnMachine({
     classify: async () => 'turn-done',            // committed as soon as the pause fires
-    clean: (text) => { cleanTexts.push(text); return new Promise(r => { releaseClean = r; }); },
+    verdict: (text) => { verdictTexts.push(text); return new Promise(r => { releaseVerdict = r; }); },
     reply: async () => { replyCalls++; return 'must not run'; },
     emit: (obj) => events.push(obj),
     pauseMs: 20,
     maxSilenceMs: 500,
   });
 
-  tm.onFinal('tell me a story about dragons');    // complete -> classifier -> turn-done
-  await new Promise(r => setTimeout(r, 60));      // pause fires, cleaning starts
+  tm.onFinal('tell me a story about dragons');    // complete -> trigger -> verdict runs
+  await new Promise(r => setTimeout(r, 60));      // pause fires, verdict in flight
   const cleaningStarted = events.some(e => e.type === 'phase' && e.phase === 'cleaning');
 
-  // Speech arrives while the cleanup is still in flight.
+  // Speech arrives while the verdict call is still in flight.
   tm.onFinal('and keep it short');
-  releaseClean('Tell me a story about dragons. And keep it short.');
-  // The next pause re-decides on the combined text, so cleaning runs again.
+  releaseVerdict({ verdict: 'COMPLETE', text: 'Tell me a story about dragons. And keep it short.' });
+  // The next pause re-decides on the combined text, so the verdict runs again.
   await new Promise(r => setTimeout(r, 80));
 
   const reopened = events.filter(e => e.type === 'phase' && e.phase === 'reopened');
   const sentCleaned = events.some(e => e.type === 'reply' && e.result?.type === 'cleaned');
 
-  console.log(`cleaning started: ${cleaningStarted}, clean calls: ${cleanTexts.length}, reply calls: ${replyCalls}`);
+  console.log(`cleaning started: ${cleaningStarted}, verdict calls: ${verdictTexts.length}, reply calls: ${replyCalls}`);
   console.log(`reopened events: ${reopened.length}, cleaned reply sent: ${sentCleaned ? 'YES' : 'no'}`);
-  console.log(`clean texts: ${JSON.stringify(cleanTexts)}`);
+  console.log(`verdict texts: ${JSON.stringify(verdictTexts)}`);
   console.log(cleaningStarted ? 'OK  cleaning started' : 'BAD cleaning never started');
   console.log(reopened.length === 1 ? 'OK  turn reopened' : 'BAD turn not reopened');
   console.log(!sentCleaned && replyCalls === 0 ? 'OK  send abandoned (no cleaned text, no reply call)' : 'BAD the discarded turn was still sent');
-  console.log(cleanTexts[1] === 'tell me a story about dragons and keep it short'
+  console.log(verdictTexts[1] === 'tell me a story about dragons and keep it short'
     ? 'OK  re-decided on the combined text'
-    : `BAD re-decided on "${cleanTexts[1]}"`);
+    : `BAD re-decided on "${verdictTexts[1]}"`);
   tm.close();
+}
+
+// Verify the CLASSIFY-window race: a final arriving while the classifier call
+// is in flight must supersede a turn-done verdict. The stale snapshot is NOT
+// sent; the re-armed pause re-decides on the combined text and the reply
+// contains every word (before the 2026-09-19 fix the classify-window words
+// were silently dropped at reset).
+console.log('\n=== Speech during classify supersedes the verdict (no word loss) ===');
+{
+  const events = [];
+  let releaseClassify = null;
+  let classifyCalls = 0;
+  const replyTexts = [];
+  const tm = new TurnMachine({
+    // First call hangs until released (speech lands mid-classify); the
+    // re-decision call resolves immediately.
+    classify: () => {
+      classifyCalls++;
+      if (classifyCalls === 1) return new Promise(r => { releaseClassify = () => r('turn-done'); });
+      return Promise.resolve('turn-done');
+    },
+    verdict: async (text) => ({ verdict: 'COMPLETE', text, latencyMs: 1 }),
+    reply: async (text) => { replyTexts.push(text); },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 5000,   // keep the ceiling out of the way
+  });
+
+  tm.onFinal('tell me a story about dragons');    // complete -> classifier runs
+  await new Promise(r => setTimeout(r, 60));      // pause fired, classify in flight
+  const classifyInFlight = !!releaseClassify;
+
+  // Speech lands WHILE the classifier is still running.
+  tm.onFinal('and keep it short');
+  releaseClassify();                              // stale turn-done resolves now
+  await new Promise(r => setTimeout(r, 120));     // re-armed pause re-decides
+
+  const staleIntent = events.find(e => e.type === 'intent' && e.superseded);
+  const replyText = replyTexts[0];
+
+  console.log(`classify in flight: ${classifyInFlight}, superseded intent: ${staleIntent ? 'yes' : 'no'}, reply calls: ${replyTexts.length}`);
+  console.log(classifyInFlight ? 'OK  classify was in flight when speech landed' : 'BAD classify not running');
+  console.log(staleIntent ? 'OK  stale verdict marked superseded' : 'BAD stale verdict not marked');
+  console.log(replyText === 'tell me a story about dragons and keep it short'
+    ? 'OK  reply contains the classify-window words'
+    : `BAD reply missing words: "${replyText}"`);
+  console.log(replyTexts.length === 1 ? 'OK  reply ran once, on the combined text' : 'BAD reply never ran or ran twice');
+  tm.close();
+}
+
+// --- v2 behavior: the verdict gates sends, discards noise, interrupts output ---
+
+// NOT_SPEECH discards the whole buffer — the phantom-turn fix. A cough-final
+// must never reach the reply LLM, not even via the ceiling's forced path.
+console.log('\n=== NOT_SPEECH discards the buffer (phantom-turn fix) ===');
+{
+  const events = [];
+  let replyCalls = 0;
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',   // trigger fires (0.6B over-triggers by design)
+    verdict: async () => ({ verdict: 'NOT_SPEECH', text: '', latencyMs: 1 }),
+    reply: async () => { replyCalls++; },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 4000,
+  });
+  tm.onFinal('ha ha ha');               // cough artifact
+  await new Promise(r => setTimeout(r, 400));
+  tm.close();
+  const discarded = events.filter(e => e.type === 'phase' && e.phase === 'discarded');
+  const verdictEvt = events.find(e => e.type === 'verdict');
+  console.log(`verdict: ${verdictEvt?.verdict}, discarded events: ${discarded.length}, reply calls: ${replyCalls}`);
+  console.log(verdictEvt?.verdict === 'NOT_SPEECH' ? 'OK  verdict NOT_SPEECH' : `BAD verdict ${verdictEvt?.verdict}`);
+  console.log(discarded.length === 1 ? 'OK  buffer discarded' : 'BAD buffer not discarded');
+  console.log(replyCalls === 0 ? 'OK  no reply to noise' : 'BAD assistant answered noise');
+  console.log(tm.turnText === '' ? 'OK  accumulator empty' : `BAD accumulator holds "${tm.turnText}"`);
+}
+
+// INCOMPLETE from the verdict = keep listening, same as still-speaking.
+console.log('\n=== INCOMPLETE keeps the turn open ===');
+{
+  const events = [];
+  let replyCalls = 0;
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',
+    verdict: async (text) => text.trim().endsWith('when it was young')
+      ? { verdict: 'INCOMPLETE', text, latencyMs: 1 }
+      : { verdict: 'COMPLETE', text, latencyMs: 1 },
+    reply: async (text) => { replyCalls++; return text; },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 4000,
+  });
+  tm.onFinal('when it was young');      // trigger says done, verdict says no
+  await new Promise(r => setTimeout(r, 120));
+  const noReplyYet = replyCalls === 0;
+  tm.onFinal('it would sing all day');   // speaker resumes
+  await new Promise(r => setTimeout(r, 150));
+  tm.close();
+  const sent = events.filter(e => e.type === 'reply' && e.result?.type === 'cleaned');
+  const lastSent = sent[sent.length - 1]?.result?.text;
+  console.log(`reply after INCOMPLETE: ${noReplyYet ? 'none (correct)' : 'BAD'}, after resume: sent "${lastSent}"`);
+  console.log(noReplyYet ? 'OK  INCOMPLETE did not send' : 'BAD sent on INCOMPLETE');
+  console.log(lastSent === 'when it was young it would sing all day'
+    ? 'OK  resumed turn sent complete'
+    : 'BAD resumed turn wrong text');
+}
+
+// A gauntlet-surviving COMPLETE during output interrupts the reply and sends
+// the new input — the v2 replacement for buffer-and-wait.
+console.log('\n=== COMPLETE during output interrupts and sends ===');
+{
+  const events = [];
+  let replyCalls = 0;
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',
+    verdict: async (text) => ({ verdict: 'COMPLETE', text, latencyMs: 1 }),
+    reply: () => { replyCalls++; return new Promise(() => {}); },   // never resolves — simulates long generation
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 8000,
+  });
+  tm.onFinal('first question');                 // sent -> reply #1 in flight
+  await new Promise(r => setTimeout(r, 80));
+  const reply1InFlight = replyCalls === 1;
+  // New input while reply #1 is still generating.
+  tm.onFinal('actually forget that tell me a joke instead');
+  await new Promise(r => setTimeout(r, 150));   // pause -> trigger -> verdict COMPLETE
+  tm.close();
+  const interrupted = events.filter(e => e.type === 'phase' && e.phase === 'interrupted' && e.trigger === 'new-input');
+  const cleaned = events.filter(e => e.type === 'reply' && e.result?.type === 'cleaned').map(e => e.result.text);
+  console.log(`reply1 in flight: ${reply1InFlight}, interrupts(new-input): ${interrupted.length}, reply calls: ${replyCalls}, cleaned sent: ${JSON.stringify(cleaned)}`);
+  console.log(reply1InFlight ? 'OK  first reply was in flight' : 'BAD first reply missing');
+  console.log(interrupted.length === 1 ? 'OK  output interrupted by new input' : 'BAD output not interrupted');
+  console.log(cleaned[1] === 'actually forget that tell me a joke instead'
+    ? 'OK  new input sent while output was running'
+    : 'BAD new input not sent');
+}
+
+// Interrupt during the verdict window must VOID the in-flight verdict — the
+// stale COMPLETE may not send the abandoned turn (state-audit fix 2026-09-20).
+console.log('\n=== Interrupt during verdict voids the call (no stale send) ===');
+{
+  const events = [];
+  let releaseVerdict = null;
+  let replyCalls = 0;
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',
+    verdict: () => new Promise(r => { releaseVerdict = () => r({ verdict: 'COMPLETE', text: 'old abandoned text', latencyMs: 1 }); }),
+    reply: async () => { replyCalls++; },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 8000,
+  });
+  tm.onFinal('tell me the old thing');        // pause -> trigger -> verdict in flight
+  await new Promise(r => setTimeout(r, 60));
+  const verdictInFlight = !!releaseVerdict;
+  tm.onFinal('stop');                          // keyword interrupt while verdict runs
+  releaseVerdict();                            // stale COMPLETE resolves now
+  await new Promise(r => setTimeout(r, 80));
+  tm.close();
+  const sentCleaned = events.filter(e => e.type === 'reply' && e.result?.type === 'cleaned').map(e => e.result.text);
+  console.log(`verdict in flight: ${verdictInFlight}, reply calls: ${replyCalls}, cleaned sent: ${JSON.stringify(sentCleaned)}`);
+  console.log(verdictInFlight ? 'OK  verdict was in flight' : 'BAD verdict not running');
+  console.log(replyCalls === 0 && sentCleaned.length === 0 ? 'OK  stale verdict did not send' : 'BAD stale verdict sent the abandoned turn');
 }
 
 process.exit(0);

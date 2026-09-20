@@ -40,7 +40,7 @@
                 </nui-input-group>
                 <nui-input-group>
                     <nui-checkbox>
-                        <input type="checkbox" id="intent-mic-dsp" checked>
+                        <input type="checkbox" id="intent-mic-dsp">
                         <label for="intent-mic-dsp">Noise suppression + auto gain</label>
                     </nui-checkbox>
                     <span class="description">
@@ -486,10 +486,21 @@ function init(element, params, nui) {
         instance.on('turn', (turn) => {
             window.__intentLab.turn = turn;
         });
-        // Barge-in, not speech-start: cutting on every VAD transition means any
-        // noise that trips the gate (touching the mic, a door) kills playback.
+        // Barge-in = interrupt keyword only (v2): evidence, not energy. Sustained
+        // voiced audio during output DUCKS instead — a cough fit must not kill
+        // the reply; the reply stops only for a keyword or a gauntlet-surviving
+        // new input (server 'interrupted' phase with trigger new-input).
         instance.on('barge-in', (info) => {
-            if (tts && (tts.playing || tts.pending)) tts.stop(`user spoke for ${info.heldMs}ms`);
+            if (tts && (tts.playing || tts.pending)) tts.stop(`keyword: ${info.reason || 'barge-in'}`);
+        });
+        instance.on('duck', () => {
+            if (tts && tts.playing) tts.duck();
+        });
+        instance.on('speech-end', () => {
+            // Restore ~1s after speech stops — late enough that a pause between
+            // words doesn't pump the level, early enough that a follow-up turn
+            // starts at full volume.
+            setTimeout(() => { if (tts && !instance.speaking) tts.unduck(); }, 1000);
         });
 
         client.on('connected', () => {
@@ -614,6 +625,14 @@ function init(element, params, nui) {
                 liveReply.textContent = '';
                 replyStatus.textContent = '(cleaning transcript...)';
                 replyTiming.textContent = '';
+                // Synthesis outlives the server: the server can already be back in
+                // listening (old reply fully streamed) while TTS is still speaking
+                // queued sentences. A new turn starting NOW means the user moved
+                // on — cut whatever is still playing (without muting: the new
+                // reply must speak). Without this, the new reply queues BEHIND
+                // the old audio (observed: model said "Paused." but old TTS
+                // kept going).
+                if (tts && (tts.playing || tts.pending)) tts.stop('new turn cut stale playback', { mute: false });
                 // A new turn may speak again — an interrupt muted the previous reply,
                 // and without this the assistant would stay silent for good.
                 if (tts) tts.unmute();

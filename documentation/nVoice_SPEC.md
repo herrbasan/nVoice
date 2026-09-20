@@ -168,8 +168,11 @@ WebSocket relay — it performs no frame-level VAD and no audio decode.
 **Reactive assistant (turn-taking, experiment):** when a client connects with
 `?intent=1`, the Node relay also runs a `TurnMachine` (`server/assistant/turn-machine.js`).
 It classifies settled transcripts (`badkid-classifier`) into `still-speaking`/`turn-done`,
-then cleans and streams a reply (`badkid-llama-chat`). A barge-in keyword ("wait"/"stop")
-cancels processing. See Agents.md.
+then cleans and streams a reply (`badkid-llama-chat`). A barge-in keyword ("wait"/"stop",
+EN+DE, leading fillers allowed) cancels processing. The decision has two guards against
+stale verdicts: speech during cleanup reopens the turn, and speech during the classify
+call itself supersedes the verdict (the pause re-decides on the combined text). See
+Agents.md.
 
 ---
 

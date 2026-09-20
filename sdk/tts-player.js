@@ -26,7 +26,9 @@
  *   const tts = new TtsPlayer({ onEvent: e => ... });
  *   client.on('reply', d => tts.push(d.result.text));   // stream tokens
  *   client.on('phase', d => { if (d.phase === 'done') tts.flush(); });
- *   client.on('speech-start', () => tts.stop('user spoke'));
+ *   client.on('barge-in', () => tts.stop('keyword'));      // only interrupts
+ *   client.on('duck', () => tts.duck());                    // sustained speech
+ *   client.on('speech-end', () => setTimeout(() => tts.unduck(), 1000));
  *
  * Classic script: exposes `window.TtsPlayer` in the browser, exports for Node.
  */
@@ -65,11 +67,13 @@ class TtsPlayer {
         this._runActive = false; // one 'start'/'end' pair per playback run
         this._muted = false;    // set by an interrupt; cleared by unmute()
         this._startedAt = null;
+        this._duckLevel = 1;     // 1 = full volume; <1 while ducked (see duck())
 
         // One long-lived output path, created once. See _ensureAudio().
         this._readyPromise = null;  // AudioContext + loopback setup
         this._ctx = null;
         this._dest = null;
+        this._gain = null;          // volume node — duck/unduck live here
         this._out = null;           // <audio> playing the loopback / destination stream
         this._pc1 = null;
         this._pc2 = null;
@@ -155,6 +159,26 @@ class TtsPlayer {
         this._muted = false;
     }
 
+    /**
+     * Duck playback to `level` (0..1) without stopping it — the v2 answer to
+     * voiced-but-not-interrupting audio during output (a cough fit, background
+     * talking). Only a keyword or a gauntlet-surviving input may STOP playback;
+     * sustained audio just lowers it so the user is acknowledged without the
+     * reply being killable by noise. Smooth ~50ms ramp — no click.
+     */
+    duck(level = 0.5) {
+        this._duckLevel = Math.max(0, Math.min(1, level));
+        if (this._gain && this._ctx) {
+            try { this._gain.gain.setTargetAtTime(this._duckLevel, this._ctx.currentTime, 0.05); } catch { /* context closed */ }
+        }
+        this.onEvent({ type: 'ducked', level: this._duckLevel });
+    }
+
+    /** Restore full volume after a duck. */
+    unduck() {
+        this.duck(1);
+    }
+
     get playing() { return !!this._source; }
     get pending() { return this._queue.length + this._ready.length; }
 
@@ -164,6 +188,7 @@ class TtsPlayer {
             enabled: this.enabled,
             playing: !!this._source,
             muted: this._muted,
+            duckLevel: this._duckLevel,
             queued: this._queue.length,
             ready: this._ready.length,
             synthing: this._synthing,
@@ -280,8 +305,12 @@ class TtsPlayer {
         this._readyPromise = (async () => {
             const ctx = new AudioContext();
             const dest = ctx.createMediaStreamDestination();
+            const gain = ctx.createGain();
+            gain.gain.value = this._duckLevel;   // if ducked before init, stay ducked
+            gain.connect(dest);
             this._ctx = ctx;
             this._dest = dest;
+            this._gain = gain;
             const out = new Audio();
             out.autoplay = true;
             this._out = out;
@@ -328,7 +357,7 @@ class TtsPlayer {
         if (!this._ctx) throw new Error('audio context gone');
         const src = this._ctx.createBufferSource();
         src.buffer = buffer;
-        src.connect(this._dest);
+        src.connect(this._gain);   // through the duck/unduck gain node
         this._source = src;
         const playStartedAt = Date.now();
         if (!this._runActive) {
