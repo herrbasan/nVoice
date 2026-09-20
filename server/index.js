@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { config } from './config.js';
 import { logger } from './logger.js';
@@ -23,6 +24,40 @@ import { registerAdminRoutes } from './api/admin.js';
 import { registerRealtimeRoutes, attachRealtimeWebSocket, attachWakeWordWebSocket } from './api/realtime.js';
 import { registerAssistantRoutes } from './api/assistant.js';
 import { listCloudEngines } from './cloud/registry.js';
+
+// ── Crash reporter ────────────────────────────────────────────────────────
+// The server died with exit code 1 under chat-app API usage (2026-09-20) and
+// NO stack was captured anywhere — nPM's cmd.exe shell eats the final stderr
+// flush. These handlers write the stack SYNCHRONOUSLY (both to stderr fd and
+// appended to the log file) before exiting, or the write never lands: the
+// logger's createWriteStream is async and process.exit() discards it. The
+// first version of this handler called a non-existent `logger.fatal()`, threw
+// inside its own catch, and exited silently — that is why the reported crash
+// produced nothing. Verified against a real crash via tests/test_concurrent_repro.mjs.
+import { appendFileSync, writeSync } from 'node:fs';
+// This is an ES module — __dirname does not exist. Derive it. (Writing
+// `__dirname` here crashed the server at LOAD time before any handler below
+// was registered: the very class of silent exit-1 death this reporter exists
+// to catch.)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGS_DIR = path.join(__dirname, '..', 'logs');
+const CRASH_LOG = path.join(LOGS_DIR, 'main-0.log');
+function crashOut(kind, err) {
+  const detail = err?.stack || (err && typeof err === 'object' ? JSON.stringify(err) : String(err));
+  const line = `\n=== CRASH ${new Date().toISOString()} ${kind} ===\n${detail}\n`;
+  try { writeSync(2, line); } catch { /* stderr gone (nPM shell ate it before) */ }
+  try {
+    appendFileSync(CRASH_LOG,
+      JSON.stringify({ ts: new Date().toISOString(), level: 'FATAL', type: 'Crash', msg: kind, meta: { err: detail } }) + '\n');
+  } catch { /* log dir gone */ }
+  // Third sink: a dedicated file that cannot collide with the rolling log.
+  try { appendFileSync(path.join(LOGS_DIR, 'crash.log'), line); } catch { /* nothing left */ }
+}
+process.on('uncaughtException', (err) => { crashOut('UNCAUGHT EXCEPTION', err); process.exit(1); });
+process.on('unhandledRejection', (reason) => { crashOut('UNHANDLED REJECTION', reason); process.exit(1); });
+// Fires for ANY exit path, including an explicit process.exit() — if the line
+// above is ever missing from the log, this one still records that we exited.
+process.on('exit', (code) => { crashOut('PROCESS EXIT', new Error(`exit code ${code}`)); });
 
 // Engine manager — singleton for the server lifetime
 const engineManager = new EngineManager();

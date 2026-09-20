@@ -282,8 +282,6 @@ export function attachRealtimeWebSocket(app, engineManager) {
     });
 
     browserWs.on('close', () => {
-      if (pauseTimer) clearTimeout(pauseTimer);
-      if (paragraphTimer) clearTimeout(paragraphTimer);
       if (turnMachine) turnMachine.close();
       if (workerWs.readyState === WebSocket.OPEN) workerWs.close();
     });
