@@ -95,6 +95,7 @@ class TtsPlayer {
         this._pc1 = null;
         this._pc2 = null;
         this._source = null;        // playing AudioBufferSourceNode
+        this._starting = false;     // a start is in flight (decode/webRTC await)
         this._suspendedWarned = false;  // 'suspended' emitted once per episode
 
         this.stats = { sentences: 0, spokenChars: 0, synthMs: 0, spokenMs: 0, interrupted: 0 };
@@ -221,6 +222,7 @@ class TtsPlayer {
         this._buffer = '';
         this._queue = [];
         this._ready = [];
+        this._starting = false;         // release a reserved slot (a decode may be in flight)
         this._stopSource();
         this._runActive = false;
         this._startedAt = null;
@@ -264,6 +266,7 @@ class TtsPlayer {
         return {
             enabled: this.enabled,
             playing: !!this._source,
+            starting: this._starting,
             muted: this._muted,
             duckLevel: this._duckLevel,
             loopbackReason: this.loopback ? 'webrtc (chromium AEC)' : (_IS_IOS ? 'off (iOS default)' : 'off (requested)'),
@@ -305,10 +308,15 @@ class TtsPlayer {
         this._queue.push(text);
     }
 
-    /** Play the next ready sentence, or make sure synthesis is running. */
+    /** Play the next ready sentence, or make sure synthesis is running.
+     *
+     *  The guard tests "a run is starting OR playing", never just `_source`:
+     *  `_startSource` only assigns `_source` after its awaited decode, so a
+     *  `_source`-only guard is open for the whole decode and a second sentence
+     *  can start alongside the first — audibly stacking (issue #3). */
     _schedule() {
         if (!this.enabled || this._muted) return;
-        if (this._source) return;                // 'onended' will call back
+        if (this._source || this._starting) return;   // 'onended' will call back
         const item = this._ready.shift();
         if (item) { this._play(item); return; }
         if (this._queue.length) this._synthesize();
@@ -348,7 +356,7 @@ class TtsPlayer {
                 // Start speaking the moment the first sentence exists — do not sit
                 // through the whole look-ahead buffer first. (Re-entrant _synthesize
                 // is a no-op here because _synthing is still set.)
-                if (!this._source) this._schedule();
+                if (!this._source && !this._starting) this._schedule();
             }
         } catch (e) {
             this.onEvent({ type: 'error', error: String(e?.message || e) });
@@ -361,10 +369,15 @@ class TtsPlayer {
 
     _play(item) {
         if (this._muted) return;
+        // Reserve the slot NOW, before the awaits inside _startSource. This is
+        // the whole fix for issue #3: the guard must close before decodeAudioData
+        // starts, not after it finishes.
+        this._starting = true;
         const generation = this._generation;
         this._ensureAudio()
             .then(() => this._startSource(item, generation))
             .catch(err => {
+                this._starting = false;
                 this.onEvent({ type: 'error', error: `playback: ${err.message}` });
                 this._schedule();
             });
@@ -425,14 +438,26 @@ class TtsPlayer {
     }
 
     async _startSource({ data, text }, generation) {
+        // Refuse BEFORE decoding: if another source is live we cannot play this,
+        // so decoding it would be wasted work. Keeps the sentence for the
+        // current source's 'onended' to pick up. (Defence in depth for #3: the
+        // scheduler already reserves the slot, this makes stacking impossible
+        // even if some future path calls _startSource directly.)
+        if (this._source) {
+            this._ready.unshift({ data, text });
+            this._starting = false;
+            this.stats.overlapPrevented = (this.stats.overlapPrevented || 0) + 1;
+            this.onEvent({ type: 'overlap-prevented', text });
+            return;
+        }
         // decodeAudioData detaches its input, so hand it a copy.
         const buffer = await this._ctx.decodeAudioData(data.slice(0));
         // An interrupt during the decode means this sentence is already obsolete.
         // Without this the play pipeline resumed after the user said stop — the
         // queue was cleared, but work already inside the pipeline still completed.
         // Every await in here needs the same check, not just the queue.
-        if (this._muted || generation !== this._generation) return;
-        if (!this._ctx) throw new Error('audio context gone');
+        if (this._muted || generation !== this._generation) { this._starting = false; return; }
+        if (!this._ctx) { this._starting = false; throw new Error('audio context gone'); }
         // Self-heal a suspended context (iOS backgrounding, a missed gesture) —
         // and if it still will not run, say so instead of playing into the void.
         if (this._ctx.state === 'suspended') {
@@ -443,6 +468,7 @@ class TtsPlayer {
         src.buffer = buffer;
         src.connect(this._gain);   // through the duck/unduck gain node
         this._source = src;
+        this._starting = false;     // _source owns the slot from here
         const playStartedAt = Date.now();
         if (!this._runActive) {
             // One 'start' per playback run, not per sentence.

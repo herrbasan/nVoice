@@ -236,8 +236,15 @@ AudioContext created outside a user gesture.
 | `resume()` | Make output audible from a gesture; returns the context state, no-op when running |
 | `clean` | Text cleaning by nSpeech (`extra_body.clean`): `true` (default) / `'llm'` / `false` |
 | `playing` / `pending` | Speaking now / sentences queued |
-| `stats` | `{ sentences, spokenChars, synthMs, spokenMs, interrupted }` |
-| `onEvent` | `start` · `end` · `interrupted` · `ducked` · `suspended` · `error` |
+| `stats` | `{ sentences, spokenChars, synthMs, spokenMs, interrupted, overlapPrevented? }` |
+| `onEvent` | `start` · `end` · `interrupted` · `ducked` · `suspended` · `overlap-prevented` · `error` |
+
+**One source at a time, always.** The scheduler reserves the playback slot *before*
+`decodeAudioData` awaits, so calling `push()` during a slow decode (the documented
+streaming usage) cannot start a second sentence alongside the first — which stacked
+amplitude and never recovered on iOS (issue #3). A second start is refused outright,
+the sentence is kept for the next slot, and an `overlap-prevented` event plus
+`stats.overlapPrevented` record it.
 
 Markdown is stripped before synthesis (sentence splitting needs it gone); nSpeech
 cleans what arrives via `extra_body.clean`, where it is authoritative. Measured against
