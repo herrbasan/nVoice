@@ -1,0 +1,30 @@
+fix TtsPlayer (iOS) trailing-chunk loop: play to ctx.destination, drop the stream sink
+
+Issue #4. On the non-loopback path (the iOS default) audio went
+BufferSource → gain → createMediaStreamDestination() → <audio srcObject>.
+That node is a CAPTURE node — a live stream with no end — so the <audio>
+element never fires `ended`, nothing ever releases or replaces srcObject, and
+on iOS it sat holding and re-rendering the final fragment forever. The repeated
+fragment's loudness varied with where in the waveform the retained block fell,
+and interrupt had nothing to cut because there was no BufferSource left.
+
+The stream hop only ever existed to give Chromium's AEC a WebRTC playout
+reference. With loopback off there is no AEC reason for it, so the sink is gone:
+
+- `_ensureAudio()` direct path is now `gain → ctx.destination` — real hardware
+  output, a real end, and no <audio> element and no MediaStreamDestination
+  created at all. Applies to iOS by default, which is the platform affected.
+- The WebRTC hop is unchanged and still created for `loopback: true` (desktop),
+  where the stable long-lived reference is the whole point.
+- `resume()` already tolerates a null `_out`, so the gesture path works without
+  an element.
+
+tests/test_tts_output_path.mjs (13 checks) runs the REAL _ensureAudio against
+faked Web Audio globals and pins the choice: direct path connects gain to
+ctx.destination and creates zero MediaStreamDestinations / <audio> elements /
+peer connections; loopback path still creates them. iOS 13/13 and overlap 20/20
+unchanged.
+
+README: iOS section updated, plus the case the `suspended` event cannot catch —
+iOS routes Web Audio through the ambient/ringer category, so the hardware silent
+switch mutes playback while ctx.state still reports 'running'.

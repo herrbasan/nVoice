@@ -216,12 +216,25 @@ nonetheless collapses, the server-side echo guard drops the transcribed self-ech
 
 **iOS: the loopback defaults OFF and you must resume in a gesture.** The WebRTC loopback
 exists for Chromium's AEC and buys nothing on iOS while adding another autoplay gate, so
-`loopback` defaults to `false` there (an explicit `loopback: true` still wins). iOS
-Safari also keeps an `AudioContext` suspended when it was created outside a user gesture
-or after the tab was backgrounded — sources then decode and playback events fire while
-**nothing is audible and no error is raised**. Call `prime()` (or `resume()`) inside the
-Start click, and listen for the `suspended` event: it fires once per episode and names
+`loopback` defaults to `false` there (an explicit `loopback: true` still wins). With it
+off, audio goes `gain → ctx.destination` — real hardware output, a real end, and **no
+`<audio srcObject>` element at all**. That element was a `createMediaStreamDestination()`
+feed, i.e. a capture node with no end: used as a speaker sink on iOS it left the element
+re-rendering the trailing fragment forever, with no BufferSource left for `stop()` to cut
+(issue #4). The stream hop now exists only on the desktop AEC path, and only to carry
+Chromium's reference.
+
+iOS Safari also keeps an `AudioContext` suspended when it was created outside a user
+gesture or after the tab was backgrounded — sources then decode and playback events fire
+while **nothing is audible and no error is raised**. Call `prime()` (or `resume()`) inside
+the Start click, and listen for the `suspended` event: it fires once per episode and names
 the remedy, so silent output is never invisible.
+
+One case the `suspended` event cannot catch: iOS routes Web Audio through the
+ambient/ringer category, so the **hardware silent switch mutes playback while
+`AudioContext.state` still reports `running`** (HTML media elements use the media category
+and are unaffected). Nothing in the API reports that — if a consumer needs guaranteed
+audibility they must ask the user about the switch.
 
 Call `tts.prime()` from inside the Start click — autoplay policy suspends an
 AudioContext created outside a user gesture.

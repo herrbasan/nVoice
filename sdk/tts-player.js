@@ -386,31 +386,45 @@ class TtsPlayer {
     /**
      * Create the output path once and keep it for the whole session.
      *
-     * Chromium's AEC takes its reference from WebRTC playout, so audio that never
-     * passes through it is not cancelled and the mic keeps hearing the assistant.
-     * The reference also has to be *stable* — AEC is adaptive and needs seconds to
-     * converge — so one long-lived path is the point, not a new sink per sentence.
+     * Two paths, chosen by `loopback`:
+     *
+     * - **Direct** (`loopback: false`, the iOS default): `gain → ctx.destination`.
+     *   `ctx.destination` is the real hardware output and the run genuinely ends.
+     * - **WebRTC loopback** (`loopback: true`, desktop/Chromium): `gain →
+     *   MediaStreamDestination → RTCPeerConnection pair → <audio srcObject>`.
+     *   Chromium's AEC takes its reference from WebRTC playout, so audio that
+     *   never passes through it is not cancelled and the mic keeps hearing the
+     *   assistant. The reference has to be *stable* — AEC is adaptive and needs
+     *   seconds to converge — so one long-lived path is the point, not a new sink
+     *   per sentence.
+     *
+     * Why the direct path must not use the stream hop (issue #4):
+     * `createMediaStreamDestination()` is a capture node — a live stream with no
+     * end, which `<audio srcObject>` never fires `ended` for. Used as a speaker
+     * sink on iOS it left the element holding and re-rendering a trailing
+     * fragment forever, with no BufferSource left for `stop()` to cut. With no
+     * AEC reason for the hop, the element should not exist at all.
      */
     _ensureAudio() {
         if (this._readyPromise) return this._readyPromise;
         this._readyPromise = (async () => {
             const ctx = new AudioContext();
-            const dest = ctx.createMediaStreamDestination();
             const gain = ctx.createGain();
             gain.gain.value = this._duckLevel;   // if ducked before init, stay ducked
-            gain.connect(dest);
             this._ctx = ctx;
-            this._dest = dest;
             this._gain = gain;
+
+            if (!this.loopback) {
+                gain.connect(ctx.destination);   // real output, real end
+                return;
+            }
+
+            const dest = ctx.createMediaStreamDestination();
+            gain.connect(dest);
+            this._dest = dest;
             const out = new Audio();
             out.autoplay = true;
             this._out = out;
-
-            if (!this.loopback) {
-                out.srcObject = dest.stream;
-                await out.play();
-                return;
-            }
 
             // Local WebRTC loopback: our audio goes in one peer and comes back out
             // of the other as a MediaStream, which is what makes Chromium treat it
