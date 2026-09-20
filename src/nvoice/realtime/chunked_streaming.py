@@ -72,7 +72,7 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
     def __init__(self, stt_engine, sample_rate=16000, vad=None,
                  commit_silence_sec=0.6,
                  max_chunk_sec=30.0, provisional_interval_sec=0.5,
-                 min_speech_ratio=0.25):
+                 min_speech_ratio=0.25, min_speech_run_sec=0.3):
         self.stt_engine = stt_engine
         self.sample_rate = sample_rate
         self.vad = vad
@@ -80,6 +80,15 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
         # "Any frame above threshold" lets a mic bump or a keystroke commit a chunk,
         # and an engine asked to transcribe near-silence invents a word for it.
         self.min_speech_ratio = min_speech_ratio
+        # Minimum VOICED SECONDS a chunk must contain before it is transcribed.
+        # min_speech_ratio decides *when* to consider committing (it is measured
+        # on the trailing silence window), but the gates must also apply to the
+        # audio that actually reaches the engine — a transient that clears the
+        # tail ratio (~256ms of above-threshold audio in a 1s window) used to be
+        # transcribed in full, and the engine invents a plausible phrase for it
+        # ("Mr. Swiss", "Breaks Audi OS"). `_speech_run_sec` is the honest
+        # measure: VAD-voiced seconds integrated over new audio exactly once.
+        self.min_speech_run_sec = min_speech_run_sec
 
         self.commit_silence_sec = commit_silence_sec      # silence tail → chunk complete
         self.max_chunk_sec = max_chunk_sec                # force-commit cap
@@ -232,12 +241,33 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
                 await asyncio.sleep(0.2)
 
     async def _commit(self):
-        """Transcribe the buffered chunk ONCE (plus left context), emit final, advance."""
+        """Transcribe the buffered chunk ONCE, emit final, advance.
+
+        The gate is applied to the PAYLOAD, not only to the commit decision
+        (issue #5): a chunk with almost no real speech never reaches the engine.
+        Without this, handling noise the tail ratio accepted (a swipe, the phone
+        being set down) was transcribed whole and came back as invented text.
+        """
         if len(self.audio_buffer) == 0:
             return
+        dur = len(self.audio_buffer) / self.sample_rate
+
+        if self._speech_run_sec < self.min_speech_run_sec:
+            # Not enough real speech to be worth transcribing — drop the chunk
+            # rather than asking the engine to guess at noise. Visible in the
+            # telemetry and the log so the threshold stays tunable.
+            logger.info(
+                f"commit skipped: {self._speech_run_sec:.2f}s of speech "
+                f"(< {self.min_speech_run_sec}s) in {dur:.2f}s of audio"
+            )
+            self._send_telemetry(0.0, dur, "idle/silence",
+                                 {"speech_sec": round(self._speech_run_sec, 2),
+                                  "skipped": "low-speech"})
+            self._advance()
+            return
+
         # The buffer already ends at the silence boundary; include it as-is.
         view = self.audio_buffer
-        dur = len(view) / self.sample_rate
         try:
             text, infer = await asyncio.to_thread(self._transcribe, view)
         except Exception as e:
@@ -247,12 +277,17 @@ class ChunkedStreamingStrategy(RealtimeStrategy):
         if text:
             self._send_transcript(text, is_final=True)
         self._send_telemetry(infer / dur if dur > 0 else 0, dur, "processing",
-                             {"infer_time": round(infer, 3), "committed_sec": round(dur, 2)})
-        # Advance: drop the committed audio, keep a small lead-in for the next onset.
+                             {"infer_time": round(infer, 3), "committed_sec": round(dur, 2),
+                              "speech_sec": round(self._speech_run_sec, 2)})
+        self._advance()
+
+    def _advance(self):
+        """Drop the consumed audio, keep a small lead-in for the next onset, and
+        reset the per-utterance accumulators. The kept lead-in must not be
+        recounted, so the VAD pointer skips it."""
         keep = int(0.3 * self.sample_rate)
         self.audio_buffer = self.audio_buffer[-keep:] if len(self.audio_buffer) > keep else np.array([], dtype=np.float32)
-        # New utterance, new barge-in budget: the run resets and the kept lead-in
-        # must not be recounted (ptr skips it).
+        # New utterance, new barge-in budget: the run resets.
         self._speech_run_sec = 0.0
         self._vad_ptr = len(self.audio_buffer)
         self._last_text = ""

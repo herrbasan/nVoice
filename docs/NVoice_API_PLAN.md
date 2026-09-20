@@ -246,11 +246,14 @@ Config keys (example values):
 ```json
 {
   "vad": {
-    "client_gate": true,
-    "client_threshold": 0.3,
     "backend_stage": true,
     "backend_threshold": 0.5,
-    "silence_tail_sec": 1.5
+    "silence_tail_sec": 1.5,
+    "min_speech_ratio": 0.25,
+    "min_speech_run_sec": 0.3
+    // NOTE 2026-09-20: the client_gate / client_threshold keys that used to sit
+    // here were read by no code (issue #6). Gating is backend-only; the client
+    // gate is an SDK/page option (enableWakeWord), not server config.
   }
 }
 ```
@@ -542,11 +545,11 @@ If a future endpoint needs to return audio, the contract mirrors nSpeech:
     "sherpa_onnx": "venv/sherpa_onnx"
   },
   "vad": {
-    "client_gate": true,
-    "client_threshold": 0.3,
     "backend_stage": true,
     "backend_threshold": 0.5,
     "silence_tail_sec": 1.5
+    // NOTE 2026-09-20: client_gate / client_threshold removed — read by no code
+    // (issue #6).
   }
 }
 ```

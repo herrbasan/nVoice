@@ -27,10 +27,10 @@
         "parakeet": "venv/parakeet"
     },
     "vad": {
-        "client_gate": true,
-        "client_threshold": 0.3,
         "backend_stage": true,
         "backend_threshold": 0.5,
-        "silence_tail_sec": 1.5
+        "silence_tail_sec": 1.5,
+        "min_speech_ratio": 0.25,
+        "min_speech_run_sec": 0.3
     }
 }

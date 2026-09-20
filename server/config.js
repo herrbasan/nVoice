@@ -64,13 +64,21 @@ const config = {
     sherpa_onnx_legacy: 'venv/sherpa_onnx',
   },
 
-  // VAD policy (Tier 3 — Node owns config, edges execute)
+  // VAD policy (Tier 3 — Node owns config, edges execute).
+  // Backend-only BY DESIGN: the old client_gate / client_threshold keys were
+  // read by no code (issue #6) — a client-side gate can only live in the
+  // client, and the SDK's is an opt-in page option (enableWakeWord(), needing
+  // the ort/silero assets) that the server cannot dictate. Declaring them here
+  // read as protection that did not exist.
   vad: rawConfig.vad ?? {
-    client_gate: true,
-    client_threshold: 0.3,
     backend_stage: true,
     backend_threshold: 0.5,
     silence_tail_sec: 1.5,
+    // Gate the commit DECISION (share of the trailing window above threshold)
+    // and the PAYLOAD (voiced seconds the chunk must contain to be worth
+    // transcribing at all — see chunked_streaming._commit).
+    min_speech_ratio: 0.25,
+    min_speech_run_sec: 0.3,
   },
 
   // Assistant layer — LLM-powered transcription post-processing

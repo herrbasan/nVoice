@@ -101,14 +101,18 @@ Copy `config.example.json` to `config.json` and edit:
     "parakeet": "venv/parakeet"
   },
   "vad": {
-    "client_gate": true,
-    "client_threshold": 0.3,
     "backend_stage": true,
     "backend_threshold": 0.5,
-    "silence_tail_sec": 1.5
+    "silence_tail_sec": 1.5,
+    "min_speech_ratio": 0.25,
+    "min_speech_run_sec": 0.3
   }
 }
 ```
+
+VAD gating is **backend-only**. The client-side gate is an SDK/page option
+(`enableWakeWord()`, which loads `silero_vad.onnx` via ort and therefore needs the
+full SDK build), not a server setting — so it is deliberately absent from this config.
 
 ## JavaScript SDK
 

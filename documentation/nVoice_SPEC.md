@@ -188,7 +188,20 @@ Agents.md.
 | `language` | `auto` | default language (archive endpoint overrides to `de`) |
 | `engine_dirs` | — | map of engine family → venv dir |
 | `ffmpeg_path` / `ffprobe_path` | vendored | optional explicit ffmpeg/ffprobe override (falls back to vendored submodule) |
-| `vad.*` | — | client gate + backend stage thresholds, silence tail |
+| `vad.*` | — | **backend-only** gating (see below); `silence_tail_sec`, plus the two commit gates |
+
+**VAD / noise gates.** Gating is backend-only — the old `client_gate` / `client_threshold`
+keys were read by no code (issue #6) and are removed; a client-side gate is an SDK/page
+option (`enableWakeWord()`, needs the ort/silero assets), not server config. Two gates
+apply to the parakeet chunked path, and they answer different questions:
+
+- `backend_threshold` (`vad.*`, default **0.5**) — the live Silero threshold. (The
+top-level `vad_threshold: 0.4` is not read by the realtime path.)
+- `min_speech_ratio` (default **0.25**) — share of the trailing silence window that must
+  clear the threshold before a commit is *considered*. Decides **when**.
+- `min_speech_run_sec` (default **0.3**) — integrated voiced seconds the chunk must
+  contain to be worth transcribing at all. Decides **what**, and is what stops handling
+  noise reaching the engine (issue #5).
 | `assistant.classifier_model` | `badkid-classifier` | turn-intent classifier model (reactive assistant) |
 | `assistant.intent_pause_ms` | `1200` | pause before classifying turn state |
 | `beam_size`, `best_of`, `temperature`, `no_speech_threshold`, … | — | faster-whisper decode params |

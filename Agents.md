@@ -217,6 +217,29 @@ hallucination filter** drops breath/cough artifacts ("yeah", "hmm", "äh", "sorr
 emit time in both strategies. Fillers inside a longer utterance survive; the cleanup
 LLM strips those.
 
+**The ratio gates the DECISION; `_speech_run_sec` gates the PAYLOAD** (issue #5).
+`min_speech_ratio` is measured on the trailing silence window, so it decided *when* to
+consider committing — but `_commit()` handed the whole accumulated buffer (1–30s) to the
+engine unchecked. A transient that cleared the tail ratio (~256ms of above-threshold
+audio inside the 1s tail clears 0.25) was therefore transcribed in full, and the engine
+invents a plausible phrase for it — **"Mr. Swiss"** from a swipe across the mic,
+**"Breaks Audi OS"** from setting the phone down. Neither is a filler or a known
+invention, so the text filter passed them, and the intent gauntlet read them as a
+sentence. `_commit()` now refuses to transcribe a chunk carrying less than
+`min_speech_run_sec` (default 0.3s) of integrated voiced audio — the same honest
+accumulator used for barge-in sustain (VAD fraction over new audio, each sample counted
+once), which no plausible engine invention can fake. Skipped chunks log the measurement
+and emit `skipped: low-speech` telemetry, so the threshold stays tunable. Note the
+margin is thin by nature: a deliberately short word ("stop", ~0.4s voiced) must clear
+the bar, a handling transient (~0.2s) must not.
+
+**VAD gating is backend-only** (issue #6). `vad.client_gate` / `client_threshold` used to
+be declared in config and read by **no code** — a client-side gate can only live in the
+client, and the SDK's is an opt-in page option (`enableWakeWord()`, which needs the
+ort/silero assets). The keys are gone rather than left reading as protection that does
+not exist. `vad.backend_threshold` (0.5) is the live threshold; the top-level
+`vad_threshold` (0.4) is not read by the realtime path.
+
 **Speech out** (`sdk/tts-player.js`): sentence at a time via nSpeech/Kokoro, next
 sentence synthesized while the current plays. Playback runs through a local **WebRTC
 loopback** — Chromium's AEC references WebRTC playout, and plain `HTMLMediaElement`/Web
