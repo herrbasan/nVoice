@@ -400,4 +400,80 @@ console.log('\n=== Interrupt during verdict voids the call (no stale send) ===')
   console.log(replyCalls === 0 && sentCleaned.length === 0 ? 'OK  stale verdict did not send' : 'BAD stale verdict sent the abandoned turn');
 }
 
+// --- Punctuation shortcut + trailing re-check (2026-09-20 kimi test findings) ---
+
+// A sentence ending in terminal punctuation goes STRAIGHT to the verdict —
+// the trailing-word list must not veto a "…trained you?" into the 8s ceiling.
+console.log('\n=== Terminal punctuation bypasses the trailing list ===');
+{
+  const events = [];
+  let classifyCalls = 0, verdictCalls = 0, replyCalls = 0;
+  const tm = new TurnMachine({
+    classify: async () => { classifyCalls++; return 'still-speaking'; },
+    verdict: async (text) => { verdictCalls++; return { verdict: 'COMPLETE', text, latencyMs: 1 }; },
+    reply: async () => { replyCalls++; },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 8000,
+  });
+  tm.onFinal('do you know what model you are and who trained you?');
+  await new Promise(r => setTimeout(r, 300));
+  tm.close();
+  const punct = events.find(e => e.type === 'intent' && e.punctuation);
+  console.log(`classify calls: ${classifyCalls}, verdict calls: ${verdictCalls}, reply calls: ${replyCalls}, punctuation intent: ${punct ? 'yes' : 'no'}`);
+  console.log(punct ? 'OK  punctuation shortcut fired' : 'BAD no punctuation shortcut');
+  console.log(classifyCalls === 0 ? 'OK  0.6B skipped (verdict is the gate)' : 'BAD trigger ran anyway');
+  console.log(replyCalls === 1 ? 'OK  complete question sent' : 'BAD question never sent');
+}
+
+// Trailing still-speaking re-checks the VERDICT after a short grace — a
+// pronoun-final sentence without punctuation is complete, not an 8s wait.
+console.log('\n=== Trailing re-check runs the verdict (~2.5s, not 8s) ===');
+{
+  const events = [];
+  const verdictTexts = [];
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',   // even the trigger would fire
+    verdict: async (text) => { verdictTexts.push(text); return { verdict: 'COMPLETE', text, latencyMs: 1 }; },
+    reply: async () => {},
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 8000,
+    trailingRecheckMs: 120,   // fast for the test
+  });
+  tm.onFinal('tell me who trained you');   // ends on 'you' — in the trailing list
+  await new Promise(r => setTimeout(r, 500));
+  tm.close();
+  const recheck = events.find(e => e.type === 'intent' && e.forced && e.reason === 'trailing-recheck');
+  console.log(`verdict calls: ${verdictTexts.length}, re-check intent: ${recheck ? 'yes' : 'no'}`);
+  console.log(recheck ? 'OK  trailing re-check fired' : 'BAD no trailing re-check (would wait 8s)');
+  console.log(verdictTexts[0] === 'tell me who trained you' ? 'OK  verdict judged the trailing sentence' : 'BAD verdict never saw it');
+}
+
+// A genuinely trailing sentence survives the re-check: verdict INCOMPLETE
+// re-arms the FULL ceiling, speech resumes and completes the turn.
+console.log('\n=== Genuinely trailing survives the re-check (verdict INCOMPLETE) ===');
+{
+  const events = [];
+  let replyCalls = 0;
+  const tm = new TurnMachine({
+    classify: async () => 'turn-done',
+    verdict: async (text) => text.endsWith('young') ? { verdict: 'INCOMPLETE', text, latencyMs: 1 } : { verdict: 'COMPLETE', text, latencyMs: 1 },
+    reply: async () => { replyCalls++; },
+    emit: (obj) => events.push(obj),
+    pauseMs: 20,
+    maxSilenceMs: 8000,
+    trailingRecheckMs: 120,
+  });
+  tm.onFinal('when it was young');
+  await new Promise(r => setTimeout(r, 400));   // re-check says INCOMPLETE — stays open
+  const stayedOpen = replyCalls === 0;
+  tm.onFinal('it would sing all day');           // speaker resumes
+  await new Promise(r => setTimeout(r, 200));
+  tm.close();
+  console.log(`stayed open after re-check: ${stayedOpen ? 'yes' : 'BAD'}, replies: ${replyCalls}`);
+  console.log(stayedOpen ? 'OK  INCOMPLETE kept the turn open' : 'BAD re-check sent a trailing sentence');
+  console.log(replyCalls === 1 ? 'OK  completed after resume' : 'BAD resume never sent');
+}
+
 process.exit(0);

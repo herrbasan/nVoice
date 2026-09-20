@@ -145,7 +145,13 @@ answers out loud, and stops when you talk over it. Working end to end as of 2026
 2. `badkid-classifier` (Qwen3-0.6B, CPU) — the remaining ~10. One-shot label
    (`temperature 0`); output is regex-extracted (`turn-done|still-speaking`), not
    exact-matched — a decorated answer ("turn-done.") used to parse as null and silently
-   degrade every turn to the ceiling.
+   degrade every turn to the ceiling. Two refinements (2026-09-20, from the kimi
+   long-generation test): **terminal punctuation** (`.?!…` at the pause) bypasses both
+   the list and the trigger — straight to the 12B verdict, because "…trained you?"
+   ends on a pronoun the list would veto into the 8s ceiling; and a trailing
+   still-speaking arms a **~2.5s re-check** (`trailingRecheckMs`, capped by the
+   ceiling) that re-runs the verdict — the word list is a latency saver, not a veto
+   over the 12B.
 
 **The classifier stays CPU-bound on purpose.** It runs as its own llama-server on port
 4081, so its latency cannot be eaten by whatever else holds the GPU (dreaming, other

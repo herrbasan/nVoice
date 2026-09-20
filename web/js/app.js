@@ -157,7 +157,6 @@ const NAV = [
     { label: 'Batch', href: '#page=batch', icon: 'volume' },
     { label: 'Archive', href: '#page=archive', icon: 'headphones' },
     { label: 'Realtime', href: '#page=realtime', icon: 'mic' },
-    { label: 'Assistant', href: '#page=assistant', icon: 'mic' },
     { label: 'Intent Lab', href: '#page=intent-lab', icon: 'eye' },
 ];
 

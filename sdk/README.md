@@ -1,6 +1,6 @@
 # nVoice Realtime JavaScript SDK
 
-Zero-dependency vanilla JS client for nVoice realtime STT, wake word, and transcript cleanup. Dual export: browser global (`window.nVoiceClient`) and CommonJS (`require`).
+Zero-dependency vanilla JS client for nVoice realtime STT, wake word, turn-taking, and transcript cleanup. Dual export: browser global (`window.nVoiceClient`) and CommonJS (`require`).
 
 ## Usage
 
@@ -12,7 +12,7 @@ Zero-dependency vanilla JS client for nVoice realtime STT, wake word, and transc
 // Direct to nVoice origin (dashboard):
 const client = new nVoiceClient({ serverUrl: 'https://badkid:2245' });
 
-// Behind a same-origin relay (chat app shape, R1):
+// Behind a same-origin relay (chat app shape):
 const client = new nVoiceClient({ serverUrl: '', basePath: '/api/stt' });
 // → fetch('/api/stt/v1/...'), ws://<page-host>/api/stt/v1/...
 ```
@@ -22,15 +22,19 @@ const client = new nVoiceClient({ serverUrl: '', basePath: '/api/stt' });
 | Option | Default | Notes |
 |--------|---------|-------|
 | `serverUrl` | `''` | Absolute nVoice base (`https://host:2245`) or `''` for same-origin. |
-| `basePath` | `''` | Path prefix for relayed deployments (e.g. `/api/stt`). Drives session fetch, realtime WS, wakeword WS, cleanup. |
-| `audioProcessing` | `false` | Force browser AEC/noiseSuppression/AGC on every platform. Required for assistant mode (TTS plays with mic open). |
-| `rawAudio` | `false` | Explicit raw capture override (wins over mobile default, loses to `audioProcessing`). |
+| `basePath` | `''` | Path prefix for relayed deployments (e.g. `/api/stt`). Drives every request the SDK makes. |
+| `audioProcessing` | `false` | Force browser AEC/NS/AGC on every platform. |
+| `rawAudio` | `false` | Explicit raw capture override (loses to `audioProcessing`). |
 | `audioDeviceId` | `null` | Mic device for `start()`. |
 | `engine` | `null` | Engine id (else server default). |
 | `recordDebug` | `false` | Worker records engine-received audio to WAV. |
-| `intentEnabled` | `false` | Opt into turn-taking intent classification (`?intent=1`). |
+| `intentEnabled` | `false` | Reactive assistant session (`?intent=1`). See below. |
 
-## Dictation API (chat-app primary flow)
+Note: assistant/intent sessions default to **AEC-only** capture (NS/AGC off — AGC lifts
+the noise floor until the VAD hears breathing as speech). Explicit per-flag overrides
+always win.
+
+## Dictation API (mic button flow)
 
 ```javascript
 await client.start();
@@ -43,165 +47,206 @@ client.clearRawText();
 
 `cleanup(text, mode?)` wraps `POST /v1/audio/cleanup` (modes `clean`/`format`/`compact`, EN+DE). Fail-loud: throws on HTTP/malformed errors.
 
-## Wake word
-
-**Kimi mode (worker-side acoustic detector):**
+## Wake word (optional)
 
 ```javascript
-await client.enableKimiWakeWord();  // before start(); "ok kimi" drives a command state machine
+await client.enableKimiWakeWord();  // before start(); "ok kimi" wakes the stream
 ```
 
-State machine: `sleep → "ok kimi" → command (listen/stop/send) → transcribing`. Local phrase matching, Cyrillic normalization, text-command fallback when the acoustic detector misses, false-wake resume. Runs over `WS /v1/wakeword/ws`; no ort.js needed.
-
-**Legacy local VAD (Silero WASM):** `enableWakeWord('/sdk/silero_vad.onnx')` — wake-on-any-speech. Requires ort.js. Not used by the chat integration.
+Worker-side acoustic detector over `WS /v1/wakeword/ws`. Plain wake-gate for dictation. The kimi listen/hold/send assistant mode that built on it was **retired 2026-09-20** — `enableAssistantMode()` throws with a pointer to the reactive assistant.
 
 ## Methods
 
 | Method | Description |
 |--------|-------------|
-| `start()` | Get mic, open realtime WS (+ wakeword WS when enabled), stream audio. |
-| `stop()` | Mute mic (dummy track), keep connections. |
+| `start()` | Get mic, open realtime WS (+ wakeword WS when enabled), stream audio. Failed starts tear down fully. |
+| `stop()` | Stop the mic stream (use `disconnect()` for full teardown). |
 | `disconnect()` | Full teardown. |
-| `getRawText()` / `clearRawText()` | Accumulated raw transcript buffer (non-command finals). |
+| `getRawText()` / `clearRawText()` | Accumulated raw transcript buffer. |
 | `cleanup(text, mode)` | One-shot LLM cleanup. Throws on failure. |
-| `enableKimiWakeWord()` | Worker-side "ok kimi" detector + command state machine. |
+| `enableKimiWakeWord()` | Worker-side "ok kimi" wake detector. |
 | `setAudioDevice(id)` | Mic for next `start()`. |
 | `on(ev, cb)` / `off(ev, cb)` | Event listeners. |
-| `client.turn` | Live snapshot of the current turn (`null` before the first one). |
-| `getSessionReport()` | Structured record of the current/last turn-taking session. |
-| `printSessionReport(reason?)` | Build + print + cache the report. Called automatically on socket close. |
+| `client.turn` | Live snapshot of the current turn (`null` before the first). |
+| `getSessionReport()` | Structured record of the current/last intent session. |
+| `printSessionReport(reason?)` | Build + print + cache the report (automatic on socket close). |
 | `client.lastReport` / `lastReportText` | Last report, structured and rendered. |
-| `note(code, detail, severity?)` | Annotate the session record from the app — for behaviour the SDK cannot see (audio playback, UI decisions). Shows up in the report as a finding. |
+| `note(code, detail, severity?)` | Annotate the session record from the app (playback cuts, UI decisions). Shows as a finding. |
 
 ## Events
 
-`connected`, `disconnected`, `standby`, `transcript` `{text, is_final}`, `telemetry` `{rtf, backlog_sec}`, `wakeWordDetected`, `asleep`, `error`, `speech-start`, `speech-end`, `barge-in`.
+`connected`, `disconnected`, `standby`, `transcript` `{text, is_final}`, `telemetry` `{rtf, backlog_sec, speech_sec}`, `wakeWordDetected`, `asleep`, `error`, `speech-start`, `speech-end`.
 
-**Cut playback on `barge-in`, never on `speech-start`.** `speech-start` is the raw
-silence → speech edge and fires on any single VAD transition — touching the mic, a door,
-handling noise — so cutting on it means every bump kills the assistant mid-sentence.
-`barge-in` instead fires when either:
+## Reactive assistant (turn-taking) — the chat-app voice mode
 
-- **sustained speech** has been held past `bargeInMs` — the same "not one frame" reasoning
-  as the wake-word gate; or
-- an **interrupt keyword** (`wait`, `stop`, `halt`, `hold on`, `hold up`, `never mind`,
-  `belay that`) arrived as a final. The word is evidence rather than a guess, so it cuts
-  immediately — which is why the keyword path exists at all: a one-word interruption is
-  shorter than the sustain window and could never trip it.
+`client.intentEnabled = true` opens an assistant session (`?intent=1` on the realtime
+WS). The SERVER runs the conversation loop — turn detection, noise rejection, cleanup,
+optionally the reply — the app renders and speaks.
 
-`speech-start` / `speech-end` remain available for UI state.
+**How a turn is decided (the gauntlet).** After a pause (`intentPauseMs`, default
+1200ms) the server runs: trailing-word list (0ms) → 0.6B trigger → **one 12B call that
+returns a verdict + the cleaned text**. Terminal punctuation (`.?!…`) skips straight to
+the verdict. The verdict is `COMPLETE` (send), `INCOMPLETE` (keep listening), or
+`NOT_SPEECH` (whole buffer discarded — a cough never becomes a message). A trailing
+still-speaking arms a ~2.5s re-check rather than the full ceiling. The silence ceiling
+(`intentMaxSilenceMs`, 8s) forces the verdict as a fail-safe, never a blind send.
 
-**Reactive assistant** (`client.intentEnabled = true`): `intent` `{label, text, pause_ms}` (`still-speaking`|`turn-done`), `phase` `{phase}` (`cleaning`|`thinking`|`streaming`|`done`|`interrupted`|`reopened`), `reply` `{result:{type, text}}` (`cleaned` then `stream` tokens). `reopened` means speech arrived while the cleaned text was in flight, so the send was abandoned and the text was appended to the same turn.
+**Interruption authority lives in the input pipeline, not the audio level.** Only two
+things stop output:
+
+1. an **interrupt keyword** in a final (`wait`, `stop`, `halt`, `hold on`, `never mind`;
+   DE `warte`, `stopp`, `moment`, `vergiss es`; incl. STT spellings `schtop`/`стоп`;
+   leading fillers like "äh wait" allowed) → `barge-in` — cut TTS immediately, or
+2. a **new input that survived the full gauntlet** while output was running →
+   `phase {phase:'interrupted', trigger:'new-input'}`.
+
+Sustained voiced audio during output does NOT stop playback — it emits `duck` (after
+`duckMs`, default 400ms of VAD-voiced audio): lower the volume, don't cut. A cough fit
+survives the reply; a real sentence interrupts it ~2.5s after speech ends. Never cut on
+`speech-start` — it is the raw VAD edge and fires on any bump.
+
+**Self-echo is suppressed server-side.** The relay tracks what the TTS spoke; any final
+matching it is dropped and reported as `echo-suppressed`. Even when AEC collapses
+(music playing), the assistant cannot answer its own voice.
+
+### Assistant events
+
+| Event | Shape | Meaning |
+|-------|-------|---------|
+| `intent` | `{label:'turn-done'\|'still-speaking', text, pause_ms, superseded, punctuation?, forced?}` | the trigger decision on a pause |
+| `verdict` | `{verdict:'COMPLETE'\|'INCOMPLETE'\|'NOT_SPEECH', text, latency_ms, forced, parse_failed, superseded}` | the 12B gate — this is what sends/discards |
+| `phase` | `{phase:'cleaning'\|'thinking'\|'streaming'\|'done'\|'interrupted'\|'reopened'\|'discarded'}` | machine phase; `interrupted` carries `trigger:'new-input'` or the keyword; `discarded` follows NOT_SPEECH |
+| `reply` | `{result:{type:'cleaned'\|'stream', text}}` | the settled cleaned turn, then reply tokens |
+| `barge-in` | `{reason:'keyword'}` | cut TTS NOW (keyword only) |
+| `duck` | `{voicedMs}` | lower TTS volume (sustained speech, not an interrupt) |
+| `echo-suppressed` | `{text}` | a final was dropped as self-echo (info) |
+| `turn` / `turn-end` | snapshot | live turn state / completed turn |
+| `session-report` | report | full structured record on socket close |
+
+### Two reply shapes — pick by who owns the conversation
+
+**A. nVoice generates (stateless).** Default. Reply tokens stream via `reply`
+(`cleaned` then `stream`) from the gateway model configured on the server; override per
+session with `client.intentReplyModel = 'kimi-k3-chat'` (or page URL `?reply_model=`).
+**Each turn is standalone — the reply model gets no conversation history.** Fine for a
+standalone voice mode; wrong for a chat thread.
+
+**B. The chat app generates (with history) — the chat-integration shape.** Set
+`client.intentNoReply = true`: nVoice does turn detection, noise/echo rejection and
+cleanup, but generates nothing. The app takes each settled message into its own model
+with the full thread history:
+
+```javascript
+const client = new nVoiceClient({ serverUrl: '', basePath: '/api/stt' });
+client.intentEnabled = true;
+client.intentNoReply = true;          // app-side generation, with history
+await client.start();                 // inside a click (autoplay + mic permission)
+
+client.on('reply', d => {
+  if (d.result.type === 'cleaned') {
+    // A gauntlet survivor: noise discarded, echo suppressed, fillers stripped.
+    sendUserMessage(d.result.text);   // → your model, your history, your reply
+  }
+});
+
+// Speak the chat's reply through TtsPlayer with the interrupt semantics:
+client.on('barge-in', () => tts.stop('keyword'));
+client.on('duck', () => tts.duck());
+client.on('speech-end', () => setTimeout(() => { if (!client.speaking) tts.unduck(); }, 1000));
+// A stale reply can still be speaking when the NEXT cleaned turn arrives —
+// cut it there (synthesis outlives the server):
+client.on('verdict', d => { if (d.verdict === 'COMPLETE') tts.stop('new turn', { mute: false }); });
+```
+
+### Session options (set as properties before `start()`)
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `intentEnabled` | `false` | Opt into the reactive assistant (`?intent=1`). |
+| `intentNoReply` | `false` | App-side generation: no reply model runs on the server. |
+| `intentReplyModel` | `null` | Override the reply model (default: server `assistant.model`). |
+| `intentPauseMs` | `1200` | Pause before the gauntlet decides. |
+| `intentMaxSilenceMs` | `8000` | Silence ceiling — forces the verdict. |
+| `intentMaxTokens` | `2048` | Reply token cap. |
+| `duckMs` | `400` | Voiced milliseconds before `duck` fires. |
 
 ## Turn-taking record
 
-Turn-taking is a server-side pipeline that only shows up as a sequence of frames — too
-much happens between a final transcript and a finished reply to follow by ear. An intent
-session therefore records itself, and exposes it three ways.
+An intent session records itself: findings first, then per-turn summaries (spoken,
+cleaned and reply text), then the raw frame timeline. Bind a UI to `turn` (live) and
+`turn-end` (completed). The snapshot carries `{ index, state, outcome, rawText, intent,
+verdict, cleanedText, replyText, ttfbMs, replyDurationMs, startedAtMs, endedAtMs }`.
 
-**Two events to bind a UI to:**
-
-| Event | Detail | When |
-|-------|--------|------|
-| `turn` | turn snapshot (below) | turn state changes: `listening` → `classified` → `cleaning` → `thinking` → `streaming` → `done`·`interrupted` |
-| `turn-end` | the same snapshot, completed | a turn finished — this is the "we have an answer" hook |
-
-Reply tokens are **not** re-emitted per token; keep consuming `reply` for text and use
-`turn` for state. The snapshot carries `{ index, state, outcome, rawText, intent
-{label,pauseMs,latencyMs,forced}, cleanedText, replyText, ttfbMs, replyDurationMs,
-startedAtMs, endedAtMs }`.
-
-A turn can be **reopened**: a pause is only an opportunity to decide, so if speech
-arrives while the cleaned text is still in flight the send is abandoned and the new text
-is appended to the same turn (`state` returns to `listening`, finding
-`cleanup-discarded`). Nothing reaches the answer LLM until a cleaned turn sees no further
-speech.
-
-**When the socket closes**, a report is printed to the console and left on
-`lastReport` / `lastReportText`, and emitted as `session-report`. It is ordered for
-reading: findings first (each naming the turn it belongs to), then a per-turn summary
-with the spoken, cleaned and reply text, then the raw frame timeline.
-
-Findings cover the failures that are otherwise invisible: `no-speech`,
-`classifier-never-ran`, `no-intent`, `no-reply`, `no-cleanup-text`, `no-ttfb`,
-`unfinished-turn`, `speech-lost-at-stop`, `still-speaking-dead-end`,
-`still-speaking-then-forced`, `forced-completion`, `spurious-interrupt`,
-`interrupt-dropped`, `orphan-reply`, `empty-final`, `unknown-reply-type`,
-`slow-classifier`, `slow-cleanup`, `slow-ttfb`, `long-final-gap`, `ws-error`,
-`cleanup-discarded`, `classifier-skipped`.
+Findings name the failures that are otherwise invisible: `no-speech`,
+`classifier-never-ran`, `no-intent`, `no-reply`, `unfinished-turn`, `forced-completion`,
+`spurious-interrupt`, `interrupt-dropped`, `orphan-reply`, `empty-final`,
+`slow-classifier`, `slow-cleanup`, `slow-verdict`, `slow-ttfb`, `long-final-gap`,
+`cleanup-discarded`, `classifier-skipped`, `noise-discarded`, `verdict-parse-failed`,
+`echo-suppressed`, `playback-cut`.
 
 ```javascript
 client.intentEnabled = true;
-client.on('turn', t => renderState(t));            // live state
-client.on('turn-end', t => showAnswer(t.replyText)); // completed turn
-client.on('session-report', r => save(r));          // full record
+client.on('turn', t => renderState(t));              // live state
+client.on('turn-end', t => showAnswer(t.replyText));  // completed turn
+client.on('session-report', r => save(r));            // full record
 ```
 
 ## Speaking the reply (`TtsPlayer`)
 
-`tts-player.js` turns streamed reply text into speech via nSpeech, one sentence at a
+`sdk/tts-player.js` turns streamed reply text into speech via nSpeech, one sentence at a
 time, synthesizing the next while the current one plays.
 
 **Playback is the barge-in window.** Synthesis queues behind generation, so the
-assistant keeps talking after the server has gone back to listening — the server cannot
-know when audio is still coming out of the speaker. Cutting playback is the app's job,
-and this is that job.
+assistant keeps talking after the server has gone back to listening — only the client
+knows when audio is still coming out of the speaker. Cutting playback is the app's job.
 
-**Open the mic with the voice on and the assistant hears itself.** Two things make that
-survivable, and both matter:
+**Stop vs duck (v2 semantics):**
 
-- The mic runs with `echoCancellation` — the SDK forces it whenever `intentEnabled` is
-  set, the same rule assistant mode follows.
-- Playback does **not** go straight to an `<audio>` element. It runs through a local
-  WebRTC loopback, because Chromium's AEC takes its reference from WebRTC playout and
-  audio that never passes through it is not cancelled. The path is created once and kept
-  open: AEC is adaptive and needs seconds to converge, so a fresh sink per sentence never
-  gives it a stable reference to learn. The first moments of the first sentence are still
-  the weakest point, by design.
+- `stop()` — only for a **keyword** (`barge-in`) or a **new gauntlet-surviving turn**
+  (a fresh `cleaned` reply arriving while old audio still plays). Cuts playback AND
+  drops unspoken sentences; the `mute` option controls whether the new reply may speak.
+- `duck()` / `unduck()` — sustained speech during output. One gain value, reversible;
+  the reply keeps playing at reduced volume. Pumping on noisy rooms is mitigated by the
+  400ms voiced threshold before `duck` fires.
 
-Call `tts.prime()` from inside the Start click. Autoplay policy suspends an AudioContext
-created outside a user gesture, and the reply that needs to play arrives seconds later.
+**Echo survives two ways.** The mic runs with `echoCancellation` (forced for intent
+sessions), and playback runs through a local **WebRTC loopback** — Chromium's AEC only
+cancels WebRTC playout, and the path must stay alive for seconds to converge. When AEC
+nonetheless collapses, the server-side echo guard drops the transcribed self-echo.
 
-```javascript
-const tts = new TtsPlayer({ voice: 'af_heart' });      // nSpeech on 127.0.0.1:2233
-client.on('reply', d => { if (d.result.type === 'stream') tts.push(d.result.text); });
-client.on('phase', d => { if (d.phase === 'done') tts.flush(); });
-client.on('speech-start', () => tts.stop('user spoke'));   // ← the barge-in
-```
+Call `tts.prime()` from inside the Start click — autoplay policy suspends an
+AudioContext created outside a user gesture.
 
 | | |
 |---|---|
 | `push(text)` | Feed reply tokens; speaks each complete sentence as it lands |
 | `flush()` | End of reply — speak what is left |
-| `stop(reason?)` | Cut playback now, drop everything unspoken. Returns `{wasPlaying, dropped}` |
-| `prime()` | Build the output path — call inside a user gesture (Start click) |
-| `bargeInMs` | Speech must be held this long before a sustained-speech barge-in fires (default 1000; a live room's noise held the VAD for 430-550ms) |
-| `clean` | Text cleaning, done by nSpeech (`extra_body.clean`): `true` (default) = regex strip, `'llm'` = gateway rewrite, `false` = off |
+| `stop(reason?, {mute}?)` | Cut playback now, drop everything unspoken |
+| `duck(level?)` / `unduck()` | Volume duck to `level` (default 0.5) / restore |
+| `prime()` | Build the output path — call inside a user gesture |
+| `clean` | Text cleaning by nSpeech (`extra_body.clean`): `true` (default) / `'llm'` / `false` |
 | `playing` / `pending` | Speaking now / sentences queued |
 | `stats` | `{ sentences, spokenChars, synthMs, spokenMs, interrupted }` |
-| `onEvent` | `start` · `end` · `interrupted` · `error` |
+| `onEvent` | `start` · `end` · `interrupted` · `ducked` · `error` |
 
-Markdown is stripped before synthesis so punctuation is not read aloud. That happens
-in two places on purpose: the player strips each sentence locally because *splitting*
-needs the markdown gone (an ordered-list marker like `1.` is otherwise
-indistinguishable from a sentence end), and nSpeech cleans what arrives via
-`extra_body.clean`, where it is authoritative — it also handles emphasis, tables and
-HTML the local strip does not. `clean: 'llm'` gets a gateway rewrite for hard cases,
-but that adds gateway latency and is the wrong trade for realtime speech. Measured
-against local Kokoro: first audio ~650ms after the text arrives, one sentence of
-look-ahead kept synthesized. Feed cut playback into the session record with
-`client.note()` so it shows up in the report alongside the turn it interrupted.
-
-Set `voice`, `model`, `speed` and `baseUrl` at construction; `enabled: false` makes the
-player inert (useful when nSpeech is unavailable).
+Markdown is stripped before synthesis (sentence splitting needs it gone); nSpeech
+cleans what arrives via `extra_body.clean`, where it is authoritative. Measured against
+local Kokoro: first audio ~650ms after text arrives, one sentence of look-ahead kept
+synthesized. Feed app-side playback decisions into the record with `client.note()`.
 
 ## Notes
 
-- No auto-sleep (removed 2026-08-07): once awake the stream stays open; the backend VAD idles inference during silence.
-- Transport is WebSocket only (WebRTC removed 2026-08-07).
-- Mic requires a secure context (HTTPS or localhost).
-- Pending for chat integration (issue #1): `enableAssistantMode` (R3), `pauseCapture`/`resumeCapture` (R5), WS auto-reconnect (R6), per-session wakeword detector state (R7).
+- No auto-sleep: once awake the stream stays open; the backend VAD idles inference during silence.
+- Transport is WebSocket only. Mic requires a secure context (HTTPS or localhost).
+- One client per session: call `disconnect()` before creating another (an SPA page
+  never unloads, and stacked clients exhaust the renderer's audio contexts).
+- The server reply model is stateless (no conversation history) — for history, use
+  `intentNoReply` and generate in the app.
+- Pending for chat integration (issue #1): WS auto-reconnect (R6), per-session
+  wakeword detector state (R7). R3 assistant mode retired.
 
 ## Test bench
 
-`web/pages/sdk-test.html` — manual R1–R7 bench. Serve from the nVoice origin or through `tests/e2e/chat-relay.mjs` (chat-origin relay simulator). `tests/e2e/sdk_test_runner.js` — Node-level suite.
+`web/pages/sdk-test.html` — manual bench. Serve from the nVoice origin or through
+`tests/e2e/chat-relay.mjs` (chat-origin relay simulator). `tests/e2e/sdk_test_runner.js`
+— Node-level suite.

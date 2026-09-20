@@ -738,6 +738,11 @@ function init(element, params, nui) {
         client.intentMaxSilenceMs = selectedMaxSilenceMs;
         client.intentNoReply = !generateReply;
         client.intentMaxTokens = 2048;
+        // Reply-model override for long-generation experiments (?reply_model=
+        // on the PAGE url). The verdict/cleanup gauntlet always stays on the
+        // fast local model — only the answer generation switches.
+        const replyModelOverride = new URLSearchParams(location.search).get('reply_model');
+        client.intentReplyModel = replyModelOverride || undefined;
         // Client-side voice gate — the reason the Realtime page does not transcribe
         // every bump. Setting the flag is not enough: enableWakeWord() is what loads
         // the Silero model, and without it the detector never runs and the client sits

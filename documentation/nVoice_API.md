@@ -172,7 +172,11 @@ Live STT over WebSocket. Node relays the connection to the resolved Python worke
 - Close codes: `4000` engine has no realtime capability; `4503` engine still warming.
 
 **Reactive assistant (opt-in `?intent=1`):** append `?intent=1` to the WS URL to enable
-turn-taking. Optional query params: `pause_ms=<ms>` (override pause threshold), `noreply=1` (dictation/turn-taking test without reply generation). The server then also emits:
+turn-taking. Optional query params: `pause_ms=<ms>` (override pause threshold),
+`max_silence_ms=<ms>`, `noreply=1` (turn-taking without reply generation — the
+integrating app generates with its own conversation history),
+`reply_model=<gateway-model-id>` (override ONLY the reply model; the verdict/cleanup
+gauntlet always stays on the fast local model). The server then also emits:
 - `{ "type":"intent", "label", "text", "pause_ms", "latency_ms", "superseded", "ts" }` — `still-speaking` |
   `turn-done` after a pause (classified by `badkid-classifier`). `superseded: true` means
   speech arrived while the classifier was running: the verdict describes a stale snapshot

@@ -79,6 +79,10 @@ export class AssistantSession {
     this.gatewayUrl = opts.gatewayUrl;
     this.gatewayKey = opts.gatewayKey;
     this.model = opts.model;
+    // Reply model may differ from the cleanup/verdict model — e.g. a long-
+    // generation cloud model for replies while the turn gauntlet keeps the
+    // fast local model. Defaults to `model` (one model for everything).
+    this.replyModel = opts.replyModel || opts.model;
     this.contextSentences = opts.contextSentences ?? 3;
     this.customActions = opts.customActions ?? [];
     this.replyMaxTokens = opts.replyMaxTokens ?? 2048;
@@ -278,7 +282,7 @@ export class AssistantSession {
     messages.push({ role: 'user', content: trimmed });
 
     const body = JSON.stringify({
-      model: this.model,
+      model: this.replyModel,
       messages,
       max_tokens: this.replyMaxTokens || 2048,
       temperature: 0.6,

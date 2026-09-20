@@ -15,7 +15,7 @@ import { logger } from '../logger.js';
 import { EngineError } from '../engine/manager.js';
 import { lookupCloudAdapter, loadCloudAdapter } from '../cloud/registry.js';
 import { config } from '../config.js';
-import { createAssistantSession, AssistantSession } from '../assistant/index.js';
+import { AssistantSession } from '../assistant/index.js';
 import { createIntentClassifier } from '../assistant/intent.js';
 import { TurnMachine } from '../assistant/turn-machine.js';
 import { makeSpokenTail, appendSpokenText, isEchoOfSpoken } from '../assistant/echo-guard.js';
@@ -133,17 +133,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
     const qs = url.searchParams.toString();
     logger.info('Realtime WS connected', { model, qs }, 'Realtime', { console: true });
 
-    // Assistant segmented-cleanup state. Declared here (above the message
-    // handler below) so the assistant_reset control path can always reference
-    // them — a reset arriving during worker warmup must not hit a TDZ error.
-    let committedText = '';       // locked cleaned transcript (grows monotonically)
-    let pendingRaw = '';          // raw tail awaiting settlement (bounded)
-    let pendingParagraph = false; // long pause detected before the pending block
-    let lastFinalAt = null;       // Date.now() of the previous final transcript
     let lastSpeechSec = 0;        // last telemetry speech_sec (speech-evidence tracker)
-    let pauseTimer = null;
-    const paragraphPauseMs = config.raw?.realtime?.paragraph_pause_ms ?? config.assistant.paragraph_pause_ms;
-    let paragraphTimer = null;
 
     // Pipe browser → worker (binary PCM). Registered BEFORE the worker spawn so
     // audio arriving while the worker loads (~15s on first connect) is buffered
@@ -153,23 +143,6 @@ export function attachRealtimeWebSocket(app, engineManager) {
     const pendingFrames = [];
     let workerWs = null;
     browserWs.on('message', (data, isBinary) => {
-      // Control channel: the client signals a fresh dictation cycle ("kimi
-      // listen"). Reset the segmented-cleanup state so a new session starts
-      // clean instead of appending to the previous committed transcript.
-      if (!isBinary) {
-        let ctrl = null;
-        try { ctrl = JSON.parse(data.toString()); } catch { ctrl = null; }
-        if (ctrl && ctrl.type === 'assistant_reset') {
-          committedText = '';
-          pendingRaw = '';
-          pendingParagraph = false;
-          lastFinalAt = null;
-          if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
-          if (paragraphTimer) { clearTimeout(paragraphTimer); paragraphTimer = null; }
-          logger.info('Assistant session reset (kimi listen)', {}, 'Assistant', { console: true });
-          return;
-        }
-      }
       if (workerWs && workerWs.readyState === WebSocket.OPEN) {
         workerWs.send(data, { binary: isBinary });
       } else if (isBinary) {
@@ -190,32 +163,19 @@ export function attachRealtimeWebSocket(app, engineManager) {
       return;
     }
 
-    // Assistant session — null if disabled in config or not requested by client.
-    // Accumulates raw final transcripts. A cleanup pass fires when the gap
-    // since the last final transcript exceeds pause_trigger_ms (a "longer
-    // pause" than a normal utterance boundary) — not on a fixed wall-clock
-    // interval, and not on a spoken command word (unreliable, see handover).
-    const assistantParam = url.searchParams.get('assistant');
-    logger.info('Assistant check', { assistantParam, configEnabled: config.assistant?.enabled, qs }, 'Assistant', { console: true });
-    const assistant = createAssistantSession(config.assistant, url.searchParams);
-
-    // Segmented cleanup: parakeet attempts punctuation but often fails, so the
-    // LLM's job is to SETTLE sentence boundaries. Only the UNCOMMITTED tail
-    // (pendingRaw) is ever sent to the LLM. When the returned block ends in
-    // terminal punctuation it is locked into committedText and the tail resets —
-    // locked sentences are never reprocessed, so LLM input stays bounded and
-    // latency stays flat no matter how long the session runs.
-    const assistantPage = !!assistantParam;
-
     // Turn-taking machine — opt-in via ?intent=1. Full reactive-assistant loop:
-    // listening → cleaning → thinking → streaming, with barge-in interrupting
-    // processing. Driven by the resident classifier model. Independent of the
-    // cleanup assistant (it runs its own cleanup through the same gateway).
+    // listening → gauntlet → thinking → streaming. The old `?assistant=1`
+    // segmented-cleanup mode was RETIRED 2026-09-20 — the reactive assistant
+    // (Intent Lab) replaces it.
     const intentClassifier = createIntentClassifier(config.assistant, url.searchParams);
     const intentPauseMs = Number(url.searchParams.get('pause_ms')) || (config.assistant?.intent_pause_ms ?? 1200);
     const intentMaxSilenceMs = Number(url.searchParams.get('max_silence_ms')) || (config.assistant?.max_silence_ms ?? 8000);
     const intentNoReply = url.searchParams.get('noreply') === '1';
     const replyMaxTokens = Number(url.searchParams.get('max_tokens')) || config.assistant?.reply_max_tokens || 2048;
+    // Reply model override — the verdict/cleanup gauntlet ALWAYS stays on
+    // config.assistant.model (fast, local). This only switches what GENERATES
+    // the answer, so a slow cloud model doesn't also slow the turn decisions.
+    const replyModel = url.searchParams.get('reply_model') || config.assistant?.reply_model || config.assistant.model;
 
     // Spoken-reply tail — the echo guard's reference. Survives reply end: the
     // mic keeps hearing the last seconds of TTS after the phase flips to done.
@@ -235,6 +195,7 @@ export function attachRealtimeWebSocket(app, engineManager) {
       gatewayUrl: config.assistant.gateway_url,
       gatewayKey: config.assistant.gateway_key,
       model: config.assistant.model,
+      replyModel,
       replyMaxTokens,
     }) : null;
 
@@ -247,59 +208,14 @@ export function attachRealtimeWebSocket(app, engineManager) {
       maxSilenceMs: intentMaxSilenceMs,
     }) : null;
 
-    async function runPauseCleanup() {
-      pauseTimer = null;
-      const snapshot = pendingRaw.trim();
-      if (!snapshot || browserWs.readyState !== WebSocket.OPEN) return;
-      const startedAt = Date.now();
-      try {
-        // Feed the measured-pause marker to the LLM explicitly (prepended AFTER
-        // trim so a leading paragraph break survives). The LLM is instructed to
-        // preserve blank lines and refine them by topic.
-        const input = pendingParagraph ? ('\n\n' + snapshot) : snapshot;
-        const cleaned = ((await assistant.cleanTranscript(input)) || '').trim();
-        const hadParagraph = pendingParagraph;
-        pendingParagraph = false;
-        const elapsedMs = Date.now() - startedAt;
-        // Sentence settled only if the block ends in terminal punctuation.
-        const terminated = /[.!?…]["')\]]*$/.test(cleaned);
-        let provisional = '';
-        if (terminated) {
-          // Blocks are separated by a newline; a paragraph pause guarantees at
-          // least one blank line in the committed output even if the LLM trimmed
-          // the leading marker. Internal blank lines (mid-block pauses) survive
-          // because they're inside `cleaned`.
-          let block = cleaned.trimStart();
-          if (hadParagraph && !block.startsWith('\n')) block = '\n' + block;
-          committedText = (committedText ? committedText.replace(/\s+$/, '') + '\n' : '') + block;
-          pendingRaw = '';
-        } else {
-          // Sentence still incomplete — hold the raw, show the working version.
-          provisional = cleaned;
-        }
-        if (browserWs.readyState !== WebSocket.OPEN) return;
-        const msg = JSON.stringify({ type: 'assistant', result: { type: 'cleanup', text: committedText, provisional, elapsed_ms: elapsedMs } });
-        browserWs.send(msg, { binary: false });
-        logger.info('Assistant cleanup', { committedLen: committedText.length, pendingLen: pendingRaw.length, provisionalLen: provisional.length, elapsedMs, terminated }, 'Assistant', { console: true });
-      } catch (err) {
-        logger.error('Assistant cleanup error', err, 'Assistant');
-      }
-    }
-
-    if (assistant) {
-      logger.info('Assistant enabled', { model: config.assistant.model, pauseTriggerMs: config.assistant.pause_trigger_ms }, 'Assistant', { console: true });
-    }
-
     // Pipe worker → browser (JSON events). Forward everything immediately.
-    // When assistant is enabled, each final transcript resets the pause timer;
-    // cleanup only runs once speech has actually stopped for a while.
     workerWs.on('message', (data, isBinary) => {
       if (browserWs.readyState !== WebSocket.OPEN) return;
 
       // Forward immediately — instant rendering of raw text.
       browserWs.send(data, { binary: isBinary });
 
-      if (!assistantPage && !assistant && !intentClassifier) return;
+      if (!intentClassifier) return;
       let event;
       try {
         event = JSON.parse(data.toString());
@@ -345,32 +261,6 @@ export function attachRealtimeWebSocket(app, engineManager) {
       }
 
       if (event.type !== 'transcript' || !event.is_final || !event.text) return;
-
-      const now = Date.now();
-
-      // Long pause → paragraph break. Re-arm on every settled utterance; if no
-      // new final arrives within paragraph_pause_ms, emit the break immediately
-      // so the raw panel shows the blank line before the next utterance starts.
-      if (assistantPage) {
-        if (paragraphTimer) clearTimeout(paragraphTimer);
-        paragraphTimer = setTimeout(() => {
-          paragraphTimer = null;
-          if (browserWs.readyState !== WebSocket.OPEN) return;
-          browserWs.send(JSON.stringify({ type: 'assistant', result: { type: 'paragraph' } }), { binary: false });
-        }, paragraphPauseMs);
-      }
-
-      // LLM-cleanup path — only when the assistant session exists.
-      if (assistant) {
-        // Measured pause since the previous final — real, free paragraph signal.
-        // Mark the next committed block as starting a new paragraph.
-        if (lastFinalAt !== null && (now - lastFinalAt) >= paragraphPauseMs) pendingParagraph = true;
-        pendingRaw += (pendingRaw ? ' ' : '') + event.text.trim();
-        lastFinalAt = now;
-
-        if (pauseTimer) clearTimeout(pauseTimer);
-        pauseTimer = setTimeout(runPauseCleanup, config.assistant.pause_trigger_ms);
-      }
     });
 
 

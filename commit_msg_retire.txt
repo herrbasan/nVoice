@@ -1,0 +1,24 @@
+retire old assistant mode; SDK docs for reactive-assistant chat integration
+
+The kimi listen/hold/send assistant mode (R3) is retired: web/pages/assistant.html
+deleted, the ?assistant=1 segmented-cleanup relay path removed, SDK
+enableAssistantMode() now throws with a pointer to the reactive assistant.
+enableKimiWakeWord() stays as a plain dictation wake gate.
+
+sdk/README.md rewritten (also normalized CRLF->LF) as the integration doc for
+the chat app:
+- Reactive assistant section: the gauntlet (word list -> 0.6B trigger -> 12B
+  verdict+cleanup, punctuation shortcut, trailing re-check), interruption
+  authority (keyword or gauntlet-surviving input; sustained speech DUCKS),
+  server-side echo suppression, full event reference (verdict, phase incl
+  discarded/new-input, duck, echo-suppressed).
+- Two reply shapes: A) nVoice generates (stateless, intentReplyModel /
+  ?reply_model= override, verdict gauntlet always local) — B) chat app
+  generates with history (intentNoReply=1; reply{cleaned} delivers the
+  gauntlet-surviving message; app owns model, history, TTS + interrupt
+  wiring). B is the chat-integration shape.
+- TtsPlayer v2 semantics: stop for keyword/new-turn only, duck/unduck for
+  sustained speech, stale-TTS cut on fresh cleaned turn.
+
+Also: API doc reply_model param; nav entry removed; wakeword upgrade handler
+restored after an edit mangled it (caught by node --check).

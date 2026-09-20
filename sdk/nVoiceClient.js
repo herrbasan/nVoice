@@ -1508,53 +1508,18 @@ class nVoiceClient {
         return false;
     }
 
-    // ── R3: Assistant mode (chat-app hands-free wrapper) ──────────────
-    // Flow: "ok kimi" → immediately capturing → end command → internal
-    // cleanup → ONE assistantMessage {raw, text}. Cancel vocabulary →
-    // assistantCancel. Thin layer over the kimi machine: listening = kimi
-    // 'sleep', capturing = kimi 'transcribing' (entered directly on wake),
-    // processing = cleanup in flight. Mic stays open throughout (keep-awake
-    // policy) — the wakeword WS keeps feeding the detector.
-
-    async enableAssistantMode({ endCommands = null, stopCommands = null, cancelCommands = null, cleanup = 'clean', autoListen = false } = {}) {
-        this.assistantMode = true;
-        this._assistantCleanupMode = cleanup;   // 'clean'|'format'|'compact'|false
-        this._assistantAutoListen = autoListen;
-        // End-vocabulary split: send-words deliver, stop-words HOLD (nothing
-        // sent — "ok kimi stop" is the "wait, don't send yet" escape).
-        this._assistantSendPhrases = endCommands ?? ['send', 'sende', 'send it', 'abschicken'];
-        this._assistantStopPhrases = stopCommands ?? ['stop', 'stopp', 'stoppen', 'halt'];
-        this._assistantCancelPhrases = cancelCommands ?? ['cancel', 'abort', 'never mind', 'forget it', 'abbrechen', 'vergiss es'];
-        this._assistantHeldText = null;   // set when a capture was stopped (held, unsent)
-        // R4: assistant mode plays TTS with the mic open — AEC is not optional.
-        this.audioProcessing = true;
-        await this.enableKimiWakeWord();
-        this.emit('assistantState', { state: this._assistantHeldText ? 'held' : 'listening' });
+    // ── RETIRED 2026-09-20: Assistant mode (kimi listen/hold/send wrapper) ──
+    // The reactive assistant (intentEnabled / ?intent=1) replaced it: turn
+    // detection by the server-side gauntlet, replies via the reply events,
+    // cleanup on the verdict call. enableKimiWakeWord() remains available as a
+    // plain wake gate for dictation. Kept as a loud error rather than deleted
+    // so old integrations fail with instructions instead of TypeError.
+    async enableAssistantMode() {
+        throw new Error('enableAssistantMode is retired — use the reactive assistant: client.intentEnabled = true (see sdk/README.md "Reactive assistant"). Wake-gated dictation: enableKimiWakeWord().');
     }
 
-    /**
-     * R3: leave assistant mode. Discards held text, closes the wake-word
-     * session, restores plain-dictation behavior (finals emit + accumulate
-     * again). The mic/realtime connection is untouched — stop() and
-     * disconnect() remain the controls for that layer.
-     */
-    disableAssistantMode() {
-        if (!this.assistantMode) return;
-        this.assistantMode = false;
-        this._assistantHeldText = null;
-        this._assistantCaptureAt = null;
-        this._clearKimiCommandTimeout();
-        this._kimiState = 'sleep';
-        this._kimiDictationText = '';
-        if (this._kimiWs) {
-            try { this._kimiWs.close(); } catch {}
-            this._kimiWs = null;
-        }
-        this.kimiWakeEnabled = false;
-        this.emit('assistantState', { state: 'disabled' });
-        this.emit('kimiState', { state: 'sleep' });
-        console.log('[Assistant] mode disabled');
-    }
+    /** No-op retained for old integrations (mode can no longer be enabled). */
+    disableAssistantMode() {}
 
     _assistantMatchPhrase(text, phrases) {
         const norm = _kimiNormalize(text);
@@ -1940,6 +1905,9 @@ class nVoiceClient {
             }
             if (this.intentEnabled) {
                 wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'intent=1';
+                if (this.intentReplyModel) {
+                    wsUrl += `&reply_model=${encodeURIComponent(this.intentReplyModel)}`;
+                }
                 if (this.intentPauseMs) {
                     wsUrl += `&pause_ms=${encodeURIComponent(this.intentPauseMs)}`;
                 }

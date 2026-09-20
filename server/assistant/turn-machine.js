@@ -134,13 +134,18 @@ export class TurnMachine {
    * @param {number} [opts.pauseMs]
    * @param {number} [opts.maxSilenceMs]
    */
-  constructor({ classify, verdict, reply, emit, pauseMs = 1200, maxSilenceMs = 8000 }) {
+  constructor({ classify, verdict, reply, emit, pauseMs = 1200, maxSilenceMs = 8000, trailingRecheckMs = 2500 }) {
     this.classify = classify;
     this.verdict = verdict || null;
     this.reply = reply || null;
     this.emit = emit;
     this.pauseMs = pauseMs;
     this.maxSilenceMs = maxSilenceMs;
+    // After a trailing-word still-speaking, re-run the VERDICT after this much
+    // silence — the word list is a latency saver, not a veto over the 12B. A
+    // sentence ending on a pronoun ("…who trained you?") is complete; the old
+    // behavior waited the full 8s ceiling for it.
+    this.trailingRecheckMs = trailingRecheckMs;
 
     this.state = 'listening';   // listening | cleaning | thinking | streaming
     this.turnText = '';         // ONE accumulator: finals since the last send
@@ -243,7 +248,26 @@ export class TurnMachine {
     // NOT_SPEECH on the forced path DISCARDS instead of sending (the 8s
     // timeout must never answer a cough).
     if (elapsed >= this.maxSilenceMs) {
-      this._forceVerdict(snapshot, elapsed);
+      this._forceVerdict(snapshot, elapsed, 'silence-timeout');
+      return;
+    }
+
+    // Terminal punctuation is evidence of a finished sentence — parakeet
+    // produces it more often than not. It outranks the trailing-word list
+    // ("…trained you?" ends on a pronoun but is a complete question), so it
+    // goes straight to the 12B verdict. No 0.6B trigger either: the verdict
+    // is the gate, and this pause already read as finished.
+    if (/[.?!…]["')\]]*$/.test(snapshot)) {
+      this.emit({
+        type: 'intent',
+        label: 'turn-done',
+        text: snapshot,
+        punctuation: true,
+        pause_ms: elapsed,
+        latency_ms: 0,
+        ts: Date.now(),
+      });
+      await this._runVerdict(snapshot, { pauseMs: elapsed, forced: false });
       return;
     }
 
@@ -278,18 +302,26 @@ export class TurnMachine {
       return;
     }
 
-    // Still speaking (or superseded) — arm a single deadline; no re-trigger loop.
+    // Still speaking (or superseded). If the still-speaking came from the
+    // trailing-word list, the word may simply have ENDED a complete sentence
+    // (pronoun-final questions). Re-run the VERDICT after a short grace —
+    // INCOMPLETE re-arms the full ceiling, so this only ever shortens the
+    // wait, never the safety.
+    if (trailing && !superseded) {
+      this._armDeadline(Math.min(this.trailingRecheckMs, this.maxSilenceMs));
+      return;
+    }
     this._armDeadline();
   }
 
-  _forceVerdict(text, elapsed) {
-    logger.info('Turn verdict forced by silence timeout ceiling', { elapsed, maxSilenceMs: this.maxSilenceMs }, 'TurnMachine', { console: true });
+  _forceVerdict(text, elapsed, reason = 'silence-timeout') {
+    logger.info('Turn verdict forced', { elapsed, maxSilenceMs: this.maxSilenceMs, reason }, 'TurnMachine', { console: true });
     this.emit({
       type: 'intent',
       label: 'turn-done',
       text,
       forced: true,
-      reason: 'silence-timeout',
+      reason,
       pause_ms: elapsed,
       latency_ms: 0,
       ts: Date.now(),
@@ -297,9 +329,10 @@ export class TurnMachine {
     this._runVerdict(text, { pauseMs: elapsed, forced: true });
   }
 
-  _armDeadline() {
+  _armDeadline(overrideMs) {
     if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
-    const remaining = this.maxSilenceMs - (Date.now() - (this.lastSpeechTs || Date.now()));
+    const ceiling = overrideMs ?? this.maxSilenceMs;
+    const remaining = ceiling - (Date.now() - (this.lastSpeechTs || Date.now()));
     this.deadlineTimer = setTimeout(() => this._onDeadline(), Math.max(0, remaining));
   }
 
@@ -313,7 +346,7 @@ export class TurnMachine {
     const snapshot = this.turnText;
     if (!snapshot) return;
     const elapsed = Date.now() - (this.lastSpeechTs || Date.now());
-    this._forceVerdict(snapshot, elapsed);
+    this._forceVerdict(snapshot, elapsed, elapsed >= this.maxSilenceMs ? 'silence-timeout' : 'trailing-recheck');
   }
 
   /**
