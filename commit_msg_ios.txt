@@ -1,0 +1,24 @@
+fix iOS silent playback: TtsPlayer.resume(), iOS loopback default, visible suspension
+
+Issue #2. On iOS Safari an AudioContext created outside a user gesture (or after
+backgrounding) stays suspended: sources decode, 'start'/'end' fire, and NOTHING
+is audible with no error — the worst failure mode, since the app cannot tell it
+needs a gesture. Consumers had to poke ttsPlayer._ctx by hand.
+
+- TtsPlayer.resume(): public, contract-safe (no-op when running), returns the
+  context state. Also re-Plays a paused <audio> element (the autoplay gate can
+  stop that independently).
+- prime() now RESUMES instead of returning the cached promise — it was a no-op
+  once the context existed, which is why it could not be used to unblock.
+- New 'suspended' event: fires once per episode with the remedy in the message;
+  re-arms after the context runs again. Silent output is now observable.
+- _startSource self-heals: resumes a suspended context before playing, and warns
+  (rather than playing into the void) if it still will not run.
+- iOS defaults `loopback` to false: the WebRTC loopback exists for Chromium's
+  AEC, buys nothing on iOS, and adds another autoplay gate. iPadOS detected via
+  MacIntel + maxTouchPoints. An explicit `loopback: true` still wins.
+
+tests/test_tts_ios.mjs — 13 checks covering iOS/desktop/iPadOS defaults, explicit
+override, resume success/no-op, and the warn-once-then-re-arm behaviour.
+
+README: iOS section + updated TtsPlayer table (resume, suspended event).

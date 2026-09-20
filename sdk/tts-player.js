@@ -30,8 +30,22 @@
  *   client.on('duck', () => tts.duck());                    // sustained speech
  *   client.on('speech-end', () => setTimeout(() => tts.unduck(), 1000));
  *
+ * iOS: call `await tts.resume()` from inside the user gesture that starts the
+ * session (prime() does this), and listen for the 'suspended' event — silent
+ * output raises no error otherwise.
+ *
  * Classic script: exposes `window.TtsPlayer` in the browser, exports for Node.
  */
+/**
+ * iOS detection (incl. iPadOS, which reports itself as MacIntel).
+ * Used to pick the playback path: the WebRTC loopback exists so Chromium's AEC
+ * cancels our own speech, and on iOS it buys nothing while adding another
+ * autoplay gate to get past.
+ */
+const _UA = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+const _IS_IOS = /iPad|iPhone|iPod/.test(_UA)
+    || (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 class TtsPlayer {
     /**
      * @param {object} [opts]
@@ -52,7 +66,10 @@ class TtsPlayer {
         this.maxChars = opts.maxChars || 180;
         this.bufferAhead = opts.bufferAhead || 2;
         this.enabled = opts.enabled !== false;
-        this.loopback = opts.loopback !== false;   // route playback through WebRTC for AEC
+        // On iOS the WebRTC loopback is not needed (the AEC trick it exists for
+        // is Chromium's) and adds a further autoplay gate — default it OFF there.
+        // An explicit opt.loopback always wins.
+        this.loopback = opts.loopback === undefined ? !_IS_IOS : opts.loopback !== false;
         // Text cleaning, done by nSpeech (extra_body.clean): true = regex strip,
         // 'llm' = rewrite via the local gateway (better with emphasis/tables, but
         // adds gateway latency — the wrong trade for realtime speech), false = off.
@@ -78,18 +95,78 @@ class TtsPlayer {
         this._pc1 = null;
         this._pc2 = null;
         this._source = null;        // playing AudioBufferSourceNode
+        this._suspendedWarned = false;  // 'suspended' emitted once per episode
 
         this.stats = { sentences: 0, spokenChars: 0, synthMs: 0, spokenMs: 0, interrupted: 0 };
     }
 
     /**
-     * Build the output path now. Call inside a user gesture (a Start button
-     * click): autoplay policy suspends an AudioContext created outside one, and
-     * the reply that needs to play arrives seconds later with no gesture in sight.
+     * Build the output path now, and make it AUDIBLE. Call inside a user gesture
+     * (a Start button click): autoplay policy suspends an AudioContext created
+     * outside one, and the reply that needs to play arrives seconds later with no
+     * gesture in sight.
+     *
+     * This resumes a suspended context too. It used to be a no-op once the
+     * context existed, which left iOS consumers reaching for `_ctx.resume()`
+     * by hand — see resume().
      */
     prime() {
         if (!this.enabled) return;
-        this._ensureAudio().catch(err => this.onEvent({ type: 'error', error: `audio init: ${err.message}` }));
+        this.resume().catch(err => this.onEvent({ type: 'error', error: `audio init: ${err.message}` }));
+    }
+
+    /**
+     * Make the output path audible. Safe to call any time; a no-op when it is
+     * already running. Returns the AudioContext state ('running' | 'suspended' |
+     * 'closed' | 'disabled').
+     *
+     * iOS Safari keeps an AudioContext suspended when it was created outside a
+     * user gesture, or after the tab is backgrounded. Everything else still
+     * "works" — sources decode, playback events fire — while NOTHING is audible
+     * and no error is raised. Only a resume() from inside a user gesture fixes
+     * it, so expose it as public API rather than making callers poke `_ctx`.
+     */
+    async resume() {
+        if (!this.enabled) return 'disabled';
+        await this._ensureAudio();
+        const ctx = this._ctx;
+        if (ctx && ctx.state === 'suspended') {
+            try {
+                await ctx.resume();
+            } catch (err) {
+                this.onEvent({ type: 'error', error: `audio resume failed: ${err.message}` });
+            }
+        }
+        // The <audio> element can also be paused by the autoplay gate even when
+        // the context is fine.
+        const out = this._out;
+        if (out && out.paused && out.srcObject) {
+            try {
+                await out.play();
+            } catch (err) {
+                this.onEvent({ type: 'error', error: `playback resume failed: ${err.message}` });
+            }
+        }
+        const state = ctx ? ctx.state : 'none';
+        if (state === 'running') this._suspendedWarned = false;
+        else this._warnSuspended();
+        return state;
+    }
+
+    /**
+     * Report a suspended output path ONCE per episode. Silent audio with a clean
+     * 'start'/'end' log is the worst possible failure mode — the app has no way
+     * to know it needs a user gesture. This makes it visible.
+     */
+    _warnSuspended() {
+        if (this._suspendedWarned) return;
+        this._suspendedWarned = true;
+        const state = this._ctx ? this._ctx.state : 'none';
+        this.onEvent({
+            type: 'suspended',
+            state,
+            message: 'output is not audible (AudioContext ' + state + ') — call tts.resume() from inside a user gesture',
+        });
     }
 
     /**
@@ -189,6 +266,7 @@ class TtsPlayer {
             playing: !!this._source,
             muted: this._muted,
             duckLevel: this._duckLevel,
+            loopbackReason: this.loopback ? 'webrtc (chromium AEC)' : (_IS_IOS ? 'off (iOS default)' : 'off (requested)'),
             queued: this._queue.length,
             ready: this._ready.length,
             synthing: this._synthing,
@@ -355,6 +433,12 @@ class TtsPlayer {
         // Every await in here needs the same check, not just the queue.
         if (this._muted || generation !== this._generation) return;
         if (!this._ctx) throw new Error('audio context gone');
+        // Self-heal a suspended context (iOS backgrounding, a missed gesture) —
+        // and if it still will not run, say so instead of playing into the void.
+        if (this._ctx.state === 'suspended') {
+            try { await this._ctx.resume(); } catch { /* gesture policy */ }
+            if (this._ctx.state !== 'running') this._warnSuspended();
+        }
         const src = this._ctx.createBufferSource();
         src.buffer = buffer;
         src.connect(this._gain);   // through the duck/unduck gain node

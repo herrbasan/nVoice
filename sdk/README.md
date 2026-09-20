@@ -214,6 +214,15 @@ sessions), and playback runs through a local **WebRTC loopback** — Chromium's 
 cancels WebRTC playout, and the path must stay alive for seconds to converge. When AEC
 nonetheless collapses, the server-side echo guard drops the transcribed self-echo.
 
+**iOS: the loopback defaults OFF and you must resume in a gesture.** The WebRTC loopback
+exists for Chromium's AEC and buys nothing on iOS while adding another autoplay gate, so
+`loopback` defaults to `false` there (an explicit `loopback: true` still wins). iOS
+Safari also keeps an `AudioContext` suspended when it was created outside a user gesture
+or after the tab was backgrounded — sources then decode and playback events fire while
+**nothing is audible and no error is raised**. Call `prime()` (or `resume()`) inside the
+Start click, and listen for the `suspended` event: it fires once per episode and names
+the remedy, so silent output is never invisible.
+
 Call `tts.prime()` from inside the Start click — autoplay policy suspends an
 AudioContext created outside a user gesture.
 
@@ -223,11 +232,12 @@ AudioContext created outside a user gesture.
 | `flush()` | End of reply — speak what is left |
 | `stop(reason?, {mute}?)` | Cut playback now, drop everything unspoken |
 | `duck(level?)` / `unduck()` | Volume duck to `level` (default 0.5) / restore |
-| `prime()` | Build the output path — call inside a user gesture |
+| `prime()` | Build the output path **and resume it** — call inside a user gesture |
+| `resume()` | Make output audible from a gesture; returns the context state, no-op when running |
 | `clean` | Text cleaning by nSpeech (`extra_body.clean`): `true` (default) / `'llm'` / `false` |
 | `playing` / `pending` | Speaking now / sentences queued |
 | `stats` | `{ sentences, spokenChars, synthMs, spokenMs, interrupted }` |
-| `onEvent` | `start` · `end` · `interrupted` · `ducked` · `error` |
+| `onEvent` | `start` · `end` · `interrupted` · `ducked` · `suspended` · `error` |
 
 Markdown is stripped before synthesis (sentence splitting needs it gone); nSpeech
 cleans what arrives via `extra_body.clean`, where it is authoritative. Measured against
